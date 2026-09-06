@@ -27,8 +27,8 @@ export const LAYOUT = {
     { z: 80, half: 8, xMin: -95, xMax: 95 },
     { z: 256, half: 8, xMin: -95, xMax: 95 },
   ],
-  plaza: { zMin: 398, zMax: 456, xMin: -42, xMax: 42 },
-  seaWallZ: 456,
+  plaza: { zMin: 400, zMax: 452, xMin: -26, xMax: 26 },
+  seaWallZ: 452,
 } as const;
 
 interface Box2 { minX: number; maxX: number; minZ: number; maxZ: number; }
@@ -307,53 +307,93 @@ export class City implements GroundProvider {
   private buildPlaza(): void {
     const p = LAYOUT.plaza;
     const walk = makeSidewalkTexture();
-    walk.repeat.set((p.xMax - p.xMin) / 3, (p.zMax - p.zMin) / 3);
+    walk.repeat.set((p.xMax - p.xMin) / 2.5, (p.zMax - p.zMin) / 2.5);
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(p.xMax - p.xMin, p.zMax - p.zMin),
-      new THREE.MeshStandardMaterial({ map: walk, roughness: 0.95 }),
+      new THREE.MeshStandardMaterial({ map: walk, roughness: 0.96, color: 0xcfc6b4 }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.set((p.xMin + p.xMax) / 2, 0.002, (p.zMin + p.zMax) / 2);
     floor.receiveShadow = true;
     this.root.add(floor);
 
-    // Sea wall along the top of the bluff.
+    // Sea wall along the top of the bluff, with the ironwork on top of it.
     const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(p.xMax - p.xMin + 30, 1.15, 1.1),
+      new THREE.BoxGeometry(p.xMax - p.xMin + 26, 1.0, 0.9),
       PROP_MATERIALS.stone,
     );
-    wall.position.set(0, 0.58, LAYOUT.seaWallZ);
+    wall.position.set(0, 0.5, LAYOUT.seaWallZ);
     wall.castShadow = true;
     wall.receiveShadow = true;
     this.root.add(wall);
+    const railGeo = new THREE.BoxGeometry(p.xMax - p.xMin + 26, 0.06, 0.06);
+    for (const y of [1.15, 1.45]) {
+      const rail = new THREE.Mesh(railGeo, PROP_MATERIALS.iron);
+      rail.position.set(0, y, LAYOUT.seaWallZ);
+      this.root.add(rail);
+    }
+    const postGeo = new THREE.BoxGeometry(0.06, 0.95, 0.06);
+    for (let x = -(p.xMax + 12); x <= p.xMax + 12; x += 2.2) {
+      const post = new THREE.Mesh(postGeo, PROP_MATERIALS.iron);
+      post.position.set(x, 1.02, LAYOUT.seaWallZ);
+      this.root.add(post);
+    }
     this.colliders.push({
-      minX: -200, maxX: 200, minZ: LAYOUT.seaWallZ - 0.7, maxZ: LAYOUT.seaWallZ + 30,
+      minX: -200, maxX: 200, minZ: LAYOUT.seaWallZ - 0.6, maxZ: LAYOUT.seaWallZ + 30,
     });
 
-    // The bluff dropping away to the water.
+    // The bluff dropping away to the water. Kept narrow so the sea reads.
     const bluff = new THREE.Mesh(
-      new THREE.BoxGeometry(420, 26, 40),
-      new THREE.MeshStandardMaterial({ color: 0x9a8a6e, roughness: 1 }),
+      new THREE.BoxGeometry(420, 26, 16),
+      new THREE.MeshStandardMaterial({ color: 0x7d6f56, roughness: 1 }),
     );
-    bluff.position.set(0, -13.2, LAYOUT.seaWallZ + 19);
+    bluff.position.set(0, -13.1, LAYOUT.seaWallZ + 7.5);
     bluff.receiveShadow = true;
     this.root.add(bluff);
 
-    for (const x of [-24, 24]) {
+    // Palms, garitas and benches along the overlook.
+    for (const x of [-20, 20]) {
       const palm = makePalm(9.5, x);
-      palm.position.set(x, 0.02, p.zMax - 7);
+      palm.position.set(x, 0.02, p.zMax - 9);
       this.root.add(palm);
       const g = makeGarita(0.9);
-      g.position.set(x * 1.5, 0.02, LAYOUT.seaWallZ - 1.6);
+      g.position.set(x * 1.55, 0.02, LAYOUT.seaWallZ - 1.5);
       this.root.add(g);
     }
+    for (const x of [-10, 0, 10]) {
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.12, 0.5), PROP_MATERIALS.stone);
+      seat.position.set(x, 0.46, LAYOUT.seaWallZ - 3.2);
+      seat.castShadow = true;
+      this.root.add(seat);
+      for (const dx of [-0.7, 0.7]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.46, 0.42), PROP_MATERIALS.stone);
+        leg.position.set(x + dx, 0.23, LAYOUT.seaWallZ - 3.2);
+        this.root.add(leg);
+      }
+    }
 
-    // The flag mural, on the wall of the last building before the plaza.
+    // Flagpole. La monoestrellada over the water.
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.09, 0.12, 11, 10), PROP_MATERIALS.chrome,
+    );
+    pole.position.set(-15, 5.5, p.zMax - 16);
+    pole.castShadow = true;
+    this.root.add(pole);
+    const flag = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.2, 2.1),
+      new THREE.MeshStandardMaterial({
+        map: makeFlagMuralTexture(), roughness: 0.9, side: THREE.DoubleSide,
+      }),
+    );
+    flag.position.set(-13.3, 9.6, p.zMax - 16);
+    this.root.add(flag);
+
+    // The flag mural on the last wall before the plaza opens up.
     const mural = new THREE.Mesh(
       new THREE.PlaneGeometry(11, 6.9),
       new THREE.MeshStandardMaterial({ map: makeFlagMuralTexture(), roughness: 0.95 }),
     );
-    mural.position.set(LAYOUT.roadHalf + LAYOUT.sidewalk - 0.06, 3.9, p.zMin - 12);
+    mural.position.set(LAYOUT.roadHalf + LAYOUT.sidewalk - 0.06, 3.9, p.zMin - 14);
     mural.rotation.y = -Math.PI / 2;
     this.root.add(mural);
 
@@ -361,29 +401,37 @@ export class City implements GroundProvider {
     const post = new THREE.Mesh(
       new THREE.CylinderGeometry(0.08, 0.08, 4.6, 8), PROP_MATERIALS.iron,
     );
-    post.position.set(-13, 2.3, p.zMin + 6);
+    post.position.set(-11, 2.3, p.zMin + 5);
     this.root.add(post);
     const rows: Array<[string, number]> = [['VIEQUES', 4.0], ['ISLA GRANDE', 3.35], ['TODA LA ISLA', 2.7]];
     for (const [text, y] of rows) {
-      const s = makeShopSign(text, '#1f6b52', '#ffffff', 3.4);
-      s.position.set(-13 + 1.75, y, p.zMin + 6);
-      s.rotation.y = Math.PI;
-      this.root.add(s);
+      const sign = makeShopSign(text, '#1f6b52', '#ffffff', 3.4);
+      sign.position.set(-11 + 1.75, y, p.zMin + 5);
+      sign.rotation.y = Math.PI;
+      this.root.add(sign);
     }
   }
 
   private buildHeadland(): void {
     const fort = makeFort();
-    fort.position.set(-210, 4, 860);
-    fort.rotation.y = 0.22;
+    fort.position.set(-165, 5, 690);
+    fort.rotation.y = 0.3;
+    fort.scale.setScalar(1.5);
     this.root.add(fort);
 
     const headland = new THREE.Mesh(
-      new THREE.BoxGeometry(420, 12, 190),
-      new THREE.MeshStandardMaterial({ color: 0x5f7a44, roughness: 1 }),
+      new THREE.BoxGeometry(400, 14, 200),
+      new THREE.MeshStandardMaterial({ color: 0x64794a, roughness: 1 }),
     );
-    headland.position.set(-210, -2, 860);
+    headland.position.set(-190, -2, 700);
     this.root.add(headland);
+    // Cliff face under the fort so the headland doesn't float on the water.
+    const cliff = new THREE.Mesh(
+      new THREE.BoxGeometry(400, 16, 26),
+      new THREE.MeshStandardMaterial({ color: 0x8a7a60, roughness: 1 }),
+    );
+    cliff.position.set(-190, -3, 600);
+    this.root.add(cliff);
 
     // A second, smaller island out on the water for depth.
     const isle = new THREE.Mesh(
