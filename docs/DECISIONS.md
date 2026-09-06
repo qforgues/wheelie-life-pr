@@ -143,16 +143,19 @@ It talks to the rest of the game through two plain structs (`RiderInput` in,
 both how the bike gets tuned and a standing proof the boundary hasn't leaked — if
 it ever fails to bundle, something rendering-related got into `sim/`.
 
-**On actually getting this onto a PS5,** honestly: a web build can't run on retail
-hardware — the PS5 browser isn't user-reachable. Shipping to the console means
-Sony developer registration, a devkit, and Unity or Unreal (both have PS5
-backends for licensed developers; Godot has no official support). What this
-architecture buys is that the port is "rewrite the render/audio/input adapters
-and translate ~600 lines of well-specified physics", with `simcheck` as the
-acceptance test — same inputs, same numbers, or the port is wrong.
+**Xbox is the only console target, and PS5 is dropped.** A web build cannot run
+on a PS5 at all: its browser is not user-reachable, so getting there would mean
+Sony developer registration, a devkit and a rewrite in Unity or Unreal. Xbox
+ships Edge as a free installable app that can open any URL, so the existing
+build runs there today. Everything the interview specified in DualSense terms
+maps one-for-one to an Xbox pad — the Standard Gamepad layout puts the triggers
+at 6/7 and the shoulders at 4/5 either way — so nothing about the control design
+changed, only the printed labels.
 
-In the meantime the big-screen test is a laptop on the TV with a DualSense over
-USB or Bluetooth. Identical control scheme, identical feel, including rumble.
+What the sim boundary still buys, if a native port is ever wanted: it is
+"rewrite the render/audio/input adapters and translate ~600 lines of
+well-specified physics", with `simcheck` as the acceptance test — same inputs,
+same numbers, or the port is wrong.
 
 ## 10. Deliberately not in the prototype
 

@@ -1,5 +1,5 @@
 import { emptyInput, type RiderInput, type TrickId } from '../sim/types';
-import { AXIS, KEY_MAP, PAD, type KeyAction, type PadFamily } from './bindings';
+import { AXIS, KEY_MAP, PAD, type KeyAction } from './bindings';
 
 export interface FrameInput {
   rider: RiderInput;
@@ -13,12 +13,12 @@ export interface FrameInput {
   toggleAudio: boolean;
   /** One-shot: cycle to the next camera mode. */
   cycleCamera: boolean;
+  /** One-shot: show or hide the diagnostics readout. */
+  toggleDiagnostics: boolean;
   /** Which device produced input most recently - drives the overlay's hints. */
   activeDevice: 'gamepad' | 'keyboard';
   padConnected: boolean;
   padName: string;
-  /** Controller family, so the overlay prints the right button names. */
-  padFamily: PadFamily;
 }
 
 const DEADZONE = 0.14;
@@ -56,22 +56,13 @@ export class InputManager {
     toggleDebug: false,
     toggleAudio: false,
     cycleCamera: false,
+    toggleDiagnostics: false,
     activeDevice: 'keyboard',
     padConnected: false,
     padName: '',
-    padFamily: isXboxDevice() ? 'xbox' : 'generic',
   };
 
   attach(target: HTMLElement): void {
-    // On the Xbox browser the controller drives the browser UI by default and
-    // the page never sees it. This non-standard switch hands raw Gamepad API
-    // input to the page instead. No-op everywhere else.
-    try {
-      const nav = navigator as Navigator & { gamepadInputEmulation?: string };
-      if ('gamepadInputEmulation' in nav) nav.gamepadInputEmulation = 'gamepad';
-    } catch {
-      /* not supported here - nothing to do */
-    }
 
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
@@ -112,6 +103,11 @@ export class InputManager {
     });
   }
 
+  /** Raw gamepad, for the diagnostics panel. */
+  rawPad(): Gamepad | null {
+    return this.pad();
+  }
+
   private pad(): Gamepad | null {
     const pads = navigator.getGamepads?.() ?? [];
     if (this.padIndex !== null && pads[this.padIndex]) return pads[this.padIndex];
@@ -131,7 +127,6 @@ export class InputManager {
     const pad = this.pad();
     f.padConnected = !!pad;
     f.padName = pad ? shortPadName(this.padName || pad.id) : '';
-    f.padFamily = pad ? padFamily(this.padName || pad.id) : (isXboxDevice() ? 'xbox' : 'generic');
 
     // ---- keyboard ----------------------------------------------------------
     let throttle = this.held('throttle') ? 1 : 0;
@@ -142,6 +137,7 @@ export class InputManager {
     let trick: TrickId = this.held('trickStand') ? 'stand'
       : this.held('trickKnee') ? 'knee' : 'none';
     let cycleCamera = this.pressed('camera');
+    let toggleDiagnostics = this.pressed('diagnostics');
     let shiftUp = this.pressed('shiftUp');
     let shiftDown = this.pressed('shiftDown');
     let reset = this.pressed('reset');
@@ -159,8 +155,8 @@ export class InputManager {
       const btn = (i: number) => pad.buttons[i]?.value ?? 0;
       const down = (i: number) => (pad.buttons[i]?.pressed ?? false);
 
-      const padThrottle = btn(PAD.R2);
-      const padBrake = btn(PAD.L2);
+      const padThrottle = btn(PAD.RT);
+      const padBrake = btn(PAD.LT);
       const padSteer = applyDeadzone(pad.axes[AXIS.LEFT_X] ?? 0);
       // Stick Y is -1 when pushed up, so pulling back is a positive weight shift.
       const padWeight = applyDeadzone(pad.axes[AXIS.LEFT_Y] ?? 0);
@@ -184,16 +180,17 @@ export class InputManager {
       camX += padCamX * 2.2;
       camY += padCamY * 2.2;
 
-      shiftUp = shiftUp || this.padEdge(PAD.R1, down(PAD.R1));
-      shiftDown = shiftDown || this.padEdge(PAD.L1, down(PAD.L1));
-      reset = reset || this.padEdge(PAD.OPTIONS, down(PAD.OPTIONS))
-        || this.padEdge(PAD.CIRCLE, down(PAD.CIRCLE));
-      cycleCamera = cycleCamera || this.padEdge(PAD.TRIANGLE, down(PAD.TRIANGLE));
+      shiftUp = shiftUp || this.padEdge(PAD.RB, down(PAD.RB));
+      shiftDown = shiftDown || this.padEdge(PAD.LB, down(PAD.LB));
+      reset = reset || this.padEdge(PAD.MENU, down(PAD.MENU))
+        || this.padEdge(PAD.B, down(PAD.B));
+      cycleCamera = cycleCamera || this.padEdge(PAD.Y, down(PAD.Y));
+      toggleDiagnostics = toggleDiagnostics || this.padEdge(PAD.DPAD_UP, down(PAD.DPAD_UP));
       // Held, not edge-triggered - standing is a pose you hold.
-      if (down(PAD.SQUARE)) trick = 'stand';
-      else if (down(PAD.CROSS)) trick = 'knee';
+      if (down(PAD.X)) trick = 'stand';
+      else if (down(PAD.A)) trick = 'knee';
       // Keep the rest of the button edges warm so nothing double-fires.
-      const edged: number[] = [PAD.R1, PAD.L1, PAD.OPTIONS, PAD.CIRCLE, PAD.TRIANGLE];
+      const edged: number[] = [PAD.RB, PAD.LB, PAD.MENU, PAD.B, PAD.Y, PAD.DPAD_UP];
       for (let i = 0; i < pad.buttons.length; i++) {
         if (!edged.includes(i)) this.prevPad.buttons[i] = down(i);
       }
@@ -214,6 +211,7 @@ export class InputManager {
     f.toggleDebug = toggleDebug;
     f.toggleAudio = toggleAudio;
     f.cycleCamera = cycleCamera;
+    f.toggleDiagnostics = toggleDiagnostics;
     f.activeDevice = this.lastDevice;
 
     this.pressedThisFrame.clear();
@@ -233,6 +231,32 @@ export class InputManager {
   private pressed(action: KeyAction): boolean {
     return KEY_MAP[action].some((k) => this.pressedThisFrame.has(k));
   }
+
+  /**
+   * Switches the Xbox browser between driving its own cursor and handing raw
+   * Gamepad API input to the page.
+   *
+   * This has to follow the menu, not be set once at startup. In `gamepad` mode
+   * the console has no pointer at all, so a click-only menu becomes
+   * unreachable - and because gamepad input is not a user-activation gesture in
+   * Chromium, the audio context can never be unlocked either. So: `mouse` while
+   * the start card is up, which lets the controller work the card and produces
+   * a real gesture when RIDE is pressed; `gamepad` once riding.
+   *
+   * No-op on every other platform.
+   */
+  setGamepadEmulation(mode: 'mouse' | 'gamepad'): void {
+    try {
+      const nav = navigator as Navigator & { gamepadInputEmulation?: string };
+      if ('gamepadInputEmulation' in nav) nav.gamepadInputEmulation = mode;
+      this.emulation = mode;
+    } catch {
+      /* not supported here - nothing to do */
+    }
+  }
+
+  /** Current emulation mode, for the diagnostics panel. */
+  emulation: string = 'n/a';
 
   /**
    * Controller haptics. This is the *only* balance feedback channel besides
@@ -285,18 +309,8 @@ export function isXboxDevice(): boolean {
   return typeof navigator !== 'undefined' && /xbox/i.test(navigator.userAgent);
 }
 
-function padFamily(id: string): PadFamily {
-  if (/dualsense|dualshock|054c|playstation/i.test(id)) return 'playstation';
-  if (/xbox|xinput|045e/i.test(id)) return 'xbox';
-  // Xbox's browser reports a bare "Standard Gamepad" for the attached pad, so
-  // fall back to the platform when the id itself is uninformative.
-  return isXboxDevice() ? 'xbox' : 'generic';
-}
-
 function shortPadName(id: string): string {
-  if (/dualsense|054c.*0ce6|wireless controller/i.test(id)) return 'DualSense';
-  if (/dualshock|054c/i.test(id)) return 'DualShock';
   if (/xbox|xinput|045e/i.test(id)) return 'Xbox controller';
   if (isXboxDevice()) return 'Xbox controller';
-  return id.split('(')[0].trim().slice(0, 24) || 'Gamepad';
+  return id.split('(')[0].trim().slice(0, 24) || 'Controller';
 }

@@ -14,21 +14,22 @@ npm run dev      # http://localhost:5173
 
 ## Controls
 
-Built for a DualSense first. Plug one in and it's picked up automatically —
-keyboard is the desktop fallback. Press **H** in game for the same table.
+Built for an Xbox controller. Plug one in and it's picked up automatically —
+keyboard is the desktop fallback. Press **View** (or **H**) in game for the same
+table.
 
-| | PS5 | Keyboard |
+| | Xbox | Keyboard |
 |---|---|---|
-| Throttle | **R2** | `W` / `↑` |
-| Brake | **L2** | `S` / `↓` |
+| Throttle | **RT** | `W` / `↑` |
+| Brake | **LT** | `S` / `↓` |
 | Steer | **Left stick ← →** | `A` `D` / `←` `→` |
 | Pull back — lift the front | **Left stick ↓** | `Space` |
 | Lean forward — bring it down | **Left stick ↑** | `Shift` |
-| Shift up | **R1** | `E` |
-| Shift down | **L1** | `Q` |
+| Shift up | **RB** | `E` |
+| Shift down | **LB** | `Q` |
 | Camera | **Right stick** | drag the mouse |
-| Reset | **Options** / **○** | `R` |
-| Controls card | **Create** | `H` |
+| Reset | **Menu** / **B** | `R` |
+| Controls card | **View** | `H` |
 | Tuning panel | — | `P` |
 | Mute | — | `M` |
 
@@ -149,27 +150,28 @@ npm run deploy    # runs check, then ships to live
 
 ### Playing it on Xbox
 
-The Xbox is a genuinely easier target than a PS5, for one reason: **Xbox has a
-real browser and the PS5 does not.** Microsoft Edge is a free, installable app
-on Xbox One and Series X|S, and it can browse to any URL. The PS5's browser is
-not user-reachable, so a web build cannot be loaded on one at all — getting
-there means Sony developer registration, a devkit and Unity or Unreal.
+Xbox is the only console target. Microsoft Edge is a free, installable app on
+Xbox One and Series X|S and can browse to any URL, so this build runs there
+as-is.
 
 To play:
 
 1. Open **Edge** on the Xbox (install it from the Store if it isn't there).
 2. Go to the live URL above.
-3. Press a button on the controller, then hold **RT**.
+3. Pick a bike on the start card, then press **RIDE**.
 
-The game sets `navigator.gamepadInputEmulation = 'gamepad'` on load, which is
-what stops the Xbox browser from consuming the controller for its own UI before
-the page ever sees it. Without that line the sticks just scroll the page.
+**The controller input mode has to follow the menu.** `navigator.gamepadInput\
+Emulation` decides whether the console's browser drives its own cursor or hands
+raw Gamepad API input to the page:
 
-Button indices are identical between an Xbox pad and a DualSense under the
-Standard Gamepad mapping, so the same code drives both and only the printed
-labels change — the controls card detects which pad you're holding and relabels
-itself. Everything the interview specified as R2/L2/R1/L1/Options is RT/LT/RB/
-LB/Menu on an Xbox.
+- **Start card up → `mouse`.** The controller works the card, and pressing RIDE
+  is a real user gesture — which is the only thing that can unlock the audio
+  context, since gamepad input is not a user activation in Chromium.
+- **Riding → `gamepad`.** The page gets the sticks and triggers directly.
+
+Setting `gamepad` once at startup, which is the obvious thing to do, breaks the
+console completely: there is no pointer, so the bike picker and the RIDE button
+become unreachable and audio can never start.
 
 Console-specific handling:
 
@@ -179,4 +181,8 @@ Console-specific handling:
 - **Quality.** Console browsers start one tier down and drop further on their
   own if the frame rate can't hold. See `src/core/Quality.ts`.
 - **No rumble.** The Gamepad haptics API isn't available in the Xbox browser, so
-  the balance rumble channel is desktop-and-DualSense only there.
+  the balance rumble channel is desktop-only there.
+- **Diagnostics.** **D-pad up**, or the button on the start card, shows what the
+  page actually got: renderer, gamepad id, input mode, audio state, frame rate,
+  and live stick and trigger values. It also opens itself on an uncaught error.
+  This is the only way to see what a console is doing without a devtools window.

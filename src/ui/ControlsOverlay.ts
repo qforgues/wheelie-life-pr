@@ -1,4 +1,4 @@
-import { bindingsFor, type PadFamily } from '../input/bindings';
+import { BINDINGS } from '../input/bindings';
 import { BIKE_VISUALS } from '../view/bikeVisuals';
 import { BIKES, type BikeId } from '../sim/tuning';
 
@@ -12,11 +12,11 @@ export class ControlsOverlay {
   private visible = true;
   private deviceLine: HTMLElement;
   private tableBody: HTMLElement;
-  private family: PadFamily | null = null;
-  private padHeader: HTMLElement;
 
   private selected: BikeId = 'yz250f';
   private onPick: ((id: BikeId) => void) | null = null;
+
+  private onDiag: (() => void) | null = null;
 
   constructor(private onDismiss: () => void) {
     this.root = document.createElement('div');
@@ -41,7 +41,7 @@ export class ControlsOverlay {
           }).join('')}
         </div>
         <table class="overlay-table">
-          <thead><tr><th>Action</th><th data-el="padHeader">Controller</th><th>Keyboard</th></tr></thead>
+          <thead><tr><th>Action</th><th>Xbox</th><th>Keyboard</th></tr></thead>
           <tbody data-el="tableBody"></tbody>
         </table>
         <div class="overlay-tips">
@@ -51,24 +51,36 @@ export class ControlsOverlay {
           <p><b>Tricks:</b> once the front is up, hold a trick button to get a knee on the seat or stand right up. Standing scores most and is hardest to hold.</p>
         </div>
         <button class="overlay-go" data-el="go">RIDE</button>
-        <p class="overlay-foot">H toggles this card · P opens the tuning panel · R resets</p>
+        <button class="overlay-diag" data-el="diag" type="button">Diagnostics</button>
+        <p class="overlay-foot">
+          View toggles this card · D-pad up shows diagnostics · Menu resets
+          <br>On a keyboard: H · D · P for the tuning panel · R to reset
+        </p>
       </div>
     `;
     this.deviceLine = this.root.querySelector('[data-el="device"]')!;
     this.tableBody = this.root.querySelector('[data-el="tableBody"]')!;
-    this.padHeader = this.root.querySelector('[data-el="padHeader"]')!;
-    this.setFamily('generic');
+    this.tableBody.innerHTML = BINDINGS
+      .map((b) => `<tr><td>${b.action}</td><td class="pad">${b.pad}</td><td class="key">${b.key}</td></tr>`)
+      .join('');
     for (const el of this.root.querySelectorAll<HTMLElement>('.bike')) {
       el.addEventListener('click', () => this.pick(el.dataset.bike as BikeId));
     }
     this.markSelection();
     this.root.querySelector('[data-el="go"]')!.addEventListener('click', () => this.hide());
+    this.root.querySelector('[data-el="diag"]')!
+      .addEventListener('click', (e) => { e.stopPropagation(); this.onDiag?.(); });
     this.root.addEventListener('click', (e) => {
       if (e.target === this.root) this.hide();
     });
   }
 
-  /** Renders the button names for whichever pad is actually in use. */
+  /** Wires the card's Diagnostics button, which is the only way to reach the
+   *  readout on a console without remembering the D-pad shortcut. */
+  onDiagnostics(fn: () => void): void {
+    this.onDiag = fn;
+  }
+
   /** Called when a bike card is chosen. */
   onBikePicked(fn: (id: BikeId) => void): void {
     this.onPick = fn;
@@ -87,20 +99,9 @@ export class ControlsOverlay {
     }
   }
 
-  setFamily(family: PadFamily): void {
-    if (this.family === family) return;
-    this.family = family;
-    this.padHeader.textContent =
-      family === 'xbox' ? 'Xbox' : family === 'playstation' ? 'PS5' : 'Controller';
-    this.tableBody.innerHTML = bindingsFor(family)
-      .map((b) => `<tr><td>${b.action}</td><td class="pad">${b.pad}</td><td class="key">${b.key}</td></tr>`)
-      .join('');
-  }
-
-  setDevice(connected: boolean, name: string, family: PadFamily): void {
-    this.setFamily(family);
+  setDevice(connected: boolean, name: string): void {
     this.deviceLine.innerHTML = connected
-      ? `<b class="ok">${name} connected</b> — full controller layout live.`
+      ? `<b class="ok">${name} connected</b> — full layout live.`
       : `No controller detected — <b>keyboard</b> map below. Plug a controller in and press a button.`;
   }
 

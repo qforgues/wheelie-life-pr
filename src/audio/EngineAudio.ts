@@ -240,6 +240,12 @@ export class EngineAudio {
     });
   }
 
+  /** For the diagnostics readout - "running" is the only healthy value. */
+  get status(): string {
+    if (!this.started) return 'not started';
+    return `${this.ctx?.state ?? 'none'}${this.muted ? ' (muted)' : ''}`;
+  }
+
   resumeIfNeeded(): void {
     if (this.ctx?.state === 'suspended') void this.ctx.resume();
   }

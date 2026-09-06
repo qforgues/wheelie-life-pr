@@ -14,6 +14,7 @@ import { EngineAudio } from '../audio/EngineAudio';
 import { Hud } from '../ui/Hud';
 import { ControlsOverlay } from '../ui/ControlsOverlay';
 import { DebugPanel } from '../ui/DebugPanel';
+import { Diagnostics } from '../ui/Diagnostics';
 import { WheelieTracker } from './WheelieTracker';
 import type { BikeState } from '../sim/types';
 
@@ -52,6 +53,8 @@ export class Game {
   private hud = new Hud();
   private overlay: ControlsOverlay;
   private debug: DebugPanel;
+  private diagnostics: Diagnostics;
+  private lastFps = 0;
   private tracker = new WheelieTracker();
   private loop: Loop;
   private quality: QualityGovernor;
@@ -74,7 +77,6 @@ export class Game {
   private padWasConnected: boolean | null = null;
   private bikeId: BikeId = 'yz250f';
   private headVec = new THREE.Vector3();
-  private padWasFamily: string | null = null;
 
   constructor(container: HTMLElement) {
     // ---- renderer --------------------------------------------------------
@@ -122,15 +124,28 @@ export class Game {
     });
     applyQuality(this.quality.settings, this.renderer, this.sky.sun, this.scene.fog as THREE.Fog);
 
-    this.overlay = new ControlsOverlay(() => this.audio.start());
+    this.overlay = new ControlsOverlay(() => this.onRide());
     container.appendChild(this.overlay.root);
+
+    this.diagnostics = new Diagnostics(this.input, () => ({
+      fps: this.lastFps,
+      quality: this.quality.tier,
+      drawCalls: this.renderer.info.render.calls,
+      triangles: this.renderer.info.render.triangles,
+      audio: this.audio.status,
+      bike: BIKES[this.bikeId].name,
+    }));
+    container.appendChild(this.diagnostics.root);
     this.debug = new DebugPanel(
       this.sim, this.chase, this.tracker, () => this.resetBike(), BIKES[this.bikeId],
       this.quality, this.bikeView,
     );
     this.overlay.onBikePicked((id) => this.setBike(id));
+    this.overlay.onDiagnostics(() => this.diagnostics.toggle());
 
     this.input.attach(this.renderer.domElement);
+    // Start card up: let the console's own cursor drive it. See setGamepadEmulation.
+    this.input.setGamepadEmulation('mouse');
     addEventListener('resize', () => this.onResize());
 
     this.loop = new Loop(
@@ -184,17 +199,21 @@ export class Game {
     // gesture) - no need to hunt for the button.
     if (this.overlay.isVisible && (frame.rider.throttle > 0.15 || frame.rider.shiftUp)) {
       this.overlay.hide();
+      this.onRide();
     }
-    if (frame.toggleHelp) this.overlay.toggle();
+    if (frame.toggleHelp) {
+      this.overlay.toggle();
+      this.input.setGamepadEmulation(this.overlay.isVisible ? 'mouse' : 'gamepad');
+    }
+    if (frame.toggleDiagnostics) this.diagnostics.toggle();
     if (frame.toggleDebug) this.debug.toggle();
     if (frame.toggleAudio) {
       this.audio.setMuted(!this.audio.isMuted);
       this.hud.showToast(this.audio.isMuted ? 'SOUND OFF' : 'SOUND ON', 1.2);
     }
-    if (frame.padConnected !== this.padWasConnected || frame.padFamily !== this.padWasFamily) {
-      this.padWasFamily = frame.padFamily;
+    if (frame.padConnected !== this.padWasConnected) {
       this.padWasConnected = frame.padConnected;
-      this.overlay.setDevice(frame.padConnected, frame.padName, frame.padFamily);
+      this.overlay.setDevice(frame.padConnected, frame.padName);
       if (frame.padConnected) this.hud.showToast(`${frame.padName} CONNECTED`, 2);
     }
 
@@ -284,6 +303,18 @@ export class Game {
     this.chase.snapTo(this.sim.state, this.bikeView.getFocusWorld(this.focusVec));
   }
 
+  /**
+   * Called the moment the player commits to riding.
+   *
+   * This is the one point where a real user gesture is guaranteed, so it is
+   * where audio gets unlocked - and where the console switches from driving its
+   * own cursor to handing the page raw controller input.
+   */
+  private onRide(): void {
+    this.audio.start();
+    this.input.setGamepadEmulation('gamepad');
+  }
+
   /** Collapse both poses onto the current state - after a teleport or reset,
    *  so the renderer never interpolates across the jump. */
   private snapPose(): void {
@@ -333,6 +364,8 @@ export class Game {
     this.wasWheelieing = state.wheelieing;
 
     this.quality.update(dt);
+    this.lastFps = dt > 0 ? 1 / dt : 0;
+    this.diagnostics.update(dt, this.renderer);
     this.hud.update(state, this.tracker, this.sim.getTuning(), dt);
     this.debug.update(dt);
     this.audio.resumeIfNeeded();
