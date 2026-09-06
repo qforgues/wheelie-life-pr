@@ -288,6 +288,17 @@ export class EngineAudio {
     });
   }
 
+  /** The live context, so recorded clips decode and play through the same
+   *  graph - and therefore obey mute and volume like everything else. */
+  get context(): AudioContext | null {
+    return this.ctx;
+  }
+
+  /** Bus recorded voice lines should join. */
+  get bus(): AudioNode | null {
+    return this.master ?? null;
+  }
+
   /** For the diagnostics readout - "running" is the only healthy value. */
   get status(): string {
     if (!this.started) return 'not started';

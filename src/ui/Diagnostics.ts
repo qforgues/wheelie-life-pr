@@ -25,6 +25,7 @@ export class Diagnostics {
       drawCalls: number;
       triangles: number;
       audio: string;
+      voice: string;
       bike: string;
     },
   ) {
@@ -90,6 +91,7 @@ export class Diagnostics {
       ['scene', `${i.drawCalls} calls · ${(i.triangles / 1000).toFixed(0)}k tris`],
       ['bike', i.bike],
       ['audio', i.audio],
+      ['voice', i.voice],
       ['pad input mode', this.input.emulation],
       ['pad', pad ? `${pad.id.slice(0, 40)} (${pad.buttons.length}b/${pad.axes.length}a)` : 'none detected'],
       ['RT / LT', `${trig(7)} / ${trig(6)}`],

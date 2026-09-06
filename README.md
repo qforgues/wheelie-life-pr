@@ -124,6 +124,48 @@ HELD WHEELIE (autopilot riding just under the balance point)
   top gear reached                   4
 ```
 
+## Voices
+
+Crash calls run through three tiers, in this order:
+
+1. **A real recording**, if one has been made.
+2. **The browser's speech synthesis**, if it has a voice.
+3. **Silence.**
+
+Only the first is any good. Speech synthesis was always a stand-in — it cannot
+be captured or shipped, it sounds like a satnav, and the Xbox browser may have
+no voices at all. It exists so the channel works before anyone has recorded
+anything.
+
+### Recording the lines
+
+Open **`/record.html`** on the live site (or `localhost:5173/record.html`) on a
+laptop or phone. It walks through each line, records it, plays it back, and
+downloads the files named the way the game expects, plus a `manifest.json`.
+
+Drop everything into `public/voice/` and rebuild. That's it — the loader reads
+the manifest and decodes whatever is there.
+
+**Any audio format works.** `decodeAudioData` handles mp3, m4a, wav, ogg and
+webm, so a phone voice memo can be dropped straight in with no conversion. That
+matters more than picking one format: the people recording these are a kid and
+his dad, not a studio. The recorder itself saves whatever the browser produces —
+`.m4a` on Safari and iOS, `.webm` on Chromium — because `MediaRecorder` cannot
+emit mp3 without shipping an encoder, and there is no playback benefit to it.
+
+`public/voice/manifest.json` maps crash reasons to files:
+
+```json
+{ "lines": { "looped": ["looped-1.m4a", "looped-2.m4a"] } }
+```
+
+Several files under one reason means the game picks between them at random.
+A missing manifest is the normal state until someone records, so it 404s
+quietly and the game falls through to tier two.
+
+This is the groundwork for the rival trash talk the interview asks for, in
+English or Puerto Rican Spanish — the same loader, with more lines.
+
 ## Other commands
 
 ```bash

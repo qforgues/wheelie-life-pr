@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wheelie Life — Voice Recorder</title>
+<style>
+  :root {
+    --ground:#0e1118; --panel:#171b24; --panel-2:#1f242f;
+    --ink:#e3e7ee; --ink-2:#a7b0c0; --ink-3:#798395; --rule:#2b313d;
+    --cyan:#23d3d3; --red:#d4142c; --green:#4fc98a;
+    --fd:"Arial Black",Impact,sans-serif;
+    --fm:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);
+    font:16px/1.5 system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:760px;margin:0 auto;padding:34px 20px 90px}
+  h1{font-family:var(--fd);font-size:clamp(26px,6vw,40px);margin:0;letter-spacing:-.02em}
+  h1 span{color:var(--cyan)}
+  .lede{color:var(--ink-2);margin:10px 0 0;max-width:56ch}
+  .step{background:var(--panel);border-left:3px solid var(--cyan);
+    padding:14px 16px;border-radius:4px;margin:18px 0 0;font-size:15px}
+  .step ol{margin:8px 0 0;padding-left:20px} .step li{margin:5px 0}
+  .mic{margin:22px 0 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  button{font:inherit;cursor:pointer;border-radius:4px;border:1px solid var(--rule);
+    background:var(--panel-2);color:var(--ink);padding:9px 16px}
+  button:hover{border-color:var(--cyan)}
+  button:disabled{opacity:.4;cursor:default}
+  button.primary{background:var(--cyan);color:#06121a;border-color:var(--cyan);font-weight:700}
+  button.rec{background:var(--red);border-color:var(--red);color:#fff;font-weight:700}
+  .status{font-family:var(--fm);font-size:12.5px;color:var(--ink-3)}
+  .status.bad{color:var(--red)} .status.good{color:var(--green)}
+  h2{font-family:var(--fd);font-size:18px;margin:34px 0 0}
+  .hint{color:var(--ink-3);font-size:13.5px;margin:4px 0 0}
+  .line{display:grid;grid-template-columns:1fr auto;gap:10px 14px;align-items:center;
+    padding:13px 0;border-bottom:1px solid var(--rule)}
+  .say{font-family:var(--fd);font-size:20px;letter-spacing:.01em}
+  .say.done{color:var(--green)}
+  .meta{font-family:var(--fm);font-size:11.5px;color:var(--ink-3);letter-spacing:.08em}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .bar{height:5px;background:var(--panel-2);border-radius:3px;overflow:hidden;margin-top:7px}
+  .bar i{display:block;height:100%;background:var(--cyan);width:0}
+  footer{margin-top:40px;padding-top:18px;border-top:2px solid var(--rule);
+    color:var(--ink-3);font-size:13.5px}
+  code{font-family:var(--fm);font-size:12.5px;background:var(--panel-2);
+    padding:1px 5px;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Voice <span>Recorder</span></h1>
+  <p class="lede">
+    Record the lines the game shouts when you crash. Say them like you mean it —
+    this is the bit nobody else can do for you.
+  </p>
+
+  <div class="step">
+    <b>How this works</b>
+    <ol>
+      <li>Press <b>Turn on the microphone</b> and allow it.</li>
+      <li>For each line: press <b>Record</b>, say it, press <b>Stop</b>.</li>
+      <li>Press <b>Play</b> to hear it back. Not happy? Record it again.</li>
+      <li>When they all sound good, press <b>Download all</b> at the bottom.</li>
+      <li>Give the files to Dad — they go in <code>public/voice/</code>.</li>
+    </ol>
+  </div>
+
+  <div class="mic">
+    <button id="arm" class="primary">Turn on the microphone</button>
+    <span class="status" id="micStatus">Microphone off</span>
+  </div>
+
+  <div id="groups"></div>
+
+  <h2>When you're done</h2>
+  <p class="hint">Downloads everything you recorded, named the way the game expects.</p>
+  <div class="row" style="margin-top:10px">
+    <button id="dlAll" class="primary" disabled>Download all</button>
+    <button id="dlManifest" disabled>Download manifest.json</button>
+    <span class="status" id="doneStatus">Nothing recorded yet</span>
+  </div>
+
+  <footer>
+    Recorded on a phone instead? That works too — voice memos are fine. Name them
+    to match the manifest and drop them in <code>public/voice/</code>. The game
+    decodes mp3, m4a, wav, ogg and webm, so no converting needed.
+  </footer>
+</div>
+
+<script>
+(function () {
+  // Keep in step with CRASH_CALLS in src/audio/Voice.ts.
+  var LINES = [
+    { reason: 'looped',  label: 'When you loop it over backwards', says: ['¡SE FUE!', '¡SE VOLTEÓ!', 'ADIÓS'] },
+    { reason: 'lowside', label: 'When you drop it sideways',       says: ['LA TIRÓ', 'SE FUE DE LADO', '¡AY BENDITO!'] },
+    { reason: 'impact',  label: 'When you hit something',          says: ['¡BOOM!', '¡CUIDAO!', 'ESO DOLIÓ'] },
+  ];
+
+  var stream = null, mime = '', takes = {};   // key -> {blob, url, ext}
+  var recorder = null, recKey = null, chunks = [];
+
+  function pickMime() {
+    var want = [
+      'audio/mp4',                  // Safari / iOS: gives .m4a
+      'audio/webm;codecs=opus',     // Chromium, incl. the Xbox browser
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+    ];
+    for (var i = 0; i < want.length; i++) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported(want[i])) return want[i];
+    }
+    return '';
+  }
+  function extFor(m) {
+    if (m.indexOf('mp4') >= 0) return 'm4a';
+    if (m.indexOf('ogg') >= 0) return 'ogg';
+    return 'webm';
+  }
+  function keyOf(reason, i) { return reason + '-' + (i + 1); }
+
+  function setStatus(el, text, cls) {
+    el.textContent = text;
+    el.className = 'status' + (cls ? ' ' + cls : '');
+  }
+
+  document.getElementById('arm').addEventListener('click', async function () {
+    var st = document.getElementById('micStatus');
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      setStatus(st, 'This browser cannot record. Use Chrome, Edge or Safari.', 'bad');
+      return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
+      mime = pickMime();
+      setStatus(st, 'Microphone on · saving as .' + extFor(mime), 'good');
+      document.getElementById('arm').disabled = true;
+      render();
+    } catch (e) {
+      setStatus(st, 'Could not use the microphone (' + (e && e.name) + ')', 'bad');
+    }
+  });
+
+  function startRec(key, btn, meter) {
+    if (recorder) return;
+    chunks = [];
+    recKey = key;
+    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    recorder.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data); };
+    recorder.onstop = function () {
+      var blob = new Blob(chunks, { type: mime || 'audio/webm' });
+      if (takes[recKey] && takes[recKey].url) URL.revokeObjectURL(takes[recKey].url);
+      takes[recKey] = { blob: blob, url: URL.createObjectURL(blob), ext: extFor(mime) };
+      recorder = null; recKey = null;
+      render();
+    };
+    recorder.start();
+    btn.textContent = 'Stop';
+    btn.classList.add('rec');
+    // A crude level meter so you can see it is hearing you.
+    try {
+      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      var an = ctx.createAnalyser(); an.fftSize = 512;
+      ctx.createMediaStreamSource(stream).connect(an);
+      var buf = new Uint8Array(an.fftSize);
+      (function tick() {
+        if (!recorder) { meter.style.width = '0%'; ctx.close(); return; }
+        an.getByteTimeDomainData(buf);
+        var peak = 0;
+        for (var i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128));
+        meter.style.width = Math.min(100, (peak / 90) * 100) + '%';
+        requestAnimationFrame(tick);
+      })();
+    } catch (e) { /* meter is a nicety */ }
+  }
+
+  function render() {
+    var host = document.getElementById('groups');
+    host.innerHTML = '';
+    LINES.forEach(function (grp) {
+      var h = document.createElement('h2');
+      h.textContent = grp.label;
+      host.appendChild(h);
+      var hint = document.createElement('p');
+      hint.className = 'hint';
+      hint.textContent = 'The game picks one of these at random.';
+      host.appendChild(hint);
+
+      grp.says.forEach(function (text, i) {
+        var key = keyOf(grp.reason, i);
+        var take = takes[key];
+        var row = document.createElement('div');
+        row.className = 'line';
+        row.innerHTML =
+          '<div><div class="say' + (take ? ' done' : '') + '">' + text + '</div>' +
+          '<div class="meta">' + key + (take ? '.' + take.ext + ' · recorded' : ' · not recorded yet') + '</div>' +
+          '<div class="bar"><i data-meter="' + key + '"></i></div></div>' +
+          '<div class="row">' +
+            '<button data-rec="' + key + '">' + (take ? 'Record again' : 'Record') + '</button>' +
+            '<button data-play="' + key + '"' + (take ? '' : ' disabled') + '>Play</button>' +
+          '</div>';
+        host.appendChild(row);
+      });
+    });
+
+    host.querySelectorAll('[data-rec]').forEach(function (b) {
+      b.disabled = !stream;
+      b.addEventListener('click', function () {
+        var key = b.getAttribute('data-rec');
+        var meter = host.querySelector('[data-meter="' + key + '"]');
+        if (recorder && recKey === key) { recorder.stop(); return; }
+        if (recorder) return;
+        startRec(key, b, meter);
+      });
+    });
+    host.querySelectorAll('[data-play]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var t = takes[b.getAttribute('data-play')];
+        if (t) new Audio(t.url).play();
+      });
+    });
+
+    var n = Object.keys(takes).length;
+    document.getElementById('dlAll').disabled = n === 0;
+    document.getElementById('dlManifest').disabled = n === 0;
+    setStatus(document.getElementById('doneStatus'),
+      n === 0 ? 'Nothing recorded yet' : n + ' recorded', n ? 'good' : '');
+  }
+
+  function download(name, blob) {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+  }
+
+  document.getElementById('dlAll').addEventListener('click', function () {
+    // Staggered: browsers throttle a burst of downloads fired at once.
+    Object.keys(takes).forEach(function (key, i) {
+      setTimeout(function () {
+        download(key + '.' + takes[key].ext, takes[key].blob);
+      }, i * 350);
+    });
+  });
+
+  document.getElementById('dlManifest').addEventListener('click', function () {
+    var lines = {};
+    LINES.forEach(function (grp) {
+      grp.says.forEach(function (_t, i) {
+        var key = keyOf(grp.reason, i);
+        if (!takes[key]) return;
+        (lines[grp.reason] = lines[grp.reason] || []).push(key + '.' + takes[key].ext);
+      });
+    });
+    download('manifest.json', new Blob([JSON.stringify({ lines: lines }, null, 2)],
+      { type: 'application/json' }));
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

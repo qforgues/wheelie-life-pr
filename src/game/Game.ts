@@ -12,6 +12,7 @@ import { CAMERA_LABELS } from '../view/ChaseCamera';
 import { ChaseCamera } from '../view/ChaseCamera';
 import { EngineAudio } from '../audio/EngineAudio';
 import { Voice, pickCall } from '../audio/Voice';
+import { VoicePack } from '../audio/VoicePack';
 import { Hud } from '../ui/Hud';
 import { ControlsOverlay } from '../ui/ControlsOverlay';
 import { DebugPanel } from '../ui/DebugPanel';
@@ -51,6 +52,7 @@ export class Game {
   private sky: SkyRig;
   private audio = new EngineAudio();
   private voice = new Voice();
+  private voicePack = new VoicePack(() => this.audio.context, () => this.audio.bus);
   private input = new InputManager();
   private hud = new Hud();
   private overlay: ControlsOverlay;
@@ -135,6 +137,9 @@ export class Game {
       drawCalls: this.renderer.info.render.calls,
       triangles: this.renderer.info.render.triangles,
       audio: this.audio.status,
+      voice: this.voicePack.count > 0
+        ? `${this.voicePack.count} recorded clips`
+        : (this.voice.available ? 'synthesised' : 'none'),
       bike: BIKES[this.bikeId].name,
     }));
     container.appendChild(this.diagnostics.root);
@@ -249,7 +254,9 @@ export class Game {
         const call = pickCall(state.crashReason);
         this.hud.crashCall = call;
         this.audio.crash();
-        if (!this.audio.isMuted) this.voice.say(call, 'es');
+        if (!this.audio.isMuted) {
+          this.voice.call(state.crashReason ?? 'impact', call, 'es');
+        }
         // Throw the rider off. The bike keeps sliding without them.
         this.bikeView.startCrash(state.lastImpact, state.roll, state.yaw);
         this.chase.bump(1.0 + Math.min(1, state.lastImpact / 18));
@@ -324,6 +331,9 @@ export class Game {
    */
   private onRide(): void {
     this.audio.start();
+    // The context only exists once audio has started, so the pack loads here.
+    this.voice.pack = this.voicePack;
+    void this.voicePack.load();
     this.input.setGamepadEmulation('gamepad');
   }
 

@@ -13,6 +13,8 @@ export type VoiceLang = 'es' | 'en';
 
 export class Voice {
   enabled = true;
+  /** Set by the game once a voice pack has been looked for. */
+  pack: { has(reason: string): boolean; play(reason: string): boolean } | null = null;
   /** 0..1. Anything below this and a line just doesn't get called. */
   chattiness = 1;
 
@@ -46,8 +48,28 @@ export class Voice {
   }
 
   /**
-   * Says a line. Cancels anything still going, because a pile-up of crash
-   * calls over each other sounds broken rather than lively.
+   * Calls a line for a crash reason.
+   *
+   * Three tiers, in order: a real recording if one has been made, the browser's
+   * synthesised voice if it has one, and silence. Only the first is any good,
+   * but the game must not depend on which is available.
+   */
+  call(reason: string, fallbackText: string, lang: VoiceLang = 'es'): void {
+    if (!this.enabled) return;
+    const now = performance.now();
+    if (now - this.lastAt < 900) return;
+    if (Math.random() > this.chattiness) return;
+
+    if (this.pack?.has(reason) && this.pack.play(reason)) {
+      this.lastAt = now;
+      return;
+    }
+    this.say(fallbackText, lang);
+  }
+
+  /**
+   * Says a line with the browser's own voice. Cancels anything still going,
+   * because a pile-up of crash calls over each other sounds broken.
    */
   say(text: string, lang: VoiceLang = 'es', opts: { rate?: number; pitch?: number } = {}): void {
     if (!this.supported || !this.enabled) return;
