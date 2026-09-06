@@ -1,0 +1,250 @@
+/* Wheelie Life PR - HUD and shell.
+   Type is heavy and condensed to match the cover art; colour is the flag:
+   red, blue, white, over asphalt. */
+
+:root {
+  --pr-red: #d4142c;
+  --pr-blue: #1d3f9e;
+  --pr-cyan: #23d3d3;
+  --ink: #101116;
+  --paper: #f6f2e8;
+  --hud-font: "Arial Black", "Helvetica Neue", Impact, system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #0b0d12;
+  color: var(--paper);
+  font-family: var(--hud-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app { position: fixed; inset: 0; }
+canvas { display: block; touch-action: none; cursor: grab; }
+canvas:active { cursor: grabbing; }
+
+/* ------------------------------------------------------------------ HUD */
+
+.hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.65);
+}
+
+.hud-label {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  opacity: 0.72;
+  font-weight: 900;
+}
+
+.hud-topleft {
+  position: absolute;
+  top: 22px;
+  left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hud-run {
+  border-left: 4px solid rgba(255, 255, 255, 0.28);
+  padding: 2px 0 2px 12px;
+  transition: border-color 160ms, transform 160ms;
+}
+.hud-run.is-active { border-left-color: var(--pr-cyan); transform: translateX(2px); }
+
+.hud-run-value {
+  font-size: 54px;
+  line-height: 0.92;
+  letter-spacing: -0.02em;
+}
+.hud-run.is-active .hud-run-value { color: var(--pr-cyan); }
+.hud-run-value em { font-size: 22px; font-style: normal; opacity: 0.7; margin-left: 4px; }
+.hud-run-time { font-size: 15px; opacity: 0.78; margin-top: 2px; }
+
+.hud-stat { display: flex; align-items: baseline; gap: 10px; }
+.hud-strong { font-size: 19px; }
+
+.hud-bottomright {
+  position: absolute;
+  right: 26px;
+  bottom: 22px;
+  text-align: right;
+}
+
+.hud-tach {
+  width: 260px;
+  height: 9px;
+  margin: 0 0 10px auto;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.hud-tach-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--pr-cyan), #7de2ff);
+  transition: background 120ms;
+}
+.hud-tach.is-redline .hud-tach-fill { background: linear-gradient(90deg, #ffb020, #ff5c2a); }
+.hud-tach.is-limiter { animation: limiter 90ms steps(2) infinite; }
+.hud-tach.is-limiter .hud-tach-fill { background: var(--pr-red); }
+@keyframes limiter { 0% { opacity: 1; } 100% { opacity: 0.45; } }
+
+.hud-cluster { display: flex; align-items: flex-end; justify-content: flex-end; gap: 26px; }
+
+.hud-speed { font-size: 66px; line-height: 0.82; letter-spacing: -0.03em; position: relative; }
+.hud-speed em { font-size: 20px; font-style: normal; opacity: 0.75; margin-left: 6px; }
+.hud-speed-alt {
+  display: block;
+  font-size: 13px;
+  opacity: 0.6;
+  letter-spacing: 0.1em;
+  margin-top: 6px;
+}
+
+.hud-gear { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.hud-gear-value {
+  font-size: 52px;
+  line-height: 0.85;
+  color: var(--pr-cyan);
+}
+
+/* --------------------------------------------------------------- banner */
+
+.hud-banner {
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  transform: translate(-50%, -50%) scale(0.9);
+  text-align: center;
+  opacity: 0;
+  transition: opacity 140ms, transform 140ms;
+}
+.hud-banner.is-visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.hud-banner-title {
+  font-size: 74px;
+  letter-spacing: -0.02em;
+  color: var(--pr-red);
+  -webkit-text-stroke: 2px rgba(255, 255, 255, 0.9);
+}
+.hud-banner-sub { font-size: 16px; opacity: 0.9; margin-top: 6px; letter-spacing: 0.06em; }
+
+.hud-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 12%;
+  transform: translateX(-50%) translateY(12px);
+  padding: 10px 22px;
+  background: rgba(10, 12, 18, 0.82);
+  border: 2px solid var(--pr-cyan);
+  font-size: 17px;
+  letter-spacing: 0.14em;
+  opacity: 0;
+  transition: opacity 180ms, transform 180ms;
+}
+.hud-toast.is-visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* -------------------------------------------------------------- overlay */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 30%, rgba(12, 30, 60, 0.82), rgba(6, 8, 14, 0.94));
+  backdrop-filter: blur(3px);
+  z-index: 20;
+  transition: opacity 220ms;
+}
+.overlay.is-hidden { opacity: 0; pointer-events: none; }
+
+.overlay-card {
+  width: min(620px, 92vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  padding: 26px 32px 30px;
+  background: rgba(9, 11, 17, 0.9);
+  border: 3px solid var(--paper);
+  box-shadow: 0 0 0 6px rgba(29, 63, 158, 0.55), 0 24px 70px rgba(0, 0, 0, 0.7);
+  text-align: center;
+}
+
+.overlay-crown { font-size: 22px; color: #e9c750; letter-spacing: 0.3em; }
+.overlay-card h1 {
+  margin: 4px 0 2px;
+  font-size: 44px;
+  letter-spacing: -0.02em;
+  line-height: 0.95;
+}
+.overlay-card h1 span { color: var(--pr-cyan); }
+.overlay-tag { margin: 0 0 14px; font-size: 11px; letter-spacing: 0.24em; opacity: 0.7; }
+.overlay-device { font-size: 13px; margin: 0 0 16px; opacity: 0.9; font-weight: 400; }
+.overlay-device .ok { color: var(--pr-cyan); }
+
+.overlay-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-weight: 400;
+  font-family: system-ui, sans-serif;
+}
+.overlay-table th {
+  text-align: left;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  opacity: 0.55;
+  padding: 0 8px 6px;
+  font-family: var(--hud-font);
+}
+.overlay-table td { padding: 5px 8px; border-top: 1px solid rgba(255, 255, 255, 0.09); text-align: left; }
+.overlay-table td.pad { color: var(--pr-cyan); font-weight: 700; white-space: nowrap; }
+.overlay-table td.key { opacity: 0.8; white-space: nowrap; }
+
+.overlay-tips {
+  margin: 16px 0 4px;
+  text-align: left;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+.overlay-tips p { margin: 6px 0; }
+.overlay-tips b { color: var(--pr-cyan); }
+
+.overlay-go {
+  margin-top: 18px;
+  padding: 13px 54px;
+  font-family: var(--hud-font);
+  font-size: 22px;
+  letter-spacing: 0.18em;
+  color: var(--ink);
+  background: var(--paper);
+  border: none;
+  cursor: pointer;
+  transition: transform 120ms, background 120ms;
+}
+.overlay-go:hover { background: var(--pr-cyan); transform: translateY(-1px); }
+
+.overlay-foot {
+  margin: 14px 0 0;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  opacity: 0.5;
+  font-family: system-ui, sans-serif;
+  font-weight: 400;
+}
+
+/* ---------------------------------------------------------- debug panel */
+
+.debug-gui { z-index: 30; }
+.lil-gui { --font-family: ui-monospace, SFMono-Regular, Menlo, monospace; --font-size: 11px; }
