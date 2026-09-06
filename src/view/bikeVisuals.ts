@@ -29,6 +29,9 @@ export interface BikeVisual {
   gripLocal: [number, number, number];
   /** Footpeg position in bike-local space. */
   pegLocal: [number, number, number];
+  /** Extra forward hip rotation (rad). A sportbike rider is folded over the
+   *  tank; a dirt rider sits up. */
+  riderPitch?: number;
   shirt: [string, string, string, string];
   /** Shown on the bike select screen. */
   displayName: string;
@@ -88,10 +91,11 @@ export const BIKE_VISUALS: Record<BikeId, BikeVisual> = {
     frontWheel: castStreetWheel(0.300, 0.130),
     rearWheel: castStreetWheel(0.336, 0.205),
     frontWheelRadius: 0.300,
-    hipHeight: 0.92,
-    seatZ: 0.52,
-    gripLocal: [0.30, 0.60, -0.16],
-    pegLocal: [0.19, 0.46, 0.40],
+    hipHeight: 0.90,
+    seatZ: 0.56,
+    gripLocal: [0.305, 0.72, -0.345],
+    pegLocal: [0.20, 0.44, 0.36],
+    riderPitch: 0.26,
     shirt: ['#efe9dc', 'GOOD', 'BIKES', 'BETTER DAYS'],
   },
 };

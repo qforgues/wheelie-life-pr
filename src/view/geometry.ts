@@ -68,7 +68,7 @@ export function roundedBox(
 
 /** Capsule with enough segments to read as round at chase-camera distance. */
 export function limbCapsule(radius: number, length: number): THREE.BufferGeometry {
-  return new THREE.CapsuleGeometry(radius, Math.max(0.01, length - radius * 2), 8, 16);
+  return new THREE.CapsuleGeometry(radius, Math.max(0.01, length - radius * 2), 10, 24);
 }
 
 /**
