@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { makeCloudTexture, makeSkyTexture, PALETTE } from './textures';
+import { makeEnvironmentTexture } from '../view/geometry';
 
 /**
  * Daytime, clear weather, midday-ish Caribbean sun. Time of day and weather are
@@ -11,7 +12,7 @@ export interface SkyRig {
   update(dt: number): void;
 }
 
-export function buildSky(scene: THREE.Scene): SkyRig {
+export function buildSky(scene: THREE.Scene, renderer: THREE.WebGLRenderer): SkyRig {
   const group = new THREE.Group();
 
   // --- dome ---------------------------------------------------------------
@@ -64,6 +65,17 @@ export function buildSky(scene: THREE.Scene): SkyRig {
 
   scene.add(group);
 
+  // --- image-based lighting -----------------------------------------------
+  // Painted and chromed surfaces have nothing to reflect without this, so they
+  // read as flat plastic however round the geometry is. A tiny equirect of sky
+  // over ground, pre-filtered, is enough to give the bike a finish.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  pmrem.compileEquirectangularShader();
+  const envSource = makeEnvironmentTexture();
+  scene.environment = pmrem.fromEquirectangular(envSource).texture;
+  envSource.dispose();
+  pmrem.dispose();
+
   // --- light --------------------------------------------------------------
   const sun = new THREE.DirectionalLight(0xfff4de, 2.9);
   sun.position.set(-90, 130, 60);
@@ -79,9 +91,9 @@ export function buildSky(scene: THREE.Scene): SkyRig {
   scene.add(sun);
   scene.add(sun.target);
 
-  const hemi = new THREE.HemisphereLight(0xcdeaff, 0xc0a382, 1.5);
+  const hemi = new THREE.HemisphereLight(0xcdeaff, 0xc0a382, 0.95);
   scene.add(hemi);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.18));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.06));
 
   scene.fog = new THREE.Fog(0xbcd9ec, 220, 1350);
 

@@ -86,7 +86,7 @@ export class Game {
     // ---- world -----------------------------------------------------------
     this.city = new City();
     this.scene.add(this.city.root);
-    this.sky = buildSky(this.scene);
+    this.sky = buildSky(this.scene, this.renderer);
 
     // ---- bike ------------------------------------------------------------
     const tuning = cloneTuning(GROM);

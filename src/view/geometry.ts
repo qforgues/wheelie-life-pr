@@ -1,0 +1,132 @@
+import * as THREE from 'three';
+
+/**
+ * Geometry helpers for the bike and rider.
+ *
+ * Everything in the game is generated at runtime, which is cheap and flexible
+ * but was leaving hard 90-degree edges on every panel. These build the same
+ * primitives with real fillets and smooth shading across them.
+ */
+
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+
+/**
+ * A box with rounded edges and corners.
+ *
+ * Takes a subdivided cube and pushes every vertex onto the surface of the
+ * Minkowski sum of an inner box and a sphere of `radius` - which is exactly
+ * what a filleted box is. Normals are then computed analytically rather than
+ * averaged: `computeVertexNormals` would leave hard seams here, because
+ * BoxGeometry gives each face its own unshared vertices. Deriving the normal
+ * from the position instead means both copies of a seam vertex agree, so the
+ * fillets shade smoothly with no welding step.
+ */
+export function roundedBox(
+  width: number, height: number, depth: number, radius: number, segments = 8,
+): THREE.BufferGeometry {
+  const r = Math.min(radius, width / 2 - 1e-4, height / 2 - 1e-4, depth / 2 - 1e-4);
+  const geo = new THREE.BoxGeometry(width, height, depth, segments, segments, segments);
+  if (r <= 0) return geo;
+
+  const ix = width / 2 - r;
+  const iy = height / 2 - r;
+  const iz = depth / 2 - r;
+
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const normals = new Float32Array(pos.count * 3);
+
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+
+    // Nearest point on the inner box; the offset from it is the outward normal.
+    const cx = clamp(x, -ix, ix);
+    const cy = clamp(y, -iy, iy);
+    const cz = clamp(z, -iz, iz);
+
+    let nx = x - cx;
+    let ny = y - cy;
+    let nz = z - cz;
+    const len = Math.hypot(nx, ny, nz);
+    if (len > 1e-9) {
+      nx /= len; ny /= len; nz /= len;
+      pos.setXYZ(i, cx + nx * r, cy + ny * r, cz + nz * r);
+    }
+    normals[i * 3] = nx;
+    normals[i * 3 + 1] = ny;
+    normals[i * 3 + 2] = nz;
+  }
+
+  pos.needsUpdate = true;
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  return geo;
+}
+
+/** Capsule with enough segments to read as round at chase-camera distance. */
+export function limbCapsule(radius: number, length: number): THREE.BufferGeometry {
+  return new THREE.CapsuleGeometry(radius, Math.max(0.01, length - radius * 2), 8, 16);
+}
+
+/**
+ * A curved mudguard: a slice of a tube wrapped around the wheel, rather than a
+ * flat plank sitting over it.
+ */
+export function fender(
+  wheelRadius: number, width: number, arc: number, offset: number, tilt = 0.3,
+): THREE.BufferGeometry {
+  const geo = new THREE.CylinderGeometry(
+    wheelRadius + offset, wheelRadius + offset, width, 28, 1, true, -arc / 2, arc,
+  );
+  // Cylinder is built along +Y with its arc centred on +Z. Lay the axis along
+  // the axle (X), then swing the arc up over the top of the wheel and tip it
+  // forward a little, the way a mudguard actually sits.
+  geo.rotateZ(Math.PI / 2);
+  geo.rotateX(-Math.PI / 2 + tilt);
+  return geo;
+}
+
+/**
+ * A small equirectangular sky/ground image used as the scene environment.
+ *
+ * Without image-based lighting, painted and chromed surfaces have nothing to
+ * reflect and read as flat plastic no matter how round they are. This gives
+ * them a bright sky above and warm ground below, which is most of what makes
+ * the bike look like it has a finish on it.
+ */
+export function makeEnvironmentTexture(): THREE.CanvasTexture {
+  const W = 256;
+  const H = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+
+  const sky = ctx.createLinearGradient(0, 0, 0, H * 0.52);
+  sky.addColorStop(0, '#2f6fc4');
+  sky.addColorStop(0.55, '#8ec4e8');
+  sky.addColorStop(1, '#e8f2fb');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H * 0.52);
+
+  const ground = ctx.createLinearGradient(0, H * 0.52, 0, H);
+  ground.addColorStop(0, '#b6a888');
+  ground.addColorStop(1, '#6a625a');
+  ctx.fillStyle = ground;
+  ctx.fillRect(0, H * 0.52, W, H * 0.48);
+
+  // The sun, roughly where the directional light sits.
+  const sun = ctx.createRadialGradient(W * 0.34, H * 0.16, 0, W * 0.34, H * 0.16, H * 0.3);
+  sun.addColorStop(0, 'rgba(255,252,238,1)');
+  sun.addColorStop(0.25, 'rgba(255,244,215,0.55)');
+  sun.addColorStop(1, 'rgba(255,240,200,0)');
+  ctx.fillStyle = sun;
+  ctx.fillRect(0, 0, W, H * 0.6);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
