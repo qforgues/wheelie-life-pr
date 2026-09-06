@@ -12,6 +12,25 @@ import { Hud } from '../ui/Hud';
 import { ControlsOverlay } from '../ui/ControlsOverlay';
 import { DebugPanel } from '../ui/DebugPanel';
 import { WheelieTracker } from './WheelieTracker';
+import type { BikeState } from '../sim/types';
+
+/** The handful of fields that need interpolating between physics steps. */
+interface Pose {
+  x: number; y: number; z: number;
+  yaw: number; pitch: number; roll: number;
+  speed: number; wheelSpin: number; weightShift: number;
+}
+
+function readPose(state: BikeState, wheelSpin: number, weightShift: number, out: Pose): Pose {
+  out.x = state.x; out.y = state.y; out.z = state.z;
+  out.yaw = state.yaw; out.pitch = state.pitch; out.roll = state.roll;
+  out.speed = state.speed; out.wheelSpin = wheelSpin; out.weightShift = weightShift;
+  return out;
+}
+
+function blend(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
 
 const FIXED_STEP = 1 / 120;
 const CRASH_HOLD = 1.5;
@@ -34,6 +53,16 @@ export class Game {
   private loop: Loop;
 
   private focusVec = new THREE.Vector3();
+  /**
+   * Physics runs at a locked 120 Hz, the display runs at whatever it runs at,
+   * so the number of sim steps per rendered frame alternates (1, 2, 1, 2...).
+   * Drawing the last completed step makes the bike advance in uneven jumps -
+   * judder that gets worse the faster you go. These two poses let the renderer
+   * interpolate between the last two steps instead.
+   */
+  private prevPose: Pose = emptyPose();
+  private currPose: Pose = emptyPose();
+  private renderState = {} as BikeState;
   private hapticTimer = 0;
   private wasWheelieing = false;
   /** null until the first frame, so the overlay always gets told once. */
@@ -70,6 +99,7 @@ export class Game {
 
     // ---- camera ----------------------------------------------------------
     this.chase = new ChaseCamera(innerWidth / innerHeight);
+    this.snapPose();
     this.bikeView.update(this.sim.state, 0, 0, 0);
     this.chase.snapTo(this.sim.state, this.bikeView.getFocusWorld(this.focusVec));
 
@@ -85,7 +115,7 @@ export class Game {
     this.loop = new Loop(
       FIXED_STEP,
       (dt) => this.fixedUpdate(dt),
-      (dt) => this.render(dt),
+      (dt, alpha) => this.render(dt, alpha),
     );
   }
 
@@ -129,12 +159,16 @@ export class Game {
       : frame.rider;
 
     const gearBefore = state.gear;
+    // Last step's pose becomes the one we interpolate *from*.
+    readPose(state, this.sim.wheelSpin, this.sim.weightShiftValue, this.prevPose);
     this.sim.step(rider, dt);
+    readPose(state, this.sim.wheelSpin, this.sim.weightShiftValue, this.currPose);
     if (state.gear !== gearBefore) this.audio.shiftBark();
 
     // Crash -> hold the wipeout for a beat, then drop back in.
     if (state.mode === 'crashed') {
-      if (this.tracker.active) this.tracker.endRun();
+      // Fell out of it - the distance shows, but it doesn't count.
+      if (this.tracker.active) this.tracker.endRun(false);
       if (this.sim.crashTime < dt * 1.5) {
         this.audio.crash();
         this.chase.bump(1.0 + Math.min(1, state.lastImpact / 18));
@@ -187,16 +221,41 @@ export class Game {
     if (this.tracker.active) this.tracker.endRun();
     const s = this.sim.state;
     this.sim.reset(this.city.respawnFor(s.x, s.z));
+    this.snapPose();
     this.bikeView.update(this.sim.state, 0, 0, 0);
     this.chase.snapTo(this.sim.state, this.bikeView.getFocusWorld(this.focusVec));
   }
 
+  /** Collapse both poses onto the current state - after a teleport or reset,
+   *  so the renderer never interpolates across the jump. */
+  private snapPose(): void {
+    readPose(this.sim.state, this.sim.wheelSpin, this.sim.weightShiftValue, this.currPose);
+    Object.assign(this.prevPose, this.currPose);
+  }
+
   // ------------------------------------------------------------------ render
 
-  private render(dt: number): void {
-    const state = this.sim.state;
+  private render(dt: number, alpha: number): void {
+    const simState = this.sim.state;
 
-    this.bikeView.update(state, this.sim.wheelSpin, this.sim.weightShiftValue, dt);
+    // Draw between the last two physics steps rather than on top of the most
+    // recent one. Everything not interpolated (gear, rpm, flags) is copied
+    // straight through - only the pose is smoothed.
+    const state = Object.assign(this.renderState, simState) as BikeState;
+    const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
+    const p = this.prevPose;
+    const c = this.currPose;
+    state.x = blend(p.x, c.x, a);
+    state.y = blend(p.y, c.y, a);
+    state.z = blend(p.z, c.z, a);
+    state.yaw = blend(p.yaw, c.yaw, a);
+    state.pitch = blend(p.pitch, c.pitch, a);
+    state.roll = blend(p.roll, c.roll, a);
+    state.speed = blend(p.speed, c.speed, a);
+    const wheelSpin = blend(p.wheelSpin, c.wheelSpin, a);
+    const weightShift = blend(p.weightShift, c.weightShift, a);
+
+    this.bikeView.update(state, wheelSpin, weightShift, dt);
     this.bikeView.getFocusWorld(this.focusVec);
     this.chase.update(state, this.focusVec, dt);
 
@@ -221,4 +280,8 @@ export class Game {
 
     this.renderer.render(this.scene, this.chase.camera);
   }
+}
+
+function emptyPose(): Pose {
+  return { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 0, wheelSpin: 0, weightShift: 0 };
 }

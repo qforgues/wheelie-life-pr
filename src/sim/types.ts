@@ -80,21 +80,22 @@ export interface BikeState {
 
 export type CrashReason = 'looped' | 'lowside' | 'impact' | 'nosedive';
 
-/** What the world tells the sim about the road under the rear wheel. */
-export interface GroundSample {
-  /** Surface height (m). */
-  height: number;
-  /** Friction multiplier applied to tyre grip. 1 = clean asphalt. */
-  friction: number;
-  /**
-   * Pitch impulse from a bump or kerb (rad/s), applied once as the wheel
-   * rolls over it. This is how you pop the front up off a speed bump.
-   */
-  bumpKick: number;
-}
-
+/**
+ * The road, as far as the sim is concerned.
+ *
+ * The sim queries height under each wheel separately and works the rest out
+ * geometrically, so a speed bump lifts the front because it is physically in
+ * the way - not because the world handed the bike a scripted impulse.
+ */
 export interface GroundProvider {
-  sample(x: number, z: number, speed: number, dt: number): GroundSample;
+  /**
+   * Height of the surface a wheel of `wheelRadius` rests on at this point (m).
+   * Implementations should return the *tyre envelope*, not the raw profile: a
+   * real wheel bridges anything narrower than itself instead of dropping in.
+   */
+  heightAt(x: number, z: number, wheelRadius: number): number;
+  /** Grip multiplier. 1 = clean asphalt. */
+  frictionAt(x: number, z: number): number;
   /** Returns a crash if the bike has driven into something solid. */
   collide(x: number, z: number, speed: number): CrashReason | null;
 }

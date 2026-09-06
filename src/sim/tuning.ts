@@ -55,6 +55,15 @@ export interface ChassisTuning {
   groundedPitchDamping: number;
   /** Bounce restitution when the front wheel slaps back down (0..1). */
   frontSlamRestitution: number;
+  /**
+   * Fraction of a bump's ramp rate the suspension eats before it reaches the
+   * chassis, 0..1. There is no fork travel in the model, so without this the
+   * full ramp rate goes straight into body pitch and a speed bump loops you.
+   * A Grom has ~100 mm of travel against a ~115 mm hump, so most of it.
+   */
+  bumpAbsorption: number;
+  /** Hard ceiling on the pitch rate any single bump can inject (rad/s). */
+  maxBumpKick: number;
 }
 
 export interface RiderTuning {
@@ -102,8 +111,17 @@ export interface BalanceTuning {
    * deliberately no on-screen meter for it.
    */
   rollInstability: number;
-  /** How much steer input corrects roll while up (rad/s per unit input). */
-  rollCorrection: number;
+  /** Lean torque the stick commands while the front is up (rad/s^2 per unit). */
+  rollAuthority: number;
+  /**
+   * How hard the bike wants to stand back up. Set ABOVE
+   * `rollInstability * rollDivergence` and side-to-side becomes a lean you can
+   * hold; set it below and it becomes a fall you have to keep catching. It is
+   * the single knob that decides which of those two games this is.
+   */
+  rollResponse: number;
+  /** Inverted-pendulum topple gain: how hard gravity pulls you over. */
+  rollDivergence: number;
   /** Roll angle past which you drop it (rad). */
   rollCrashAngle: number;
   /** Passive self-centring, keeps low-skill riders alive. */
@@ -189,6 +207,8 @@ export const GROM: BikeTuning = {
     pitchDamping: 70,
     groundedPitchDamping: 190,
     frontSlamRestitution: 0.22,
+    bumpAbsorption: 0.58,
+    maxBumpKick: 2.4,
   },
 
   rider: {
@@ -217,10 +237,12 @@ export const GROM: BikeTuning = {
   },
 
   balance: {
-    rollInstability: 0.5,
-    rollCorrection: 1.9,
-    rollCrashAngle: 38 * DEG,
-    rollDamping: 2.4,
+    rollInstability: 0.35,
+    rollAuthority: 2.6,
+    rollResponse: 8.0,
+    rollDivergence: 9.0,
+    rollCrashAngle: 45 * DEG,
+    rollDamping: 4.2,
   },
 
   limits: {

@@ -17,19 +17,43 @@ const RAD = 180 / Math.PI;
 const MPH = 2.23694;
 
 const flat: GroundProvider = {
-  sample: () => ({ height: 0, friction: 1, bumpKick: 0 }),
+  heightAt: () => 0,
+  frictionAt: () => 1,
   collide: () => null,
 };
+
+/** Flat road with one speed bump on it, for the bump-loft test. */
+function withBump(z0: number, half = 0.62, height = 0.115): GroundProvider {
+  const raw = (z: number) => {
+    const t = (z - z0) / half;
+    if (t <= -1 || t >= 1) return 0;
+    const c = Math.cos((t * Math.PI) / 2);
+    return height * c * c;
+  };
+  return {
+    heightAt: (_x, z, r) => {
+      let best = raw(z);
+      for (let i = 1; i <= 6; i++) {
+        const d = (i / 6) * r;
+        const lift = Math.sqrt(Math.max(0, r * r - d * d)) - r;
+        best = Math.max(best, raw(z - d) + lift, raw(z + d) + lift);
+      }
+      return best;
+    },
+    frictionAt: () => 1,
+    collide: () => null,
+  };
+}
 
 function input(p: Partial<RiderInput> = {}): RiderInput {
   return { throttle: 0, brake: 0, steer: 0, weight: 0, shiftUp: false, shiftDown: false, ...p };
 }
 
-function newSim() {
+function newSim(ground: GroundProvider = flat) {
   const t = cloneTuning(GROM);
   // Kill the random roll wander so results are repeatable run to run.
   t.balance.rollInstability = 0;
-  return new BikeSim(t, flat, { x: 0, z: 0, yaw: 0 });
+  return new BikeSim(t, ground, { x: 0, z: 0, yaw: 0 });
 }
 
 function run(
@@ -277,6 +301,139 @@ function autopilot(sim: BikeSim, i: number, opts: { shift: boolean }): RiderInpu
     ? 'the shift is felt — timing the pull-back through it is a real skill'
     : 'barely felt — lengthen gearbox.shiftTimeUp');
   row('rideable through it', shifted.alive ? 'yes — recoverable' : 'dropped it');
+  console.log('');
+}
+
+// --- 7. speed bumps ------------------------------------------------------
+{
+  // 3rd gear can't be lifted on power alone. A bump is the way in - and because
+  // the ramp rate scales with speed, hitting it faster should throw it harder.
+  const BUMP_Z = 160;
+  console.log('SPEED BUMP in 3rd (bump is the only way into a 3rd-gear wheelie)');
+  for (const [label, pull] of [['just ride over it', false], ['pull back over it', true]] as const) {
+    for (const approach of [25, 42]) {
+      const target = approach / MPH;
+      const sim = newSim(withBump(BUMP_Z));
+      // Get into 3rd...
+      for (let i = 0; i < 20 / DT; i++) {
+        const s = sim.state;
+        if (s.gear === 2 && !s.shifting) break;
+        sim.step(input({
+          throttle: 1, weight: -1,
+          shiftUp: s.gear < 2 && s.rpm > 8700 && !s.shifting,
+        }), DT);
+      }
+      // ...then settle onto the approach speed, still well short of the bump.
+      let reached = false;
+      for (let i = 0; i < 30 / DT; i++) {
+        const s = sim.state;
+        const err = target - s.speed;
+        if (Math.abs(err) < 0.25 && s.z < BUMP_Z - 25) { reached = true; break; }
+        if (s.z > BUMP_Z - 12) break;
+        sim.step(input({
+          throttle: err > 0 ? Math.min(1, err * 0.6 + 0.35) : 0,
+          brake: err < -0.4 ? Math.min(0.5, -err * 0.12) : 0,
+          weight: -1,
+        }), DT);
+        if (s.mode !== 'riding') break;
+      }
+      if (!reached) { row(`${label} @ ${approach} mph`, 'could not set up'); continue; }
+      const entry = sim.state.speed * MPH;
+      let maxPitch = 0;
+      let crashed = false;
+      for (let i = 0; i < 12 / DT; i++) {
+        const s = sim.state;
+        // Hold the approach speed, then yank as the front meets the face.
+        const onIt = pull && s.z > BUMP_Z - 1.9 && s.z < BUMP_Z + 1.2;
+        const throttle = s.speed < target ? 0.75 : 0.35;
+        sim.step(input({ throttle: onIt ? 1 : throttle, weight: onIt ? 1 : -0.2 }), DT);
+        if (s.z > BUMP_Z - 3) maxPitch = Math.max(maxPitch, s.pitch);
+        if (s.mode !== 'riding') { crashed = true; break; }
+        if (s.z > BUMP_Z + 45) break;
+      }
+      const deg = maxPitch * RAD;
+      const verdict = crashed ? 'LOOPED - too much'
+        : deg > 25 ? 'proper wheelie off the bump'
+        : deg > 8 ? 'front comes up'
+        : 'barely noticed it';
+      row(`${label} @ ${entry.toFixed(0)} mph`, `peak ${deg.toFixed(0)}° — ${verdict}`);
+    }
+  }
+  console.log('');
+}
+
+// --- 8. side-to-side: lean, not fall -------------------------------------
+{
+  console.log('ROLL (should read as leaning, and the stick must catch it)');
+
+  // The one place the harness does NOT zero out instability.
+  const real = () => new BikeSim(cloneTuning(GROM), flat, { x: 0, z: 0, yaw: 0 });
+
+  /** Hold a wheelie with the autopilot while `steer` drives the roll axis. */
+  function rollRun(seconds: number, steer: (t: number, roll: number) => number) {
+    const sim = real();
+    let peak = 0;
+    let t = 0;
+    for (let i = 0; i < seconds / DT; i++) {
+      const s = sim.state;
+      const ctl = { ...autopilot(sim, i, { shift: true }), steer: steer(i * DT, s.roll) };
+      sim.step(ctl, DT);
+      if (s.wheelieing) {
+        t += DT;
+        if (Math.abs(s.roll) > Math.abs(peak)) peak = s.roll;
+      }
+      if (s.mode !== 'riding') break;
+    }
+    return { sim, peak, upFor: t };
+  }
+
+  // a) Sign check, in the sim rather than by eye.
+  {
+    const r = rollRun(6, (t) => (t > 1.2 ? 1 : 0));
+    const roll = r.sim.state.roll * RAD;
+    row('stick right ->', `${roll > 0.5 ? 'leans RIGHT' : roll < -0.5 ? 'leans LEFT' : 'no lean'} (${roll.toFixed(1)}°)`);
+    row('  expected', 'leans RIGHT');
+  }
+
+  // b) Hands off the roll axis: should be a slow lean you have time to notice.
+  {
+    let lowsides = 0;
+    let sumPeak = 0;
+    let sumUp = 0;
+    const RUNS = 12;
+    for (let n = 0; n < RUNS; n++) {
+      const r = rollRun(25, () => 0);
+      sumPeak += Math.abs(r.peak) * RAD;
+      sumUp += r.upFor;
+      if (r.sim.state.crashReason === 'lowside') lowsides++;
+    }
+    row('no steer input, avg drift', `${(sumPeak / RUNS).toFixed(1)}° of lean`);
+    row('avg time up', `${(sumUp / RUNS).toFixed(1)} s`);
+    row('lowsided', `${lowsides} of ${RUNS} runs`);
+  }
+
+  // c) Can a deliberate correction pull a bad lean back? Measured as time to
+  //    return to near-upright once you push the other way.
+  {
+    const sim = real();
+    let pushedTo = 0;
+    let correctingFrom = -1;
+    let recovered = -1;
+    for (let i = 0; i < 20 / DT; i++) {
+      const s = sim.state;
+      // Lean it hard right, then hold left until it comes back up.
+      const steer = correctingFrom < 0 ? 1 : -1;
+      if (correctingFrom < 0 && s.roll > 0.42) { correctingFrom = i * DT; pushedTo = s.roll; }
+      if (correctingFrom >= 0 && recovered < 0 && s.roll < 0.09) recovered = i * DT - correctingFrom;
+      sim.step({ ...autopilot(sim, i, { shift: true }), steer }, DT);
+      if (s.mode !== 'riding') break;
+      if (recovered >= 0) break;
+    }
+    row('leaned over to', `${(pushedTo * RAD).toFixed(1)}°`);
+    row('opposite stick pulls it back in',
+      recovered >= 0 ? `${recovered.toFixed(2)} s — recoverable`
+        : correctingFrom < 0 ? 'never got that far over' : 'did not recover');
+  }
   console.log('');
 }
 

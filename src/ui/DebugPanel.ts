@@ -92,13 +92,14 @@ export class DebugPanel {
     if (kind === 'chill') {
       // Wider save window, no side-to-side wobble, softer landings.
       t.balance.rollInstability = 0;
+      t.balance.rollResponse = 14;
       t.chassis.pitchDamping = 78;
       t.limits.crashPitch = 88 * DEG;
       t.rider.yankGain = 1350;
     } else if (kind === 'stunt') {
       t.engine.peakTorque = 34;
       t.rider.yankGain = 1600;
-      t.balance.rollInstability = 0.75;
+      t.balance.rollInstability = 0.8;
       t.limits.crashPitch = 86 * DEG;
     }
     this.sim.setTuning(t);
@@ -126,6 +127,8 @@ export class DebugPanel {
     f.add(t.chassis, 'pitchDamping', 0, 220, 1).name('pitch damping').onChange(this.push);
     f.add(t.chassis, 'groundedPitchDamping', 20, 500, 5).name('damping (wheels down)').onChange(this.push);
     f.add(t.chassis, 'frontSlamRestitution', 0, 0.8, 0.01).name('front slam bounce').onChange(this.push);
+    f.add(t.chassis, 'bumpAbsorption', 0, 1, 0.01).name('suspension absorbs').onChange(this.push);
+    f.add(t.chassis, 'maxBumpKick', 0, 6, 0.1).name('max bump kick').onChange(this.push);
   }
 
   private buildRider(t: BikeTuning): void {
@@ -145,7 +148,9 @@ export class DebugPanel {
   private buildBalance(t: BikeTuning): void {
     const f = this.track(this.gui.addFolder('Balance (side to side)').close());
     f.add(t.balance, 'rollInstability', 0, 1.5, 0.01).name('instability').onChange(this.push);
-    f.add(t.balance, 'rollCorrection', 0, 6, 0.05).name('steer correction').onChange(this.push);
+    f.add(t.balance, 'rollAuthority', 0, 8, 0.05).name('lean per stick').onChange(this.push);
+    f.add(t.balance, 'rollResponse', 0, 10, 0.1).name('lean response').onChange(this.push);
+    f.add(t.balance, 'rollDivergence', 0, 25, 0.5).name('tip-over force').onChange(this.push);
     f.add(t.balance, 'rollDamping', 0, 8, 0.05).name('self-centring').onChange(this.push);
     f.add(this.degrees, 'rollCrashAngle', 8, 80, 1).name('drop it at (deg)')
       .onChange((v: number) => { this.sim.getTuning().balance.rollCrashAngle = v * DEG; this.push(); });

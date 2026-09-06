@@ -227,6 +227,32 @@ export function makeCobbleTexture(): THREE.CanvasTexture {
   return finish(canvas, 1, 1);
 }
 
+/** Yellow/black diagonal hazard stripes for the speed bumps. */
+export function makeHazardTexture(): THREE.CanvasTexture {
+  const rnd = mulberry(55);
+  const W = 256, H = 64;
+  const [canvas, ctx] = makeCanvas(W, H);
+  ctx.fillStyle = '#e0b420';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#1c1d21';
+  const band = 32;
+  for (let x = -H; x < W + H; x += band * 2) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + band, 0);
+    ctx.lineTo(x + band - H, H);
+    ctx.lineTo(x - H, H);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // Scuffed by a few thousand cars.
+  for (let i = 0; i < 1400; i++) {
+    ctx.fillStyle = `rgba(${rnd() > 0.5 ? '255,255,255' : '0,0,0'},${rnd() * 0.22})`;
+    ctx.fillRect(rnd() * W, rnd() * H, 2, 2);
+  }
+  return finish(canvas, 6, 1);
+}
+
 export function makeSidewalkTexture(): THREE.CanvasTexture {
   const rnd = mulberry(21);
   const S = 256;

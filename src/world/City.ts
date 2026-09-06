@@ -1,11 +1,13 @@
 import * as THREE from 'three';
-import type { CrashReason, GroundProvider, GroundSample } from '../sim/types';
+import type { CrashReason, GroundProvider } from '../sim/types';
 import type { SpawnPoint } from '../sim/BikeSim';
 import {
   makeAwning, makeFort, makeGarita, makeParkedCar, makePalm, makePlanter,
   makeShopSign, makeStreetLamp, PROP_MATERIALS,
 } from './Props';
-import { makeCobbleTexture, makeFacadeTexture, makeFlagMuralTexture, makeSidewalkTexture } from './textures';
+import {
+  makeCobbleTexture, makeFacadeTexture, makeFlagMuralTexture, makeHazardTexture, makeSidewalkTexture,
+} from './textures';
 
 /**
  * A single slice of an Old San Juan-ish barrio: one long cobbled avenue running
@@ -32,7 +34,8 @@ export const LAYOUT = {
 } as const;
 
 interface Box2 { minX: number; maxX: number; minZ: number; maxZ: number; }
-interface Bump { z: number; strength: number; }
+/** A "muerto" - the tall speed humps all over the island. Real geometry. */
+interface Bump { z: number; half: number; height: number; }
 
 export class City implements GroundProvider {
   readonly root = new THREE.Group();
@@ -40,8 +43,6 @@ export class City implements GroundProvider {
 
   private colliders: Box2[] = [];
   private bumps: Bump[] = [];
-  private lastZ = 0;
-  private primed = false;
 
   constructor() {
     this.buildRoads();
@@ -97,18 +98,36 @@ export class City implements GroundProvider {
       this.root.add(sw);
     }
 
-    // Speed bumps: free lift if you time the pull.
+    // Speed bumps. The mesh below is generated from the very same profile the
+    // physics samples, so what you ride over is exactly what you see.
+    const hazard = makeHazardTexture();
     for (const z of [30, 190, 330]) {
-      this.bumps.push({ z, strength: 1.25 });
-      const b = new THREE.Mesh(
-        new THREE.BoxGeometry(LAYOUT.roadHalf * 2, 0.13, 0.9),
-        new THREE.MeshStandardMaterial({ color: 0xd8c23a, roughness: 0.85 }),
-      );
-      b.position.set(0, 0.06, z);
-      b.receiveShadow = true;
-      b.castShadow = true;
-      this.root.add(b);
+      const bump: Bump = { z, half: 0.62, height: 0.115 };
+      this.bumps.push(bump);
+      this.root.add(this.buildBumpMesh(bump, hazard));
     }
+  }
+
+  /** Humped strip across the road, vertices displaced by `bumpProfile`. */
+  private buildBumpMesh(bump: Bump, tex: THREE.Texture): THREE.Mesh {
+    const segments = 20;
+    const width = LAYOUT.roadHalf * 2;
+    const geo = new THREE.PlaneGeometry(width, bump.half * 2, 1, segments);
+    const pos = geo.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) {
+      // Plane is still in its own XY frame here; y maps to world z after the
+      // rotation below.
+      const along = pos.getY(i);
+      pos.setZ(i, bumpProfile(along / bump.half) * bump.height);
+    }
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(0, 0.004, bump.z);
+    mesh.receiveShadow = true;
+    mesh.castShadow = true;
+    return mesh;
   }
 
   // --------------------------------------------------------------- buildings
@@ -451,27 +470,51 @@ export class City implements GroundProvider {
 
   // -------------------------------------------------------- GroundProvider
 
-  sample(x: number, z: number, speed: number, _dt: number): GroundSample {
-    let bumpKick = 0;
-    if (this.primed && Math.abs(x) < LAYOUT.roadHalf + 1) {
+  /** Raw surface height, before any tyre smoothing. */
+  private rawHeight(x: number, z: number): number {
+    const ax = Math.abs(x);
+    const kerb = LAYOUT.roadHalf;
+    if (ax > kerb && ax < kerb + LAYOUT.sidewalk) {
+      // Ramped over 30 cm rather than a vertical face. The tyre envelope only
+      // smooths along the direction of travel, so a hard step here made the
+      // whole bike flicker up and down whenever the player rode the kerb line.
+      const t = Math.min(1, (ax - kerb) / 0.3);
+      return 0.16 * t * t * (3 - 2 * t);
+    }
+    if (ax <= kerb + 0.6) {
       for (const b of this.bumps) {
-        const crossed = (this.lastZ - b.z) * (z - b.z) <= 0 && this.lastZ !== z;
-        if (crossed) {
-          // A bump only kicks if you're actually moving; scaled so it's a nudge
-          // at walking pace and a real launch at speed.
-          bumpKick = b.strength * Math.min(1, Math.abs(speed) / 14) * Math.sign(speed || 1);
-        }
+        const t = (z - b.z) / b.half;
+        if (t > -1 && t < 1) return b.height * bumpProfile(t);
       }
     }
-    this.lastZ = z;
-    this.primed = true;
+    return 0;
+  }
 
-    const onPavement = Math.abs(x) > LAYOUT.roadHalf && Math.abs(x) < LAYOUT.roadHalf + LAYOUT.sidewalk;
-    return {
-      height: onPavement ? 0.16 : 0,
-      friction: onPavement ? 0.88 : 1.0,
-      bumpKick,
-    };
+  /**
+   * Height the tyre actually rides at, which is not the raw profile: a wheel of
+   * radius r rests on the highest point its circle touches, so it rounds off
+   * sharp edges the way a real tyre does. Without this a kerb reads as a step
+   * and the pitch solver sees an infinite ramp rate.
+   */
+  heightAt(x: number, z: number, wheelRadius: number): number {
+    const samples = 6;
+    let best = this.rawHeight(x, z);
+    for (let i = 1; i <= samples; i++) {
+      const d = (i / samples) * wheelRadius;
+      const lift = Math.sqrt(Math.max(0, wheelRadius * wheelRadius - d * d)) - wheelRadius;
+      best = Math.max(
+        best,
+        this.rawHeight(x, z - d) + lift,
+        this.rawHeight(x, z + d) + lift,
+      );
+    }
+    return best;
+  }
+
+  frictionAt(x: number, _z: number): number {
+    const ax = Math.abs(x);
+    const onPavement = ax > LAYOUT.roadHalf && ax < LAYOUT.roadHalf + LAYOUT.sidewalk;
+    return onPavement ? 0.88 : 1.0;
   }
 
   collide(x: number, z: number, _speed: number): CrashReason | null {
@@ -489,8 +532,6 @@ export class City implements GroundProvider {
    * already rolling in 2nd - which is the gear you want to be in to lift.
    */
   respawnFor(x: number, z: number): SpawnPoint {
-    // Forget where the bike was, or the teleport can read as a bump crossing.
-    this.primed = false;
     const rolling = { speed: 11, gear: 1 };
     const p = LAYOUT.plaza;
     if (z > p.zMin - 20) {
@@ -509,4 +550,15 @@ export class City implements GroundProvider {
     const back = Math.max(LAYOUT.avenueStart + 12, z - 24);
     return { x: 0, z: back, yaw: 0, ...rolling };
   }
+}
+
+/**
+ * Speed bump cross-section, `t` in -1..1 across the hump, returning 0..1.
+ * Shared by the collision heightfield and the mesh generator so they can never
+ * disagree about where the road is.
+ */
+export function bumpProfile(t: number): number {
+  if (t <= -1 || t >= 1) return 0;
+  const c = Math.cos((t * Math.PI) / 2);
+  return c * c;
 }

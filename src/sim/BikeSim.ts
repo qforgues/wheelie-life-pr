@@ -56,6 +56,8 @@ export class BikeSim {
   private rollNoiseTimer = 0;
   private rollRate = 0;
   private resetTimer = 0;
+  /** Pitch imposed by the terrain under the two wheels, last step. */
+  private prevPitchFloor = 0;
 
   constructor(tuning: BikeTuning, ground: GroundProvider, spawn: SpawnPoint) {
     this.tuning = tuning;
@@ -137,6 +139,9 @@ export class BikeSim {
     this.rollRate = 0;
     this.rollNoise = 0;
     this.resetTimer = 0;
+    this.prevPitchFloor = this.groundPitch(s.x, s.z, s.yaw);
+    s.pitch = this.prevPitchFloor;
+    s.y = this.ground.heightAt(s.x, s.z, this.tuning.chassis.wheelRadius);
   }
 
   crash(reason: CrashReason, impact = 0): void {
@@ -145,6 +150,16 @@ export class BikeSim {
     this.state.crashReason = reason;
     this.state.lastImpact = impact;
     this.resetTimer = 0;
+  }
+
+  /** Pitch the terrain forces on the bike at a given pose (rad). */
+  private groundPitch(x: number, z: number, yaw: number): number {
+    const { wheelbase, wheelRadius } = this.tuning.chassis;
+    const rear = this.ground.heightAt(x, z, wheelRadius);
+    const front = this.ground.heightAt(
+      x + Math.sin(yaw) * wheelbase, z + Math.cos(yaw) * wheelbase, wheelRadius,
+    );
+    return Math.atan2(front - rear, wheelbase);
   }
 
   /** Seconds since the crash started, for the wipeout animation. */
@@ -238,15 +253,31 @@ export class BikeSim {
     let driveForce = wheelTorque / ch.wheelRadius;
 
     // --- ground ------------------------------------------------------------
-    const g = this.ground.sample(s.x, s.z, s.speed, dt);
-    s.y = g.height;
+    // Height under each wheel separately. The difference between them IS the
+    // pitch the terrain is forcing on the bike, which is where bump lofts come
+    // from - no scripted impulse, just a ramp that's physically in the way.
+    const rearHeight = this.ground.heightAt(s.x, s.z, ch.wheelRadius);
+    const frontHeight = this.ground.heightAt(
+      s.x + Math.sin(s.yaw) * ch.wheelbase,
+      s.z + Math.cos(s.yaw) * ch.wheelbase,
+      ch.wheelRadius,
+    );
+    s.y = rearHeight;
+    const pitchFloor = Math.atan2(frontHeight - rearHeight, ch.wheelbase);
+    const floorRate = dt > 0 ? (pitchFloor - this.prevPitchFloor) / dt : 0;
+    this.prevPitchFloor = pitchFloor;
+    const friction = this.ground.frictionAt(s.x, s.z);
+
+    // How far the front wheel is off the road, measured from the road - not
+    // from horizontal, so cresting a bump doesn't read as a wheelie.
+    const clearance = s.pitch - pitchFloor;
 
     // --- normal loads ------------------------------------------------------
     // Once the front is off the ground the rear carries everything, which is
     // why a wheelie hooks up so well. Blended over the first couple of degrees
     // so grip doesn't double in a single step as the wheel leaves the tarmac.
-    const wheelieUp = s.pitch > 1e-3;
-    const liftBlend = smoothstep(0, 0.045, s.pitch);
+    const wheelieUp = clearance > 1e-3;
+    const liftBlend = smoothstep(0, 0.045, clearance);
     const staticRear = (ch.wheelbase - dCg) / ch.wheelbase;
     const transfer = (s.accel * hCg) / (ch.wheelbase * G);
     const rearLoadFrac = lerp(clamp(staticRear + transfer, 0.15, 1), 1, liftBlend);
@@ -254,7 +285,7 @@ export class BikeSim {
     const frontNormal = ch.mass * G - rearNormal;
 
     // --- traction limit ----------------------------------------------------
-    const gripLong = tyre.gripLong * g.friction;
+    const gripLong = tyre.gripLong * friction;
     const maxDrive = gripLong * rearNormal;
     let slip = 0;
     if (driveForce > maxDrive) {
@@ -315,7 +346,7 @@ export class BikeSim {
 
     // The front tyre and forks push back hard against the last few degrees, so
     // the bike sits on its wheels instead of jittering around pitch = 0.
-    const grounded = s.pitch < 1e-4 && s.pitchRate <= 0;
+    const grounded = clearance < 1e-4 && s.pitchRate <= 0;
     const dampCoef = grounded ? ch.groundedPitchDamping : ch.pitchDamping;
     const tauDamp = -dampCoef * s.pitchRate;
     const tauScrape = -scrapeAmount * limits.scrapeRestoreTorque;
@@ -323,29 +354,35 @@ export class BikeSim {
     const pitchAccel =
       (tauGravity + tauAccel + tauYank + tauDamp + tauScrape) / inertiaRear;
     s.pitchRate += pitchAccel * dt;
-
-    // Kerbs and speed bumps throw the front up. Free wheelie, if you time it.
-    if (g.bumpKick !== 0) s.pitchRate += g.bumpKick;
-
     s.pitch += s.pitchRate * dt;
 
-    if (s.pitch <= 0) {
-      // Front wheel back on the tarmac.
+    if (s.pitch <= pitchFloor) {
+      // Front wheel is on the road (or being pushed up by it).
       if (s.pitchRate < -0.35) {
         s.pitchRate = -s.pitchRate * ch.frontSlamRestitution;
         s.speed *= 1 - clamp(Math.abs(s.pitchRate) * 0.02, 0, 0.08);
       } else {
         s.pitchRate = 0;
       }
-      s.pitch = 0;
+      s.pitch = pitchFloor;
+      // Riding up the face of a bump throws the nose, and the faster you hit
+      // it the harder it throws, because floorRate scales with speed - the free
+      // lift falls out of the geometry. What the forks would have absorbed is
+      // taken back out, and the whole thing is capped so no piece of terrain
+      // can ever launch the bike outright.
+      if (floorRate > 0) {
+        const kick = Math.min(floorRate * (1 - ch.bumpAbsorption), ch.maxBumpKick);
+        s.pitchRate = Math.max(s.pitchRate, kick);
+      }
     }
 
-    s.wheelieing = s.pitch > limits.wheelieCountPitch;
+    const clearanceNow = s.pitch - pitchFloor;
+    s.wheelieing = clearanceNow > limits.wheelieCountPitch;
     s.scraping = s.pitch > limits.scrapePitch;
     s.balanceError = s.pitch - s.balancePoint;
 
     // --- steering ----------------------------------------------------------
-    const wheelieFactor = smoothstep(limits.wheelieCountPitch, 0.5, s.pitch);
+    const wheelieFactor = smoothstep(limits.wheelieCountPitch, 0.5, clearanceNow);
     const steerAuth = lerp(1, steering.wheelieSteerScale, wheelieFactor);
     const speedFactor = 1 / (1 + s.speed / steering.yawSpeedFalloff);
     const targetYaw = -input.steer * steering.maxYawRateLow * speedFactor * steerAuth
@@ -402,16 +439,28 @@ export class BikeSim {
     this.rollNoise = damp(this.rollNoise, this.rollNoiseTarget, 2.2, dt);
 
     if (wheelieFactor > 0.01) {
-      // Inverted-pendulum divergence: the further over you are, the harder it goes.
-      const diverge = instability * 9.0 * Math.sin(s.roll) * wheelieFactor;
-      const wander = instability * 0.55 * this.rollNoise * wheelieFactor;
-      const correction = -input.steer * b.rollCorrection * wheelieFactor;
-      this.rollRate += (diverge + wander + correction) * dt;
+      // Side-to-side while the front is up.
+      //
+      // Sign matters and is easy to get backwards: the bike faces +Z, so the
+      // rider's right is -X, and a positive Z-rotation tips the bike that way.
+      // Positive roll is therefore "leaning right", and stick-right must push
+      // roll positive.
+      //
+      // The bike is a genuine inverted pendulum up here (`diverge`), but it
+      // also wants to stand itself back up (`restore`). Which of those wins
+      // decides whether this reads as leaning or as falling - see
+      // BalanceTuning.rollResponse. Default has restore winning, so a lean
+      // settles at an angle and holds instead of running away to the deck.
+      const control = input.steer * b.rollAuthority;
+      const diverge = instability * b.rollDivergence * Math.sin(s.roll);
+      const restore = -b.rollResponse * s.roll;
+      const wander = instability * 0.35 * this.rollNoise;
+      this.rollRate += (control + (diverge + wander) * wheelieFactor + restore) * dt;
       this.rollRate -= this.rollRate * b.rollDamping * dt;
       s.roll += this.rollRate * dt;
     } else {
-      // Wheels down: the bike stands itself up.
-      s.roll = damp(s.roll, -input.steer * 0.22 * smoothstep(2, 12, s.speed), 6, dt);
+      // Wheels down: the bike leans into the turn and stands itself back up.
+      s.roll = damp(s.roll, input.steer * 0.22 * smoothstep(2, 12, s.speed), 6, dt);
       this.rollRate = damp(this.rollRate, 0, 8, dt);
     }
   }

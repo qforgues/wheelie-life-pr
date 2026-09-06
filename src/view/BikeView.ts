@@ -11,6 +11,110 @@ import type { BikeTuning } from '../sim/tuning';
  * so the three rotations can never fight over Euler order.
  */
 
+/** Height of the rider's hip joint above the rear contact patch (m). */
+const HIP_Y = 0.92;
+/** Where the rider sits along the bike at neutral (m from the rear contact). */
+const RIDER_SEAT_Z = 0.46;
+
+const _v = new THREE.Vector3();
+const _q = new THREE.Quaternion();
+const _dir = new THREE.Vector3();
+const _pole = new THREE.Vector3();
+const _elbow = new THREE.Vector3();
+
+interface LimbChain {
+  root: THREE.Vector3;
+  upper: THREE.Mesh;
+  lower: THREE.Mesh;
+  end: THREE.Mesh;
+  upperLen: number;
+  lowerLen: number;
+  pole: THREE.Vector3;
+  target: 'grip' | 'peg';
+  side: number;
+}
+
+function makeChain(o: {
+  parent: THREE.Object3D;
+  root: THREE.Vector3;
+  upperLen: number; lowerLen: number;
+  upperRadius: number; lowerRadius: number;
+  upperMat: THREE.Material; lowerMat: THREE.Material;
+  endMat: THREE.Material; endRadius: number;
+  pole: THREE.Vector3;
+  target: 'grip' | 'peg';
+  side: number;
+}): LimbChain {
+  const bone = (len: number, r: number, mat: THREE.Material) => {
+    // Capsules are authored along +Y and re-oriented by the solver.
+    const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(0.01, len - r * 2), 4, 8), mat);
+    m.castShadow = true;
+    return m;
+  };
+  const upper = bone(o.upperLen, o.upperRadius, o.upperMat);
+  const lower = bone(o.lowerLen, o.lowerRadius, o.lowerMat);
+  const end = new THREE.Mesh(new THREE.SphereGeometry(o.endRadius, 8, 6), o.endMat);
+  o.parent.add(upper, lower, end);
+  return {
+    root: o.root.clone(),
+    upper, lower, end,
+    upperLen: o.upperLen, lowerLen: o.lowerLen,
+    pole: o.pole.clone().normalize(),
+    target: o.target, side: o.side,
+  };
+}
+
+/** Places a capsule so it spans `from` to `to`. */
+function placeBone(mesh: THREE.Mesh, from: THREE.Vector3, to: THREE.Vector3): void {
+  _dir.subVectors(to, from);
+  const len = _dir.length();
+  if (len < 1e-5) return;
+  mesh.position.copy(from).addScaledVector(_dir, 0.5);
+  _dir.divideScalar(len);
+  mesh.quaternion.setFromUnitVectors(UP, _dir);
+}
+
+const UP = new THREE.Vector3(0, 1, 0);
+
+/**
+ * Two-bone IK. Puts the elbow/knee on the circle where both bone lengths are
+ * satisfied, picking the side the pole vector points to so joints bend the
+ * right way. If the target is out of reach the limb simply straightens toward
+ * it, which is exactly what an arm does when the rider leans right back.
+ */
+function solveTwoBone(limb: LimbChain, target: THREE.Vector3): void {
+  const { root, upperLen: l1, lowerLen: l2 } = limb;
+  _dir.subVectors(target, root);
+  let d = _dir.length();
+  if (d < 1e-4) return;
+  _dir.divideScalar(d);
+
+  const reach = l1 + l2;
+  const clamped = Math.min(d, reach * 0.999);
+  if (d > clamped) {
+    target = _v.copy(root).addScaledVector(_dir, clamped);
+    d = clamped;
+  }
+
+  const a = (l1 * l1 - l2 * l2 + d * d) / (2 * d);
+  const h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+
+  // Component of the pole perpendicular to the bone axis.
+  _pole.copy(limb.pole).addScaledVector(_dir, -limb.pole.dot(_dir));
+  if (_pole.lengthSq() < 1e-6) _pole.set(0, 0, 1).addScaledVector(_dir, -_dir.z);
+  _pole.normalize();
+
+  _elbow.copy(root).addScaledVector(_dir, a).addScaledVector(_pole, h);
+
+  placeBone(limb.upper, root, _elbow);
+  placeBone(limb.lower, _elbow, target);
+  limb.end.position.copy(target);
+}
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
 function shirtTexture(back: string, line1: string, line2: string, line3: string): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = 256; c.height = 256;
@@ -50,16 +154,23 @@ export class BikeView {
   private frontWheel = new THREE.Group();
   private forkGroup = new THREE.Group();
   private riderRoot = new THREE.Group();
+  /** Pivot at the rider's hips. Leaning has to rotate about the hips, not
+   *  about the road, or the shoulders swing back half a metre. */
+  private riderHips = new THREE.Group();
   private riderTorso = new THREE.Group();
-  private riderArms: THREE.Group[] = [];
+  private limbs: LimbChain[] = [];
+  private gripLocal: THREE.Vector3[] = [];
+  private forkOrigin = new THREE.Vector3();
   private sparks: THREE.Points;
   private sparkVel: Float32Array;
   private sparkLife: Float32Array;
   private wheelAngle = 0;
   private readonly R: number;
+  private readonly shiftRange: number;
 
   constructor(tuning: BikeTuning, opts: BikeViewOptions = {}) {
     this.R = tuning.chassis.wheelRadius;
+    this.shiftRange = Math.max(0.01, tuning.rider.weightShiftRange);
     const WB = tuning.chassis.wheelbase;
 
     this.root.add(this.rollPivot);
@@ -221,8 +332,12 @@ export class BikeView {
     }
 
     // ---- rider -----------------------------------------------------------
+    this.forkOrigin.set(0, this.R, WB);
+    this.gripLocal = [new THREE.Vector3(-0.29, 0.70, -0.17), new THREE.Vector3(0.29, 0.70, -0.17)];
     this.buildRider(opts.shirt ?? ['#1a1a1e', 'GOOD', 'BIKES', 'BETTER DAYS']);
-    this.riderRoot.position.set(0, 0, 0.34);
+    this.riderRoot.position.set(0, 0, RIDER_SEAT_Z);
+    this.riderRoot.add(this.riderHips);
+    this.riderHips.position.set(0, HIP_Y, 0);
     this.bike.add(this.riderRoot);
 
     // ---- sparks ----------------------------------------------------------
@@ -243,26 +358,11 @@ export class BikeView {
     this.root.add(this.sparks);
   }
 
-  /**
-   * A capsule spanning two points. Hand-placing rotations for every limb was
-   * producing arms that didn't reach the bars; this way the geometry is defined
-   * by where the joints actually are.
-   */
-  private static limb(
-    from: THREE.Vector3, to: THREE.Vector3, radius: number, mat: THREE.Material,
-  ): THREE.Mesh {
-    const dir = new THREE.Vector3().subVectors(to, from);
-    const len = Math.max(0.02, dir.length());
-    const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(radius, len - radius * 2, 4, 8), mat);
-    mesh.position.copy(from).addScaledVector(dir, 0.5);
-    // Capsules are built along +Y, so rotate that axis onto the limb.
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
-    mesh.castShadow = true;
-    return mesh;
-  }
-
   private buildRider(shirt: [string, string, string, string]): void {
-    const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+    // Everything below is positioned relative to the HIPS, not the road, so a
+    // lean rotates the body about the rider's waist the way a body actually
+    // hinges. y = 0 here is hip height.
+    const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y - HIP_Y, z);
     const skin = new THREE.MeshStandardMaterial({ color: 0xa9713f, roughness: 0.8 });
     const denim = new THREE.MeshStandardMaterial({ color: 0x3a4a68, roughness: 0.9 });
     const shoe = new THREE.MeshStandardMaterial({ color: 0xf0efe8, roughness: 0.85 });
@@ -275,41 +375,38 @@ export class BikeView {
       map: shirtTexture(shirt[0], shirt[1], shirt[2], shirt[3]), roughness: 0.92,
     });
 
-    // Torso: the back panel carries the shirt print, like the cover art.
     const torso = new THREE.Mesh(
       new THREE.BoxGeometry(0.32, 0.46, 0.21),
       [shirtMat, shirtMat, shirtMat, shirtMat, shirtMat, shirtBack],
     );
-    torso.position.set(0, 1.14, 0);
+    torso.position.copy(V(0, 1.14, 0));
     torso.castShadow = true;
     this.riderTorso.add(torso);
 
-    // Shoulders, so the arms don't sprout out of a flat slab.
     const shoulders = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.24, 4, 8), shirtMat);
     shoulders.rotation.z = Math.PI / 2;
-    shoulders.position.set(0, 1.34, 0.01);
+    shoulders.position.copy(V(0, 1.34, 0.01));
     shoulders.castShadow = true;
     this.riderTorso.add(shoulders);
 
     const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.09, 8), skin);
-    neck.position.set(0, 1.42, 0.02);
+    neck.position.copy(V(0, 1.42, 0.02));
     this.riderTorso.add(neck);
 
     const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 12), helmetMat);
-    helmet.position.set(0, 1.53, 0.02);
+    helmet.position.copy(V(0, 1.53, 0.02));
     helmet.castShadow = true;
     this.riderTorso.add(helmet);
     const chinbar = new THREE.Mesh(new THREE.BoxGeometry(0.185, 0.11, 0.13), helmetMat);
-    chinbar.position.set(0, 1.47, 0.13);
+    chinbar.position.copy(V(0, 1.47, 0.13));
     this.riderTorso.add(chinbar);
     const vis = new THREE.Mesh(new THREE.BoxGeometry(0.195, 0.10, 0.05), visor);
-    vis.position.set(0, 1.56, 0.13);
+    vis.position.copy(V(0, 1.56, 0.13));
     this.riderTorso.add(vis);
     const peak = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.03, 0.16), helmetMat);
-    peak.position.set(0, 1.63, 0.12);
+    peak.position.copy(V(0, 1.63, 0.12));
     peak.rotation.x = -0.25;
     this.riderTorso.add(peak);
-    // Crown decal on the back of the lid.
     const crown = new THREE.Mesh(
       new THREE.SphereGeometry(0.142, 12, 8, 0, Math.PI * 2, 0, 0.45),
       new THREE.MeshStandardMaterial({ color: 0xe9c750, roughness: 0.35, metalness: 0.5 }),
@@ -317,37 +414,33 @@ export class BikeView {
     crown.position.copy(helmet.position);
     this.riderTorso.add(crown);
 
-    // Arms: built to actually reach the grips. Grip world position is
-    // (+-0.29, 0.94, 1.03); the rider group sits at z = 0.34.
+    // Arms and legs are IK chains solved every frame in `update`, so the hands
+    // stay on the grips and the feet stay on the pegs no matter how the body
+    // moves. Rest lengths are set here; the solver never changes them.
     for (const side of [-1, 1]) {
-      const arm = new THREE.Group();
-      const shoulder = V(side * 0.17, 1.32, 0.03);
-      arm.position.copy(shoulder);
-      const grip = V(side * 0.29, 0.94 - 0.0, 1.03 - 0.34).sub(shoulder);
-      const elbow = grip.clone().multiplyScalar(0.5).add(V(side * 0.09, 0.02, -0.06));
-      arm.add(BikeView.limb(V(0, 0, 0), elbow, 0.052, shirtMat));
-      arm.add(BikeView.limb(elbow, grip, 0.044, skin));
-      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), skin);
-      hand.position.copy(grip);
-      arm.add(hand);
-      this.riderArms.push(arm);
-      this.riderTorso.add(arm);
+      this.limbs.push(makeChain({
+        parent: this.riderTorso,
+        root: V(side * 0.17, 1.32, 0.03),
+        upperLen: 0.30, lowerLen: 0.30,
+        upperRadius: 0.052, lowerRadius: 0.044,
+        upperMat: shirtMat, lowerMat: skin,
+        endMat: skin, endRadius: 0.055,
+        pole: new THREE.Vector3(side * 0.9, -0.35, -0.25),
+        target: 'grip', side,
+      }));
+      this.limbs.push(makeChain({
+        parent: this.riderTorso,
+        root: V(side * 0.11, 0.94, 0.02),
+        upperLen: 0.30, lowerLen: 0.28,
+        upperRadius: 0.075, lowerRadius: 0.062,
+        upperMat: denim, lowerMat: denim,
+        endMat: shoe, endRadius: 0.06,
+        pole: new THREE.Vector3(side * 0.8, -0.1, 0.9),
+        target: 'peg', side,
+      }));
     }
 
-    // Legs: hip on the seat, knee out and forward, foot on the peg.
-    for (const side of [-1, 1]) {
-      const hip = V(side * 0.11, 0.94, 0.02);
-      const knee = V(side * 0.21, 0.74, 0.36);
-      const ankle = V(side * 0.18, 0.44, 0.26);
-      this.riderTorso.add(BikeView.limb(hip, knee, 0.075, denim));
-      this.riderTorso.add(BikeView.limb(knee, ankle, 0.062, denim));
-      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.07, 0.22), shoe);
-      foot.position.set(side * 0.18, 0.41, 0.30);
-      foot.castShadow = true;
-      this.riderTorso.add(foot);
-    }
-
-    this.riderRoot.add(this.riderTorso);
+    this.riderHips.add(this.riderTorso);
   }
 
   /** Push a frame of sim state into the scene graph. */
@@ -368,16 +461,17 @@ export class BikeView {
     // Countersteer the bars into the turn, and stiff-arm them when the front is up.
     this.forkGroup.rotation.y = -state.yawRate * 0.22 - state.roll * 0.12;
 
-    // Rider body english. This is the only visual read on weight shift, and it
-    // needs to be legible from the chase camera: sit back and stand the arms up.
-    const back = Math.max(0, weightShift) / 0.11;
-    const fwd = Math.max(0, -weightShift) / 0.04;
-    this.riderRoot.position.z = 0.34 - back * 0.16 + fwd * 0.10;
-    this.riderTorso.rotation.x = -0.10 - back * 0.30 + fwd * 0.45 + state.pitch * 0.22;
-    this.riderTorso.rotation.z = -state.roll * 0.55;
-    for (const arm of this.riderArms) {
-      arm.rotation.x = -back * 0.35 + fwd * 0.25;
-    }
+    // Rider body english. Normalised against the *actual* tuned travel rather
+    // than a hard-coded number, so retuning weightShiftRange can't over-drive
+    // the animation past its rig.
+    const back = clamp01(Math.max(0, weightShift) / this.shiftRange);
+    const fwd = clamp01(Math.max(0, -weightShift) / (this.shiftRange * 0.35));
+    // Hips slide back along the seat; the body hinges about them.
+    this.riderRoot.position.z = RIDER_SEAT_Z - back * 0.13 + fwd * 0.08;
+    this.riderHips.rotation.x = -0.06 - back * 0.16 + fwd * 0.30 + state.pitch * 0.10;
+    this.riderHips.rotation.z = -state.roll * 0.45;
+
+    this.solveLimbs();
 
     this.updateSparks(state, dt);
   }
@@ -421,6 +515,38 @@ export class BikeView {
       if (this.sparkLife[i] <= 0) arr[i * 3 + 1] = -999;
     }
     attr.needsUpdate = true;
+  }
+
+  /**
+   * Re-aims the arms and legs so the hands stay on the grips and the feet on
+   * the pegs. Everything is solved in the torso's local space, which is why the
+   * rider can lean around without coming off the bike.
+   */
+  private solveLimbs(): void {
+    const hipsQuat = _q.setFromEuler(this.riderHips.rotation).invert();
+    const rootZ = this.riderRoot.position.z;
+    const forkYaw = this.forkGroup.rotation.y;
+
+    for (const limb of this.limbs) {
+      // Target in BIKE space.
+      if (limb.target === 'grip') {
+        const g = this.gripLocal[limb.side < 0 ? 0 : 1];
+        // The bars steer, so the grips move with them.
+        _v.set(
+          g.x * Math.cos(forkYaw) + g.z * Math.sin(forkYaw),
+          g.y,
+          -g.x * Math.sin(forkYaw) + g.z * Math.cos(forkYaw),
+        ).add(this.forkOrigin);
+      } else {
+        _v.set(limb.side * 0.18, 0.47, 0.62);
+      }
+      // Bike space -> riderRoot -> riderHips (== riderTorso, which has no
+      // transform of its own).
+      _v.z -= rootZ;
+      _v.y -= HIP_Y;
+      _v.applyQuaternion(hipsQuat);
+      solveTwoBone(limb, _v);
+    }
   }
 
   /** World-space point the camera should look at. */

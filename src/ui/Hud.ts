@@ -96,12 +96,17 @@ export class Hud {
     this.runTime.textContent = run.duration.toFixed(1);
     this.bestValue.textContent = `${tracker.best.distance.toFixed(1)} m`;
     this.lastValue.textContent = `${tracker.last.distance.toFixed(1)} m`;
+    // A run you fell out of still shows, but it's marked as not counting.
+    this.lastValue.classList.toggle('is-void', !tracker.lastBanked && tracker.last.distance > 0);
 
     if (state.mode === 'crashed') {
       this.banner.classList.add('is-visible');
+      const lost = !tracker.lastBanked && tracker.last.distance > 0.5
+        ? `<div class="hud-banner-void">${tracker.last.distance.toFixed(1)} m — didn't count, you have to land it</div>`
+        : '';
       this.banner.innerHTML = `
         <div class="hud-banner-title">${crashTitle(state.crashReason)}</div>
-        <div class="hud-banner-sub">${crashSub(state.crashReason)}</div>`;
+        <div class="hud-banner-sub">${crashSub(state.crashReason)}</div>${lost}`;
     } else {
       this.banner.classList.remove('is-visible');
     }

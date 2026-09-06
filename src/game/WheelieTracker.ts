@@ -26,6 +26,8 @@ export class WheelieTracker {
   justSetRecord = false;
   /** Set for one frame when a run ends at all. */
   justEnded = false;
+  /** Whether the last run counted. A run you fell out of does not. */
+  lastBanked = true;
 
   private lastX = 0;
   private lastZ = 0;
@@ -60,13 +62,18 @@ export class WheelieTracker {
     }
   }
 
-  /** Called when the bike crashes or the player resets mid-wheelie. */
-  endRun(): void {
+  /**
+   * Ends the current run. `banked` is false when the rider fell out of it -
+   * you still see the distance, but it doesn't go in the record book. Landing
+   * it is part of the trick.
+   */
+  endRun(banked = true): void {
     if (!this.active) return;
     this.active = false;
     this.justEnded = true;
     this.last = { ...this.current };
-    if (this.current.distance > this.best.distance) {
+    this.lastBanked = banked;
+    if (banked && this.current.distance > this.best.distance) {
       this.best = { ...this.current };
       this.justSetRecord = true;
     }
@@ -80,5 +87,6 @@ export class WheelieTracker {
     this.best = { ...EMPTY };
     this.active = false;
     this.hasPrev = false;
+    this.lastBanked = true;
   }
 }
