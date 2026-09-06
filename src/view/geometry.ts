@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
  * Geometry helpers for the bike and rider.
@@ -112,8 +113,10 @@ export function makeEnvironmentTexture(): THREE.CanvasTexture {
   ctx.fillRect(0, 0, W, H * 0.52);
 
   const ground = ctx.createLinearGradient(0, H * 0.52, 0, H);
-  ground.addColorStop(0, '#b6a888');
-  ground.addColorStop(1, '#6a625a');
+  // Bright enough to fill downward-facing surfaces. Undersides of awnings and
+  // balconies went almost black once the flat ambient came down.
+  ground.addColorStop(0, '#cabea6');
+  ground.addColorStop(1, '#94897a');
   ctx.fillStyle = ground;
   ctx.fillRect(0, H * 0.52, W, H * 0.48);
 
@@ -129,4 +132,36 @@ export function makeEnvironmentTexture(): THREE.CanvasTexture {
   tex.mapping = THREE.EquirectangularReflectionMapping;
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+/**
+ * Bakes a pile of meshes that share one material into a single mesh.
+ *
+ * Railings, palm crowns and lamp ironwork are built from dozens of little
+ * primitives each. Left as individual meshes they cost a draw call apiece and
+ * the street alone was issuing ~2400 of them; merged, the whole lot is one.
+ * The inputs are consumed - only the returned mesh should be added to a scene.
+ */
+export function mergeMeshes(meshes: THREE.Mesh[], material: THREE.Material): THREE.Mesh {
+  const geos: THREE.BufferGeometry[] = [];
+  for (const m of meshes) {
+    // Respect a caller that has already baked a world matrix in by hand
+    // (matrixAutoUpdate = false); updateMatrix would recompose it from the
+    // local TRS and throw that away.
+    if (m.matrixAutoUpdate) m.updateMatrix();
+    const g = m.geometry.clone();
+    g.applyMatrix4(m.matrix);
+    g.clearGroups();
+    // Merging needs a matching attribute set across every input.
+    for (const name of Object.keys(g.attributes)) {
+      if (name !== 'position' && name !== 'normal' && name !== 'uv') g.deleteAttribute(name);
+    }
+    geos.push(g);
+  }
+  const merged = mergeGeometries(geos, false);
+  for (const g of geos) g.dispose();
+  const mesh = new THREE.Mesh(merged ?? geos[0], material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
 }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { makePalmFrondTexture, makeSignTexture } from './textures';
+import { mergeMeshes, roundedBox } from '../view/geometry';
 
 /** Street furniture. Everything here is cheap boxes and cylinders, lit well. */
 
@@ -30,72 +31,178 @@ export function makePalm(height = 7, seed = 0): THREE.Group {
   const rnd = (n: number) => Math.sin(seed * 12.9898 + n * 78.233) * 0.5 + 0.5;
 
   // Curved trunk built from a few stacked, offset segments.
-  const segs = 7;
+  const segs = 8;
   const lean = (rnd(1) - 0.5) * 0.5;
+  const trunkParts: THREE.Mesh[] = [];
   let y = 0;
   for (let i = 0; i < segs; i++) {
     const h = height / segs;
     const r0 = 0.19 - (i / segs) * 0.09;
     const r1 = 0.19 - ((i + 1) / segs) * 0.09;
-    const seg = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, h, 8), SHARED.trunk);
+    const seg = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, h * 1.02, 12), SHARED.trunk);
     const t = i / segs;
     seg.position.set(lean * t * t * height * 0.25, y + h / 2, 0);
     seg.rotation.z = -lean * t * 0.25;
-    seg.castShadow = true;
-    g.add(seg);
+    trunkParts.push(seg);
     y += h;
   }
+  g.add(mergeMeshes(trunkParts, SHARED.trunk));
 
   const topX = lean * height * 0.25;
+  const crown = new THREE.Group();
+  crown.position.set(topX, y - 0.1, 0);
+  g.add(crown);
+
   const frondMat = new THREE.MeshStandardMaterial({
     map: getFrondTexture(),
     transparent: true,
-    alphaTest: 0.4,
+    alphaTest: 0.35,
     side: THREE.DoubleSide,
     roughness: 0.85,
   });
-  const frondGeo = new THREE.PlaneGeometry(3.4, 3.4);
-  const count = 8;
+
+  // Each frond hangs off its own base at the crown, so it can be swung round
+  // and drooped independently instead of every plane radiating from the centre.
+  const count = 12;
+  const frondGeo = new THREE.PlaneGeometry(3.1, 1.55);
   for (let i = 0; i < count; i++) {
+    const azimuth = new THREE.Group();
+    azimuth.rotation.y = -((i / count) * Math.PI * 2 + rnd(i) * 0.4);
+    const droop = new THREE.Group();
+    // Outer ring hangs low, inner ring stands up - that layering is most of
+    // what makes a palm read as a crown rather than a starburst.
+    const outer = i % 3 !== 0;
+    droop.rotation.z = -(outer ? 0.55 + rnd(i + 5) * 0.45 : 0.05 + rnd(i + 9) * 0.2);
     const f = new THREE.Mesh(frondGeo, frondMat);
-    const a = (i / count) * Math.PI * 2 + rnd(i) * 0.3;
-    f.position.set(topX + Math.cos(a) * 1.35, y + 0.15 - rnd(i + 3) * 0.35, Math.sin(a) * 1.35);
-    f.rotation.set(-Math.PI / 2 + 0.35 + rnd(i + 7) * 0.35, 0, 0);
-    f.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -a);
+    f.position.set(1.5, 0, 0);
+    f.rotation.x = -Math.PI / 2;
     f.castShadow = true;
-    g.add(f);
+    droop.add(f);
+    azimuth.add(droop);
+    if (outer) azimuth.scale.setScalar(0.85 + rnd(i + 2) * 0.3);
+    crown.add(azimuth);
   }
 
-  // Coconuts
-  for (let i = 0; i < 3; i++) {
-    const c = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), SHARED.trunk);
-    const a = (i / 3) * Math.PI * 2;
-    c.position.set(topX + Math.cos(a) * 0.32, y - 0.2, Math.sin(a) * 0.32);
-    g.add(c);
+  // Bake the whole crown down to one mesh - 12 fronds each behind their own
+  // pair of pivot groups is 12 draw calls per tree otherwise.
+  crown.updateMatrixWorld(true);
+  const fronds: THREE.Mesh[] = [];
+  crown.traverse((o) => { if ((o as THREE.Mesh).isMesh) fronds.push(o as THREE.Mesh); });
+  const bakedCrown = mergeMeshes(
+    fronds.map((f) => { const c = f.clone(); c.matrixAutoUpdate = false; c.matrix.copy(f.matrixWorld); return c; }),
+    frondMat,
+  );
+  crown.clear();
+  g.remove(crown);
+  g.add(bakedCrown);
+
+  // Coconuts tucked under the crown.
+  const nuts: THREE.Mesh[] = [];
+  const nutGeo = new THREE.SphereGeometry(0.15, 12, 10);
+  for (let i = 0; i < 4; i++) {
+    const c = new THREE.Mesh(nutGeo, SHARED.trunk);
+    const a = (i / 4) * Math.PI * 2;
+    c.position.set(topX + Math.cos(a) * 0.28, y - 0.28, Math.sin(a) * 0.28);
+    nuts.push(c);
   }
+  g.add(mergeMeshes(nuts, SHARED.trunk));
+  nutGeo.dispose();
+  return g;
+}
+
+/**
+ * Wrought-iron railing running along Z, thin in X. Used on the balconies and
+ * along the sea wall - as a solid slab it read as a black wall, which is what
+ * the balconies looked like from the street.
+ */
+export function makeRailing(length: number, height = 0.85, spacing = 0.16): THREE.Group {
+  const g = new THREE.Group();
+  const parts: THREE.Mesh[] = [];
+
+  const railGeo = new THREE.CylinderGeometry(0.022, 0.022, length, 8);
+  for (const y of [height, height * 0.52, 0.03]) {
+    const rail = new THREE.Mesh(railGeo, SHARED.iron);
+    rail.rotation.x = Math.PI / 2;
+    rail.position.y = y;
+    parts.push(rail);
+  }
+  const count = Math.max(2, Math.round(length / spacing));
+  const barGeo = new THREE.CylinderGeometry(0.013, 0.013, height, 6);
+  for (let i = 0; i <= count; i++) {
+    const bar = new THREE.Mesh(barGeo, SHARED.iron);
+    bar.position.set(0, height / 2, -length / 2 + (i / count) * length);
+    parts.push(bar);
+  }
+  // Slightly heavier posts at each end.
+  const postGeo = new THREE.CylinderGeometry(0.024, 0.024, height + 0.08, 8);
+  for (const z of [-length / 2, length / 2]) {
+    const post = new THREE.Mesh(postGeo, SHARED.iron);
+    post.position.set(0, (height + 0.08) / 2, z);
+    parts.push(post);
+  }
+
+  g.add(mergeMeshes(parts, SHARED.iron));
+  railGeo.dispose();
+  barGeo.dispose();
+  postGeo.dispose();
   return g;
 }
 
 /** Colonial cast-iron street lamp, the ones all over Old San Juan. */
 export function makeStreetLamp(): THREE.Group {
   const g = new THREE.Group();
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.26, 0.5, 10), SHARED.iron);
-  base.position.y = 0.25;
-  g.add(base);
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, 3.6, 10), SHARED.iron);
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0xfff0c8, emissive: 0xffd98a, emissiveIntensity: 0.55,
+    roughness: 0.25, transparent: true, opacity: 0.9,
+  });
+
+  const iron: THREE.Mesh[] = [];
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.25, 0.45, 14), SHARED.iron);
+  base.position.y = 0.22;
+  iron.push(base);
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.15, 0.12, 14), SHARED.iron);
+  collar.position.y = 0.5;
+  iron.push(collar);
+
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.08, 3.5, 14), SHARED.iron);
   post.position.y = 2.3;
-  post.castShadow = true;
-  g.add(post);
-  const arm = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.045, 6, 12, Math.PI / 2), SHARED.iron);
-  arm.position.set(0, 4.1, 0);
+  iron.push(post);
+
+  // Scrolled arm reaching out over the pavement, with the lantern hung off the
+  // far end of it rather than floating alongside.
+  const arm = new THREE.Mesh(
+    new THREE.TorusGeometry(0.34, 0.035, 8, 20, Math.PI / 2), SHARED.iron,
+  );
+  arm.position.set(0, 4.05, 0);
   arm.rotation.set(Math.PI / 2, 0, Math.PI);
-  g.add(arm);
-  const lantern = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.24, 0.55, 4), SHARED.glassWarm);
-  lantern.position.set(0.45, 3.95, 0);
-  g.add(lantern);
-  const cap = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.22, 4), SHARED.iron);
-  cap.position.set(0.45, 4.3, 0);
-  g.add(cap);
+  iron.push(arm);
+
+  const HANG = 0.34;
+  const hanger = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.14, 8), SHARED.iron);
+  hanger.position.set(HANG, 4.31, 0);
+  iron.push(hanger);
+
+  // Four-sided lantern: cap on top, glass body tapering down, finial beneath.
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(0.21, 0.20, 4), SHARED.iron);
+  cap.position.set(HANG, 4.16, 0);
+  cap.rotation.y = Math.PI / 4;
+  iron.push(cap);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.10, 0.42, 4), glass);
+  body.position.set(HANG, 3.85, 0);
+  body.rotation.y = Math.PI / 4;
+  g.add(body);
+  // Corner ribs so it reads as a glazed lantern, not a blob of light.
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const rib = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.44, 6), SHARED.iron);
+    rib.position.set(HANG + Math.cos(a) * 0.115, 3.85, Math.sin(a) * 0.115);
+    iron.push(rib);
+  }
+  const finial = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), SHARED.iron);
+  finial.position.set(HANG, 3.62, 0);
+  iron.push(finial);
+
+  g.add(mergeMeshes(iron, SHARED.iron));
   return g;
 }
 
@@ -122,36 +229,81 @@ export function makePlanter(seed = 0): THREE.Group {
   return g;
 }
 
-/** A parked car. No traffic in the prototype - these are obstacles and scenery. */
+/**
+ * A parked car. No traffic in the prototype - these are obstacles and scenery.
+ *
+ * These sit at eye level right beside the player, so they were the blockiest
+ * thing on screen once the bike was rounded. Built now as a proper silhouette:
+ * sill, body, tapered greenhouse, arches and bumpers.
+ */
 export function makeParkedCar(color: number): THREE.Group {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(1.8, 0.75, 4.3),
-    new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.35 }),
-  );
-  body.position.y = 0.72;
+  const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.28, metalness: 0.5 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x22242a, roughness: 0.7 });
+
+  // Lower sill, wider than the body so the car sits on its wheels properly.
+  const sill = new THREE.Mesh(roundedBox(1.76, 0.34, 3.94, 0.12, 6), paint);
+  sill.position.y = 0.5;
+  sill.castShadow = true;
+  sill.receiveShadow = true;
+  g.add(sill);
+
+  // Main body.
+  const body = new THREE.Mesh(roundedBox(1.72, 0.60, 4.12, 0.26, 10), paint);
+  body.position.y = 0.78;
   body.castShadow = true;
   body.receiveShadow = true;
   g.add(body);
 
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.62, 2.1), SHARED.glassCool);
-  cabin.position.set(0, 1.36, -0.2);
+  // Greenhouse, set in and tapered toward the roof.
+  const cabin = new THREE.Mesh(roundedBox(1.56, 0.50, 2.05, 0.30, 10), SHARED.glassCool);
+  cabin.position.set(0, 1.24, -0.16);
   cabin.castShadow = true;
   g.add(cabin);
+  const roof = new THREE.Mesh(roundedBox(1.34, 0.16, 1.55, 0.12, 8), paint);
+  roof.position.set(0, 1.46, -0.22);
+  roof.castShadow = true;
+  g.add(roof);
 
-  const wheelGeo = new THREE.CylinderGeometry(0.33, 0.33, 0.22, 12);
-  for (const [dx, dz] of [[-0.86, 1.4], [0.86, 1.4], [-0.86, -1.4], [0.86, -1.4]]) {
-    const w = new THREE.Mesh(wheelGeo, SHARED.tyre);
-    w.rotation.z = Math.PI / 2;
-    w.position.set(dx, 0.33, dz);
-    g.add(w);
+  // Wheels, tucked into dark arches.
+  const tyreGeo = new THREE.TorusGeometry(0.24, 0.10, 12, 28);
+  const rimGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.17, 20);
+  const archGeo = roundedBox(0.30, 0.46, 0.78, 0.16, 6);
+  for (const [dx, dz] of [[-0.83, 1.36], [0.83, 1.36], [-0.83, -1.36], [0.83, -1.36]]) {
+    const tyre = new THREE.Mesh(tyreGeo, SHARED.tyre);
+    tyre.rotation.y = Math.PI / 2;
+    tyre.position.set(dx, 0.34, dz);
+    tyre.castShadow = true;
+    g.add(tyre);
+    const rim = new THREE.Mesh(rimGeo, SHARED.chrome);
+    rim.rotation.z = Math.PI / 2;
+    rim.position.set(dx, 0.34, dz);
+    g.add(rim);
+    const arch = new THREE.Mesh(archGeo, dark);
+    arch.position.set(dx * 0.98, 0.56, dz);
+    g.add(arch);
   }
-  const lightGeo = new THREE.BoxGeometry(0.42, 0.16, 0.08);
-  for (const dx of [-0.6, 0.6]) {
-    const l = new THREE.Mesh(lightGeo, SHARED.chrome);
-    l.position.set(dx, 0.85, 2.16);
-    g.add(l);
+
+  // Lights and bumpers.
+  const headGeo = roundedBox(0.40, 0.15, 0.10, 0.05, 5);
+  const headMat = new THREE.MeshStandardMaterial({
+    color: 0xf6f2e2, emissive: 0x2a2a24, roughness: 0.15, metalness: 0.3,
+  });
+  const tailMat = new THREE.MeshStandardMaterial({ color: 0xa8202a, roughness: 0.3 });
+  for (const dx of [-0.56, 0.56]) {
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.set(dx, 0.86, 2.06);
+    g.add(head);
+    const tail = new THREE.Mesh(headGeo, tailMat);
+    tail.position.set(dx, 0.88, -2.06);
+    g.add(tail);
   }
+  for (const dz of [2.03, -2.03]) {
+    const bumper = new THREE.Mesh(roundedBox(1.70, 0.22, 0.20, 0.09, 6), dark);
+    bumper.position.set(0, 0.56, dz);
+    g.add(bumper);
+  }
+
   return g;
 }
 
@@ -222,7 +374,7 @@ export function makeFort(): THREE.Group {
 
 export function makeAwning(width: number, color: number): THREE.Mesh {
   const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.85, side: THREE.DoubleSide });
-  const m = new THREE.Mesh(new THREE.BoxGeometry(width, 0.12, 1.5), mat);
+  const m = new THREE.Mesh(roundedBox(width, 0.11, 1.5, 0.045, 6), mat);
   m.rotation.x = -0.32;
   m.castShadow = true;
   return m;

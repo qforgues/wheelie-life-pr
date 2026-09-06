@@ -91,7 +91,7 @@ export function buildSky(scene: THREE.Scene, renderer: THREE.WebGLRenderer): Sky
   scene.add(sun);
   scene.add(sun.target);
 
-  const hemi = new THREE.HemisphereLight(0xcdeaff, 0xc0a382, 0.95);
+  const hemi = new THREE.HemisphereLight(0xcdeaff, 0xc0a382, 1.15);
   scene.add(hemi);
   scene.add(new THREE.AmbientLight(0xffffff, 0.06));
 

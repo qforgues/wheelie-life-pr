@@ -374,30 +374,54 @@ export function makeCloudTexture(seed: number): THREE.CanvasTexture {
 }
 
 export function makePalmFrondTexture(): THREE.CanvasTexture {
-  const S = 256;
-  const [canvas, ctx] = makeCanvas(S, S);
-  ctx.clearRect(0, 0, S, S);
-  ctx.strokeStyle = '#2f6b30';
-  ctx.lineWidth = 5;
-  ctx.beginPath();
-  ctx.moveTo(6, S / 2);
-  ctx.quadraticCurveTo(S * 0.55, S * 0.34, S - 8, S * 0.44);
-  ctx.stroke();
-  for (let i = 0; i < 26; i++) {
-    const t = i / 25;
-    const x = 6 + (S - 14) * t;
-    const y = S / 2 + (S * 0.34 - S / 2) * (2 * t * (1 - t) * 2) * 0.9 - t * 12;
-    const len = (1 - Math.abs(t - 0.45) * 1.5) * S * 0.26;
-    if (len <= 0) continue;
-    ctx.strokeStyle = `rgb(${40 + i}, ${105 + (i % 5) * 8}, ${44})`;
-    ctx.lineWidth = 3.5;
+  // Drawn base-at-left, tip-at-right, so a frond plane can be positioned by its
+  // base and swung around the trunk.
+  const rnd = mulberry(31);
+  const W = 512, H = 256;
+  const [canvas, ctx] = makeCanvas(W, H);
+  ctx.clearRect(0, 0, W, H);
+
+  const midY = H * 0.5;
+  // Spine arcs up then droops toward the tip.
+  const spine = (t: number) => midY - Math.sin(t * Math.PI) * H * 0.16 + t * t * H * 0.20;
+
+  const leaflets = 46;
+  for (let i = 0; i < leaflets; i++) {
+    const t = i / (leaflets - 1);
+    const x = 18 + (W - 40) * t;
+    const y = spine(t);
+    // Long in the middle, short at both ends - that taper is what reads as a
+    // palm frond rather than a feather.
+    const taper = Math.sin(Math.min(1, t * 1.15) * Math.PI) ** 0.75;
+    const len = taper * H * 0.42 * (0.85 + rnd() * 0.3);
+    if (len < 3) continue;
+    const shade = 34 + Math.floor(rnd() * 22) + Math.floor(t * 26);
+    ctx.strokeStyle = `rgb(${shade}, ${96 + Math.floor(rnd() * 34) - Math.floor(t * 18)}, ${46 + Math.floor(rnd() * 14)})`;
+    ctx.lineWidth = 4.2 - t * 1.4;
+    ctx.lineCap = 'round';
     for (const dir of [-1, 1]) {
       ctx.beginPath();
       ctx.moveTo(x, y);
-      ctx.quadraticCurveTo(x + len * 0.35, y + dir * len * 0.45, x + len * 0.25, y + dir * len);
+      // Swept back toward the tip, and drooping away from the spine.
+      ctx.quadraticCurveTo(
+        x + len * 0.30, y + dir * len * 0.40,
+        x + len * 0.52, y + dir * len,
+      );
       ctx.stroke();
     }
   }
+
+  // Spine over the top.
+  ctx.strokeStyle = '#4a7a34';
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(14, spine(0));
+  for (let i = 1; i <= 24; i++) {
+    const t = i / 24;
+    ctx.lineTo(18 + (W - 40) * t, spine(t));
+  }
+  ctx.stroke();
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;

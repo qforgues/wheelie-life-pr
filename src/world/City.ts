@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import type { CrashReason, GroundProvider } from '../sim/types';
 import type { SpawnPoint } from '../sim/BikeSim';
+import { roundedBox } from '../view/geometry';
 import {
   makeAwning, makeFort, makeGarita, makeParkedCar, makePalm, makePlanter,
-  makeShopSign, makeStreetLamp, PROP_MATERIALS,
+  makeRailing, makeShopSign, makeStreetLamp, PROP_MATERIALS,
 } from './Props';
 import {
   makeCobbleTexture, makeFacadeTexture, makeFlagMuralTexture, makeHazardTexture, makeSidewalkTexture,
@@ -90,7 +91,7 @@ export class City implements GroundProvider {
     walk.repeat.set(LAYOUT.sidewalk / 1.5, avenueLen / 1.5);
     for (const side of [-1, 1]) {
       const sw = new THREE.Mesh(
-        new THREE.BoxGeometry(LAYOUT.sidewalk, 0.16, avenueLen),
+        roundedBox(LAYOUT.sidewalk, 0.16, avenueLen, 0.04, 2),
         walkMat,
       );
       sw.position.set(side * (LAYOUT.roadHalf + LAYOUT.sidewalk / 2), 0.08, avenueMid);
@@ -194,19 +195,33 @@ export class City implements GroundProvider {
     if (rnd() > 0.35) {
       const bx = side * (LAYOUT.roadHalf + LAYOUT.sidewalk - 0.35);
       const slab = new THREE.Mesh(
-        new THREE.BoxGeometry(1.0, 0.14, Math.min(3.4, width * 0.45)),
+        roundedBox(1.0, 0.14, Math.min(3.4, width * 0.45), 0.05, 5),
         PROP_MATERIALS.stone,
       );
       slab.position.set(bx, height * 0.42, z + width / 2);
       slab.castShadow = true;
       this.root.add(slab);
-      const rail = new THREE.Mesh(
-        new THREE.BoxGeometry(0.07, 0.85, Math.min(3.4, width * 0.45)),
-        PROP_MATERIALS.iron,
-      );
-      rail.position.set(bx - side * 0.46, height * 0.42 + 0.5, z + width / 2);
-      rail.castShadow = true;
+      const railLen = Math.min(3.4, width * 0.45);
+      const rail = makeRailing(railLen, 0.8, 0.15);
+      rail.position.set(bx - side * 0.46, height * 0.42 + 0.07, z + width / 2);
       this.root.add(rail);
+      // Short returns so the balcony is enclosed on three sides.
+      for (const dz of [-railLen / 2, railLen / 2]) {
+        const end = makeRailing(0.9, 0.8, 0.16);
+        end.rotation.y = Math.PI / 2;
+        end.position.set(bx - side * 0.02, height * 0.42 + 0.07, z + width / 2 + dz);
+        this.root.add(end);
+      }
+      // Corbels, so the slab isn't floating off the wall.
+      for (const dz of [-railLen * 0.36, railLen * 0.36]) {
+        const corbel = new THREE.Mesh(
+          roundedBox(0.7, 0.16, 0.16, 0.05, 4), PROP_MATERIALS.stone,
+        );
+        corbel.position.set(bx + side * 0.12, height * 0.42 - 0.13, z + width / 2 + dz);
+        corbel.rotation.z = side * 0.22;
+        corbel.castShadow = true;
+        this.root.add(corbel);
+      }
     }
 
     // Ground-floor colmado / taller every few buildings.
@@ -289,20 +304,32 @@ export class City implements GroundProvider {
     const mats: THREE.Material[] = [xFaces, xFaces, roof, roof, zFaces, zFaces];
     void rnd;
 
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(sizeX, height, sizeZ), mats);
+    // 3 segments is enough: with a 9 cm radius on a 12 m wall the fillet is a
+    // single chamfer facet per corner, which is all a building needs - it
+    // catches a highlight and stops the edge aliasing.
+    const mesh = new THREE.Mesh(roundedBox(sizeX, height, sizeZ, 0.09, 3), mats);
     mesh.position.set(x, height / 2, z);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     this.root.add(mesh);
 
     // Parapet so the rooflines aren't razor flat against the sky.
+    const capMat = new THREE.MeshStandardMaterial({ color: 0xe0d6c0, roughness: 0.96 });
     const parapet = new THREE.Mesh(
-      new THREE.BoxGeometry(sizeX + 0.35, 0.55, sizeZ + 0.35),
-      new THREE.MeshStandardMaterial({ color: 0xe0d6c0, roughness: 0.96 }),
+      roundedBox(sizeX + 0.35, 0.55, sizeZ + 0.35, 0.10, 3), capMat,
     );
     parapet.position.set(x, height + 0.2, z);
     parapet.castShadow = true;
     this.root.add(parapet);
+
+    // A cornice band under the parapet gives the roofline some depth instead of
+    // a single flat lip.
+    const cornice = new THREE.Mesh(
+      roundedBox(sizeX + 0.55, 0.22, sizeZ + 0.55, 0.08, 3), capMat,
+    );
+    cornice.position.set(x, height - 0.16, z);
+    cornice.castShadow = true;
+    this.root.add(cornice);
 
     // A water tank or two up top, so the skyline has some silhouette.
     if (sizeX > 12 && sizeZ > 12) {
@@ -338,25 +365,17 @@ export class City implements GroundProvider {
 
     // Sea wall along the top of the bluff, with the ironwork on top of it.
     const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(p.xMax - p.xMin + 26, 1.0, 0.9),
+      roundedBox(p.xMax - p.xMin + 26, 1.0, 0.9, 0.08, 3),
       PROP_MATERIALS.stone,
     );
     wall.position.set(0, 0.5, LAYOUT.seaWallZ);
     wall.castShadow = true;
     wall.receiveShadow = true;
     this.root.add(wall);
-    const railGeo = new THREE.BoxGeometry(p.xMax - p.xMin + 26, 0.06, 0.06);
-    for (const y of [1.15, 1.45]) {
-      const rail = new THREE.Mesh(railGeo, PROP_MATERIALS.iron);
-      rail.position.set(0, y, LAYOUT.seaWallZ);
-      this.root.add(rail);
-    }
-    const postGeo = new THREE.BoxGeometry(0.06, 0.95, 0.06);
-    for (let x = -(p.xMax + 12); x <= p.xMax + 12; x += 2.2) {
-      const post = new THREE.Mesh(postGeo, PROP_MATERIALS.iron);
-      post.position.set(x, 1.02, LAYOUT.seaWallZ);
-      this.root.add(post);
-    }
+    const seaRail = makeRailing(p.xMax - p.xMin + 26, 0.9, 0.22);
+    seaRail.rotation.y = Math.PI / 2;
+    seaRail.position.set(0, 1.0, LAYOUT.seaWallZ);
+    this.root.add(seaRail);
     this.colliders.push({
       minX: -200, maxX: 200, minZ: LAYOUT.seaWallZ - 0.6, maxZ: LAYOUT.seaWallZ + 30,
     });
@@ -380,12 +399,12 @@ export class City implements GroundProvider {
       this.root.add(g);
     }
     for (const x of [-10, 0, 10]) {
-      const seat = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.12, 0.5), PROP_MATERIALS.stone);
+      const seat = new THREE.Mesh(roundedBox(1.8, 0.13, 0.5, 0.05, 5), PROP_MATERIALS.stone);
       seat.position.set(x, 0.46, LAYOUT.seaWallZ - 3.2);
       seat.castShadow = true;
       this.root.add(seat);
       for (const dx of [-0.7, 0.7]) {
-        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.46, 0.42), PROP_MATERIALS.stone);
+        const leg = new THREE.Mesh(roundedBox(0.16, 0.46, 0.42, 0.05, 4), PROP_MATERIALS.stone);
         leg.position.set(x + dx, 0.23, LAYOUT.seaWallZ - 3.2);
         this.root.add(leg);
       }
