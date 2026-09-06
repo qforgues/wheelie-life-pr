@@ -33,6 +33,7 @@ export class Hud {
   private bestValue!: HTMLElement;
   private lastValue!: HTMLElement;
   private trick!: HTMLElement;
+  private cashValue!: HTMLElement;
   private banner!: HTMLElement;
   private toast!: HTMLElement;
   private toastTimer = 0;
@@ -58,6 +59,10 @@ export class Hud {
         <div class="hud-stat">
           <span class="hud-label">LAST</span>
           <span class="hud-strong" data-el="lastValue">0.0 m</span>
+        </div>
+        <div class="hud-stat hud-cash">
+          <span class="hud-label">CASH</span>
+          <span class="hud-strong" data-el="cashValue">$0</span>
         </div>
       </div>
 
@@ -86,9 +91,13 @@ export class Hud {
     this.tachBar = this.root.querySelector('.hud-tach')!;
   }
 
+  /** Money on hand, written by the game each frame. */
+  cash = 0;
+
   update(
     state: BikeState, tracker: WheelieTracker, tuning: BikeTuning, dt: number,
   ): void {
+    this.cashValue.textContent = '$' + Math.round(this.cash).toLocaleString('en-US');
     const mph = state.speed * MS_TO_MPH;
     this.speedValue.textContent = mph.toFixed(0);
     this.speedAlt.textContent = `${(state.speed * MS_TO_KMH).toFixed(0)} km/h`;

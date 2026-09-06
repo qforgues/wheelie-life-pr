@@ -85,6 +85,8 @@ canvas:active { cursor: grabbing; }
 
 .hud-stat { display: flex; align-items: baseline; gap: 10px; }
 .hud-strong { font-size: calc(19px * var(--hud-scale)); }
+.hud-cash { margin-top: 4px; }
+.hud-cash .hud-strong { color: #6ee7a8; }
 
 .hud-bottomright {
   position: absolute;
@@ -285,6 +287,30 @@ canvas:active { cursor: grabbing; }
 
 /* ------------------------------------------------------- bike selector */
 
+.garage-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 2px 0 6px;
+}
+.garage-title {
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  opacity: 0.6;
+}
+.garage-cash {
+  font-size: 20px;
+  color: #6ee7a8;
+}
+.garage-hint {
+  margin: 6px 0 10px;
+  font-family: system-ui, sans-serif;
+  font-weight: 400;
+  font-size: 12.5px;
+  color: var(--pr-cyan);
+  min-height: 1.2em;
+}
+
 .bike-pick {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -334,6 +360,39 @@ canvas:active { cursor: grabbing; }
   opacity: 0.65;
 }
 .bike-char { font-size: 11.5px; line-height: 1.4; opacity: 0.8; margin-top: 2px; }
+
+.bike-foot { margin-top: 8px; display: block; }
+.bike-owned {
+  font-family: var(--hud-font);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: #6ee7a8;
+}
+.bike-price {
+  font-family: var(--hud-font);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  opacity: 0.75;
+}
+.bike-buy {
+  font-family: var(--hud-font);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--ink);
+  background: #6ee7a8;
+  border: none;
+  border-radius: 3px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.bike-buy:hover { background: var(--pr-cyan); }
+
+/* Locked bikes read as unavailable without being invisible - you should want
+   the one you cannot have yet. */
+.bike.is-locked .bike-swatch,
+.bike.is-locked .bike-name,
+.bike.is-locked .bike-char { opacity: 0.55; }
+.bike.is-locked.is-on { border-color: #6ee7a8; }
 
 /* ---------------------------------------------------------- diagnostics */
 

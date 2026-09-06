@@ -124,6 +124,21 @@ HELD WHEELIE (autopilot riding just under the balance point)
   top gear reached                   4
 ```
 
+## Money and the garage
+
+Landing a wheelie pays **$2 per scored metre**, and tricks already multiply the
+score, so standing pays 2.4× what sitting does. Beating your own record adds a
+**$250 bonus**. Crashing pays nothing — a run you fell out of was already
+unbanked, so the payout follows the same rule as the record: you have to land it.
+
+The Grom is free and always owned. The **YZ250F is $2,500** and the **Ducati is
+$12,000** — roughly a dozen decent runs and a genuine goal, respectively.
+
+Progress lives in `localStorage`, wrapped in try/catch: a private window or a
+browser blocking site data loses the save, which is survivable; taking the game
+down with it is not. The tuning panel has **Give $5,000** and **Wipe save** for
+testing prices without grinding.
+
 ## Voices
 
 Crash calls run through three tiers, in this order:

@@ -18,6 +18,7 @@ import { ControlsOverlay } from '../ui/ControlsOverlay';
 import { DebugPanel } from '../ui/DebugPanel';
 import { Diagnostics } from '../ui/Diagnostics';
 import { WheelieTracker } from './WheelieTracker';
+import { Progress, money } from './Progress';
 import type { BikeState } from '../sim/types';
 
 /** The handful of fields that need interpolating between physics steps. */
@@ -60,6 +61,7 @@ export class Game {
   private diagnostics: Diagnostics;
   private lastFps = 0;
   private tracker = new WheelieTracker();
+  private progress = new Progress();
   private loop: Loop;
   private quality: QualityGovernor;
 
@@ -105,7 +107,9 @@ export class Game {
     // ---- bike ------------------------------------------------------------
     // Justin's pick. The Grom is the free starter bike and stays in the
     // catalogue; switching is a one-line change until there's a garage screen.
-    this.bikeId = 'yz250f';
+    // Boot into whatever they last rode, which on a fresh save is the Grom -
+    // the free starter the interview asked for.
+    this.bikeId = this.progress.lastBike;
     const tuning = cloneTuning(BIKES[this.bikeId]);
     this.sim = new BikeSim(tuning, this.city, this.city.spawn);
     this.bikeView = new BikeView(tuning, BIKE_VISUALS[this.bikeId]);
@@ -145,8 +149,9 @@ export class Game {
     container.appendChild(this.diagnostics.root);
     this.debug = new DebugPanel(
       this.sim, this.chase, this.tracker, () => this.resetBike(), BIKES[this.bikeId],
-      this.quality, this.bikeView,
+      this.quality, this.bikeView, this.progress, () => this.overlay.renderGarage(),
     );
+    this.overlay.attachProgress(this.progress, this.bikeId);
     this.overlay.onBikePicked((id) => this.setBike(id));
     this.overlay.onDiagnostics(() => this.diagnostics.toggle());
 
@@ -172,6 +177,8 @@ export class Game {
    */
   setBike(id: BikeId): void {
     if (id === this.bikeId) return;
+    if (!this.progress.has(id)) return;   // can't ride what you haven't bought
+    this.progress.setLastBike(id);
     this.bikeId = id;
     const tuning = cloneTuning(BIKES[id]);
 
@@ -268,13 +275,25 @@ export class Game {
     // Tricks multiply what the run banks while they're held.
     this.tracker.update(state, dt, TRICKS[state.trick].scoreMultiplier * state.trickBlend
       + (1 - state.trickBlend));
+    // A landed run pays. A crashed one already ended unbanked, so it can't.
+    if (this.tracker.justEnded && this.tracker.lastBanked) {
+      const paid = this.progress.bank(this.tracker.last.score);
+      if (paid > 0) {
+        this.hud.showToast(
+          this.progress.lastWasRecord
+            ? `NEW BEST · +${money(paid)}`
+            : `+${money(paid)}`,
+          this.progress.lastWasRecord ? 2.8 : 1.8,
+        );
+        this.overlay.renderGarage();
+      }
+    }
     if (state.trick !== this.lastTrick) {
       this.lastTrick = state.trick;
       if (state.trick !== 'none') this.hud.showToast(TRICKS[state.trick].label, 1.4);
     }
     if (this.tracker.justSetRecord && this.tracker.best.distance > 5) {
       this.audio.fanfare();
-      this.hud.showToast(`NEW BEST · ${this.tracker.best.distance.toFixed(1)} m`, 2.8);
     }
 
     this.audio.update(state, rider.throttle, this.sim.getTuning());
@@ -390,6 +409,7 @@ export class Game {
     this.quality.update(dt);
     this.lastFps = dt > 0 ? 1 / dt : 0;
     this.diagnostics.update(dt, this.renderer);
+    this.hud.cash = this.progress.money;
     this.hud.update(state, this.tracker, this.sim.getTuning(), dt);
     this.debug.update(dt);
     this.audio.resumeIfNeeded();

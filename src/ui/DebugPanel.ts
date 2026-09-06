@@ -60,6 +60,8 @@ export class DebugPanel {
     private baseline: BikeTuning,
     private quality: QualityGovernor,
     private bikeView: BikeView,
+    private progress: { money: number; reset(): void },
+    private onProgressChanged: () => void,
   ) {
     this.gui = new GUI({ title: `TUNING · ${sim.getTuning().name}`, width: 320 });
     this.gui.domElement.classList.add('debug-gui');
@@ -249,6 +251,18 @@ export class DebugPanel {
     const f = this.gui.addFolder('Actions').open();
     f.add({ 'Reset bike (R)': () => this.onReset() }, 'Reset bike (R)');
     f.add({ 'Clear best': () => this.tracker.resetSession() }, 'Clear best');
+    f.add({
+      'Give $5,000': () => {
+        this.progress.money += 5000;
+        this.onProgressChanged();
+      },
+    }, 'Give $5,000');
+    f.add({
+      'Wipe save (money + bikes)': () => {
+        this.progress.reset();
+        this.onProgressChanged();
+      },
+    }, 'Wipe save (money + bikes)');
     f.add({
       'Copy tuning JSON': () => {
         const json = JSON.stringify(this.sim.getTuning(), null, 2);

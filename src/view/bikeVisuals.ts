@@ -35,6 +35,14 @@ export interface BikeVisual {
   shirt: [string, string, string, string];
   /** Shown on the bike select screen. */
   displayName: string;
+  /**
+   * What it costs in the garage. 0 = free starter.
+   *
+   * Paced against a payout of $2 per scored metre: a decent Grom run banks a
+   * couple of hundred, so the YZ is roughly a dozen good runs and the Ducati is
+   * a genuine goal rather than a formality.
+   */
+  price: number;
   tagline: string;
   /** One-line summary of how it rides, for the picker. */
   character: string;
@@ -46,6 +54,7 @@ const YZ_REAR_R = 0.331;  // 100/90-19
 export const BIKE_VISUALS: Record<BikeId, BikeVisual> = {
   yz250f: {
     displayName: 'Yamaha YZ250F',
+    price: 2500,
     tagline: '2024 · 250cc · 43 hp',
     character: 'Light, tall and snappy. Lofts in four gears and holds a wheelie better than anything else here.',
     style: 'dirt',
@@ -64,6 +73,7 @@ export const BIKE_VISUALS: Record<BikeId, BikeVisual> = {
   },
   grom: {
     displayName: 'Honda Grom',
+    price: 0,
     tagline: '190cc big-bore · 21 hp',
     character: 'Small, slow and forgiving. Only lifts in 1st and 2nd, so you learn to time the pull. Start here.',
     style: 'mini',
@@ -81,6 +91,7 @@ export const BIKE_VISUALS: Record<BikeId, BikeVisual> = {
   },
   streetfighter: {
     displayName: 'Ducati Streetfighter V4',
+    price: 12000,
     tagline: '1103cc V4 · 208 hp',
     character: 'Brutal and heavy. It will come up on throttle alone in three gears, and then fight you the whole way.',
     style: 'sport',

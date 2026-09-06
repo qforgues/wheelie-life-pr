@@ -1,6 +1,8 @@
 import { BINDINGS } from '../input/bindings';
 import { BIKE_VISUALS } from '../view/bikeVisuals';
 import { BIKES, type BikeId } from '../sim/tuning';
+import type { Progress } from '../game/Progress';
+import { money } from '../game/Progress';
 
 /**
  * The keyboard/pad mapping card. Shown on first load, dismissed with H or any
@@ -13,8 +15,12 @@ export class ControlsOverlay {
   private deviceLine: HTMLElement;
   private tableBody: HTMLElement;
 
-  private selected: BikeId = 'yz250f';
+  private selected: BikeId = 'grom';
   private onPick: ((id: BikeId) => void) | null = null;
+  private progress: Progress | null = null;
+  private bikePick!: HTMLElement;
+  private cashEl!: HTMLElement;
+  private hintEl!: HTMLElement;
 
   private onDiag: (() => void) | null = null;
 
@@ -28,18 +34,12 @@ export class ControlsOverlay {
         <p class="overlay-tag">CALLES ♛ BIKES ♛ ISLA ♛ LIBERTAD</p>
         <p class="overlay-device" data-el="device">Checking for a controller…</p>
 
-        <div class="bike-pick" data-el="bikePick">
-          ${(Object.keys(BIKES) as BikeId[]).map((id) => {
-            const v = BIKE_VISUALS[id];
-            return `
-            <button class="bike" data-bike="${id}" type="button">
-              <span class="bike-swatch" style="--paint:#${v.bodyColor.toString(16).padStart(6, '0')}"></span>
-              <span class="bike-name">${v.displayName}</span>
-              <span class="bike-tag">${v.tagline}</span>
-              <span class="bike-char">${v.character}</span>
-            </button>`;
-          }).join('')}
+        <div class="garage-head">
+          <span class="garage-title">GARAGE</span>
+          <span class="garage-cash" data-el="cash">$0</span>
         </div>
+        <div class="bike-pick" data-el="bikePick"></div>
+        <p class="garage-hint" data-el="garageHint"></p>
         <table class="overlay-table">
           <thead><tr><th>Action</th><th>Xbox</th><th>Keyboard</th></tr></thead>
           <tbody data-el="tableBody"></tbody>
@@ -63,10 +63,16 @@ export class ControlsOverlay {
     this.tableBody.innerHTML = BINDINGS
       .map((b) => `<tr><td>${b.action}</td><td class="pad">${b.pad}</td><td class="key">${b.key}</td></tr>`)
       .join('');
-    for (const el of this.root.querySelectorAll<HTMLElement>('.bike')) {
-      el.addEventListener('click', () => this.pick(el.dataset.bike as BikeId));
-    }
-    this.markSelection();
+    this.bikePick = this.root.querySelector('[data-el="bikePick"]')!;
+    this.cashEl = this.root.querySelector('[data-el="cash"]')!;
+    this.hintEl = this.root.querySelector('[data-el="garageHint"]')!;
+    this.bikePick.addEventListener('click', (e) => {
+      const card = (e.target as HTMLElement).closest<HTMLElement>('.bike');
+      if (!card) return;
+      const id = card.dataset.bike as BikeId;
+      if ((e.target as HTMLElement).closest('[data-buy]')) this.tryBuy(id);
+      else this.pick(id);
+    });
     this.root.querySelector('[data-el="go"]')!.addEventListener('click', () => this.hide());
     this.root.querySelector('[data-el="diag"]')!
       .addEventListener('click', (e) => { e.stopPropagation(); this.onDiag?.(); });
@@ -86,16 +92,72 @@ export class ControlsOverlay {
     this.onPick = fn;
   }
 
+  /** Hands the garage the wallet. Call once, before the card is shown. */
+  attachProgress(p: Progress, selected: BikeId): void {
+    this.progress = p;
+    this.selected = selected;
+    this.renderGarage();
+  }
+
   private pick(id: BikeId): void {
-    if (!id || id === this.selected) return;
+    if (!id) return;
+    // You can look at a bike you don't own; you just can't ride it.
+    if (!this.progress?.has(id)) {
+      this.selected = id;
+      this.renderGarage();
+      return;
+    }
+    if (id === this.selected) return;
     this.selected = id;
-    this.markSelection();
+    this.renderGarage();
     this.onPick?.(id);
   }
 
-  private markSelection(): void {
-    for (const el of this.root.querySelectorAll<HTMLElement>('.bike')) {
-      el.classList.toggle('is-on', el.dataset.bike === this.selected);
+  private tryBuy(id: BikeId): void {
+    const p = this.progress;
+    if (!p) return;
+    const price = BIKE_VISUALS[id].price;
+    if (!p.buy(id, price)) return;
+    this.selected = id;
+    this.renderGarage();
+    this.onPick?.(id);
+  }
+
+  /** Redraws the cards from what's owned and what's affordable. */
+  renderGarage(): void {
+    const p = this.progress;
+    if (!p || !this.bikePick) return;
+    this.cashEl.textContent = money(p.money);
+
+    this.bikePick.innerHTML = (Object.keys(BIKES) as BikeId[]).map((id) => {
+      const v = BIKE_VISUALS[id];
+      const owned = p.has(id);
+      const afford = p.canAfford(v.price);
+      const paint = v.bodyColor.toString(16).padStart(6, '0');
+      const status = owned
+        ? '<span class="bike-owned">OWNED</span>'
+        : afford
+          ? `<button class="bike-buy" data-buy type="button">BUY · ${money(v.price)}</button>`
+          : `<span class="bike-price">${money(v.price)}</span>`;
+      return `
+        <button class="bike${this.selected === id ? ' is-on' : ''}${owned ? '' : ' is-locked'}"
+                data-bike="${id}" type="button">
+          <span class="bike-swatch" style="--paint:#${paint}"></span>
+          <span class="bike-name">${v.displayName}</span>
+          <span class="bike-tag">${v.tagline}</span>
+          <span class="bike-char">${v.character}</span>
+          <span class="bike-foot">${status}</span>
+        </button>`;
+    }).join('');
+
+    const sel = BIKE_VISUALS[this.selected];
+    if (p.has(this.selected)) {
+      this.hintEl.textContent = '';
+    } else {
+      const short = sel.price - p.money;
+      this.hintEl.textContent = p.canAfford(sel.price)
+        ? `Press BUY to unlock the ${sel.displayName}.`
+        : `${money(short)} more to unlock the ${sel.displayName}. Land wheelies to earn it — tricks pay more.`;
     }
   }
 
