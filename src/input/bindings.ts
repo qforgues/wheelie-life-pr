@@ -56,15 +56,18 @@ const PAD_LABELS: Record<PadFamily, Record<string, string>> = {
   playstation: {
     throttle: 'R2', brake: 'L2', up: 'R1', down: 'L1',
     reset: 'Options / ○', help: 'Create',
+    knee: '✕', stand: '□', camera: '△',
   },
   xbox: {
     throttle: 'RT', brake: 'LT', up: 'RB', down: 'LB',
     reset: 'Menu / B', help: 'View',
+    knee: 'A', stand: 'X', camera: 'Y',
   },
   generic: {
     throttle: 'Right trigger', brake: 'Left trigger',
     up: 'Right bumper', down: 'Left bumper',
     reset: 'Start', help: 'Select',
+    knee: 'Button 1', stand: 'Button 3', camera: 'Button 4',
   },
 };
 
@@ -78,7 +81,10 @@ export function bindingsFor(family: PadFamily): BindingRow[] {
     { action: 'Lean forward (bring it down)', pad: 'Left stick ↑', key: 'Shift' },
     { action: 'Shift up', pad: L.up, key: 'E' },
     { action: 'Shift down', pad: L.down, key: 'Q' },
-    { action: 'Camera', pad: 'Right stick', key: 'Drag mouse' },
+    { action: 'Knee on the seat (while up)', pad: L.knee, key: '1' },
+    { action: 'Stand on the seat (while up)', pad: L.stand, key: '2' },
+    { action: 'Change camera', pad: L.camera, key: 'C' },
+    { action: 'Look around', pad: 'Right stick', key: 'Drag mouse' },
     { action: 'Reset', pad: L.reset, key: 'R' },
     { action: 'Controls overlay', pad: L.help, key: 'H' },
     { action: 'Debug panel', pad: '—', key: 'P' },
@@ -94,6 +100,9 @@ export const KEY_MAP = {
   leanForward: ['ShiftLeft', 'ShiftRight'],
   shiftUp: ['KeyE'],
   shiftDown: ['KeyQ'],
+  trickKnee: ['Digit1'],
+  trickStand: ['Digit2'],
+  camera: ['KeyC'],
   reset: ['KeyR'],
   toggleHelp: ['KeyH'],
   toggleDebug: ['KeyP'],

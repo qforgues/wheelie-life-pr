@@ -53,7 +53,24 @@ function withBump(z0: number, half = 0.62, height = 0.115): GroundProvider {
 }
 
 function input(p: Partial<RiderInput> = {}): RiderInput {
-  return { throttle: 0, brake: 0, steer: 0, weight: 0, shiftUp: false, shiftDown: false, ...p };
+  return {
+    throttle: 0, brake: 0, steer: 0, weight: 0,
+    shiftUp: false, shiftDown: false, trick: 'none', ...p,
+  };
+}
+
+/**
+ * Throttle that keeps the front wheel down.
+ *
+ * The acceleration and roll-in tests used to just pin it, which works on a
+ * Grom and a YZ. It does not work on a 208 hp Streetfighter: that bike loops in
+ * first gear with the rider fully forward, so "full throttle" measured a crash
+ * rather than a launch. Real superbikes ship wheelie control for exactly this
+ * reason - this is the harness's version of it.
+ */
+function launchThrottle(sim: BikeSim, want = 1): number {
+  const over = sim.state.pitch / 0.10;
+  return Math.max(0, Math.min(want, want * (1 - over)));
 }
 
 function newSim(ground: GroundProvider = flat) {
@@ -120,8 +137,10 @@ console.log(`\n=== WHEELIE LIFE PR · sim check · ${SPEC.name} ===\n`);
   for (let i = 0; i < 45 / DT; i++) {
     const s = sim.state;
     const up = s.rpm > t.engine.redlineRpm - 250 && s.gear < t.gearbox.gearRatios.length - 1;
-    // Nose down on the bars so this measures drive, not wheelie.
-    sim.step(input({ throttle: 1, weight: -1, shiftUp: up }), DT);
+    // Nose down on the bars, and back off if it starts lifting anyway, so this
+    // measures drive rather than how fast the bike can loop itself.
+    sim.step(input({ throttle: launchThrottle(sim), weight: -1, shiftUp: up }), DT);
+    if (sim.state.mode !== 'riding') break;
     const mph = sim.state.speed * MPH;
     if (!to30 && mph >= 30) to30 = i * DT;
     if (!to60 && mph >= 60) to60 = i * DT;
@@ -150,7 +169,8 @@ function rollInto(gear: number): BikeSim | null {
       if (gear === 0 ? s.rpm > 5200 : settle > 0.25) return sim;
     }
     const up = s.gear < gear && s.rpm > t.engine.redlineRpm - 300 && !s.shifting;
-    sim.step(input({ throttle: 1, weight: -1, shiftUp: up }), DT);
+    sim.step(input({ throttle: launchThrottle(sim), weight: -1, shiftUp: up }), DT);
+    if (s.mode !== 'riding') return null;
   }
   return null;
 }
@@ -328,9 +348,10 @@ function autopilot(sim: BikeSim, i: number, opts: { shift: boolean }): RiderInpu
         const s = sim.state;
         if (s.gear === 2 && !s.shifting) break;
         sim.step(input({
-          throttle: 1, weight: -1,
+          throttle: launchThrottle(sim), weight: -1,
           shiftUp: s.gear < 2 && s.rpm > SPEC.engine.redlineRpm - 300 && !s.shifting,
         }), DT);
+        if (s.mode !== 'riding') break;
       }
       // ...then settle onto the approach speed, still well short of the bump.
       let reached = false;
@@ -340,7 +361,7 @@ function autopilot(sim: BikeSim, i: number, opts: { shift: boolean }): RiderInpu
         if (Math.abs(err) < 0.25 && s.z < BUMP_Z - 25) { reached = true; break; }
         if (s.z > BUMP_Z - 12) break;
         sim.step(input({
-          throttle: err > 0 ? Math.min(1, err * 0.6 + 0.35) : 0,
+          throttle: err > 0 ? launchThrottle(sim, Math.min(1, err * 0.6 + 0.35)) : 0,
           brake: err < -0.4 ? Math.min(0.5, -err * 0.12) : 0,
           weight: -1,
         }), DT);

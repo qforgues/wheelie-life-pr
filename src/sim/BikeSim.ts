@@ -1,6 +1,6 @@
 import { Engine, clamp, damp, lerp } from './Engine';
 import { Gearbox } from './Gearbox';
-import type { BikeTuning } from './tuning';
+import { TRICKS, type BikeTuning } from './tuning';
 import type { BikeState, CrashReason, GroundProvider, RiderInput } from './types';
 
 const G = 9.81;
@@ -88,6 +88,8 @@ export class BikeSim {
       balancePoint: Math.atan(tuning.chassis.cgToRear / tuning.chassis.cgHeight),
       lastImpact: 0,
       crashReason: null,
+      trick: 'none',
+      trickBlend: 0,
     };
   }
 
@@ -135,6 +137,8 @@ export class BikeSim {
     s.balanceError = 0;
     s.lastImpact = 0;
     s.crashReason = null;
+    s.trick = 'none';
+    s.trickBlend = 0;
     this.weightShift = 0;
     this.rollRate = 0;
     this.rollNoise = 0;
@@ -211,9 +215,35 @@ export class BikeSim {
     );
     const shiftRate = dt > 0 ? (this.weightShift - prevShift) / dt : 0;
 
+    // --- tricks ------------------------------------------------------------
+    // A trick only holds while the front wheel is genuinely up; put it down and
+    // the rider gets back in the seat whether they let go of the button or not.
+    const clearanceNowForTrick = s.pitch - this.prevPitchFloor;
+    // Tolerate an input that predates tricks rather than throwing: this struct
+    // is the boundary other layers feed, and a missing field should degrade to
+    // "no trick", not take the whole sim down.
+    const wanted = TRICKS[input.trick] ? input.trick : 'none';
+    const canHold =
+      wanted !== 'none' && clearanceNowForTrick > TRICKS[wanted].minPitch && s.mode === 'riding';
+    if (canHold) {
+      s.trick = wanted;
+    } else if (s.trick !== 'none') {
+      // Keep blending out of the trick we were in rather than snapping.
+      if (wanted !== s.trick || clearanceNowForTrick < TRICKS[s.trick].minPitch * 0.6) {
+        s.trickBlend = damp(s.trickBlend, 0, TRICKS[s.trick].blendRate, dt);
+        if (s.trickBlend < 0.01) { s.trickBlend = 0; s.trick = 'none'; }
+      }
+    }
+    if (s.trick !== 'none' && canHold) {
+      s.trickBlend = damp(s.trickBlend, 1, TRICKS[s.trick].blendRate, dt);
+    }
+    const trick = TRICKS[s.trick];
+
     // CG relative to the rear contact patch, at zero pitch.
-    const dCg = ch.cgToRear - this.weightShift;
-    const hCg = ch.cgHeight;
+    // Standing up raises the CG, which lowers the balance point and makes the
+    // bike both easier to lift and easier to loop. That trade is the trick.
+    const dCg = ch.cgToRear - this.weightShift + trick.cgToRear * s.trickBlend;
+    const hCg = ch.cgHeight + trick.cgHeight * s.trickBlend;
 
     s.balancePoint = Math.atan2(dCg, hCg);
 

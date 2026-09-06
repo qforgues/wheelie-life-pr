@@ -3,11 +3,12 @@ import { Loop } from '../core/Loop';
 import { QualityGovernor, applyQuality, initialTier } from '../core/Quality';
 import { InputManager } from '../input/InputManager';
 import { BikeSim } from '../sim/BikeSim';
-import { BIKES, cloneTuning, type BikeId } from '../sim/tuning';
+import { BIKES, TRICKS, cloneTuning, type BikeId } from '../sim/tuning';
 import { BIKE_VISUALS } from '../view/bikeVisuals';
 import { City } from '../world/City';
 import { buildSky, type SkyRig } from '../world/Sky';
 import { BikeView } from '../view/BikeView';
+import { CAMERA_LABELS } from '../view/ChaseCamera';
 import { ChaseCamera } from '../view/ChaseCamera';
 import { EngineAudio } from '../audio/EngineAudio';
 import { Hud } from '../ui/Hud';
@@ -68,8 +69,11 @@ export class Game {
   private renderState = {} as BikeState;
   private hapticTimer = 0;
   private wasWheelieing = false;
+  private lastTrick: string = 'none';
   /** null until the first frame, so the overlay always gets told once. */
   private padWasConnected: boolean | null = null;
+  private bikeId: BikeId = 'yz250f';
+  private headVec = new THREE.Vector3();
   private padWasFamily: string | null = null;
 
   constructor(container: HTMLElement) {
@@ -95,10 +99,10 @@ export class Game {
     // ---- bike ------------------------------------------------------------
     // Justin's pick. The Grom is the free starter bike and stays in the
     // catalogue; switching is a one-line change until there's a garage screen.
-    const bikeId: BikeId = 'yz250f';
-    const tuning = cloneTuning(BIKES[bikeId]);
+    this.bikeId = 'yz250f';
+    const tuning = cloneTuning(BIKES[this.bikeId]);
     this.sim = new BikeSim(tuning, this.city, this.city.spawn);
-    this.bikeView = new BikeView(tuning, BIKE_VISUALS[bikeId]);
+    this.bikeView = new BikeView(tuning, BIKE_VISUALS[this.bikeId]);
     this.scene.add(this.bikeView.root);
 
     // ---- camera ----------------------------------------------------------
@@ -121,9 +125,10 @@ export class Game {
     this.overlay = new ControlsOverlay(() => this.audio.start());
     container.appendChild(this.overlay.root);
     this.debug = new DebugPanel(
-      this.sim, this.chase, this.tracker, () => this.resetBike(), BIKES[bikeId],
-      this.quality,
+      this.sim, this.chase, this.tracker, () => this.resetBike(), BIKES[this.bikeId],
+      this.quality, this.bikeView,
     );
+    this.overlay.onBikePicked((id) => this.setBike(id));
 
     this.input.attach(this.renderer.domElement);
     addEventListener('resize', () => this.onResize());
@@ -137,6 +142,32 @@ export class Game {
 
   start(): void {
     this.loop.start();
+  }
+
+  /**
+   * Swap to another bike. Rebuilds the sim and the model, keeps the world, the
+   * camera and the best distance. Called from the bike picker on the start card.
+   */
+  setBike(id: BikeId): void {
+    if (id === this.bikeId) return;
+    this.bikeId = id;
+    const tuning = cloneTuning(BIKES[id]);
+
+    this.scene.remove(this.bikeView.root);
+    this.bikeView.dispose();
+    this.bikeView = new BikeView(tuning, BIKE_VISUALS[id]);
+    this.scene.add(this.bikeView.root);
+
+    const at = this.city.respawnFor(this.sim.state.x, this.sim.state.z);
+    this.sim = new BikeSim(tuning, this.city, at);
+    this.sim.reset(at);
+    this.debug.rebind(this.sim, BIKES[id], this.bikeView);
+    this.tracker.endRun(false);
+
+    this.snapPose();
+    this.bikeView.update(this.sim.state, 0, 0, 0);
+    this.chase.snapTo(this.sim.state, this.bikeView.getFocusWorld(this.focusVec));
+    this.hud.showToast(BIKES[id].name.toUpperCase(), 2.2);
   }
 
   private onResize(): void {
@@ -167,12 +198,16 @@ export class Game {
       if (frame.padConnected) this.hud.showToast(`${frame.padName} CONNECTED`, 2);
     }
 
+    if (frame.cycleCamera) {
+      const mode = this.chase.cycleMode();
+      this.hud.showToast(`CAMERA: ${CAMERA_LABELS[mode]}`, 1.6);
+    }
     if (frame.reset) this.resetBike();
 
     const state = this.sim.state;
     const blocked = this.overlay.isVisible;
     const rider = blocked
-      ? { throttle: 0, brake: 0, steer: 0, weight: 0, shiftUp: false, shiftDown: false }
+      ? { throttle: 0, brake: 0, steer: 0, weight: 0, shiftUp: false, shiftDown: false, trick: 'none' as const }
       : frame.rider;
 
     const gearBefore = state.gear;
@@ -194,7 +229,13 @@ export class Game {
       if (this.sim.crashTime > CRASH_HOLD) this.resetBike();
     }
 
-    this.tracker.update(state, dt);
+    // Tricks multiply what the run banks while they're held.
+    this.tracker.update(state, dt, TRICKS[state.trick].scoreMultiplier * state.trickBlend
+      + (1 - state.trickBlend));
+    if (state.trick !== this.lastTrick) {
+      this.lastTrick = state.trick;
+      if (state.trick !== 'none') this.hud.showToast(TRICKS[state.trick].label, 1.4);
+    }
     if (this.tracker.justSetRecord && this.tracker.best.distance > 5) {
       this.audio.fanfare();
       this.hud.showToast(`NEW BEST · ${this.tracker.best.distance.toFixed(1)} m`, 2.8);
@@ -274,7 +315,7 @@ export class Game {
 
     this.bikeView.update(state, wheelSpin, weightShift, dt);
     this.bikeView.getFocusWorld(this.focusVec);
-    this.chase.update(state, this.focusVec, dt);
+    this.chase.update(state, this.focusVec, dt, this.bikeView.getHeadWorld(this.headVec));
 
     // Keep the shadow frustum tight around the player instead of the whole city.
     // Sun sits behind and to the left of the default direction of travel, so the

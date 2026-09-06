@@ -158,6 +158,18 @@ export class BikeView {
   readonly root = new THREE.Group();
   /** Camera target: roughly the rider's chest, already pitched and rolled. */
   readonly focus = new THREE.Object3D();
+  /** Sits at the rider's eyes, for the first-person camera. */
+  readonly head = new THREE.Object3D();
+
+  /**
+   * How much the rider goes over with the bike, 0..1.
+   *
+   * 1 leans exactly with it; 0 keeps them bolt upright while the bike goes over
+   * underneath them. Real riders sit somewhere between - they counter-lean a
+   * little to keep their head level - but the default is high because reading
+   * the bike's angle off the rider is a big part of seeing what's happening.
+   */
+  riderLean = 0.85;
 
   private rollPivot = new THREE.Group();
   private pitchPivot = new THREE.Group();
@@ -185,6 +197,8 @@ export class BikeView {
   private readonly hipY: number;
   private readonly seatZ: number;
   private readonly pegLocal: THREE.Vector3;
+  private trickStand = 0;
+  private trickKnee = 0;
 
   constructor(tuning: BikeTuning, visual: BikeVisual = BIKE_VISUALS.yz250f) {
     this.visual = visual;
@@ -202,6 +216,7 @@ export class BikeView {
     this.pitchPivot.add(this.bike);
     this.pitchPivot.add(this.focus);
     this.focus.position.set(0, 1.05, WB * 0.45);
+    this.pitchPivot.add(this.head);
 
     const body = new THREE.MeshStandardMaterial({
       color: visual.bodyColor, roughness: 0.32, metalness: 0.45,
@@ -370,6 +385,7 @@ export class BikeView {
   /** Builds the bodywork for whichever bike this is. */
   private buildBodywork(m: BodyMaterials): void {
     if (this.visual.style === 'dirt') this.buildDirtBodywork(m);
+    else if (this.visual.style === 'sport') this.buildSportBodywork(m);
     else this.buildMiniBodywork(m);
   }
 
@@ -778,6 +794,188 @@ export class BikeView {
     void WB;
   }
 
+
+  /**
+   * Ducati Streetfighter V4.
+   *
+   * 1.488 m wheelbase, 0.845 m seat, 17" wheels. The shape is the opposite of
+   * the YZ: everything is mass forward and low, with a big slab tank the rider
+   * lies against, a stubby high tail carrying almost nothing, a single-sided
+   * swingarm and an underslung exhaust. Where the dirt bike is mostly air, this
+   * is mostly bodywork.
+   */
+  private buildSportBodywork(m: BodyMaterials): void {
+    const dark = m.accent; // near-black frame and trim
+    const gold = new THREE.MeshStandardMaterial({
+      color: 0xc9a648, roughness: 0.28, metalness: 0.9,
+    });
+
+    // ---- single-sided swingarm ---------------------------------------------
+    const swingarm = new THREE.Mesh(roundedBox(0.20, 0.16, 0.60, 0.06, 8), dark);
+    swingarm.position.set(-0.13, 0.36, 0.29);
+    swingarm.rotation.x = -0.06;
+    swingarm.castShadow = true;
+    this.bike.add(swingarm);
+    const hubArm = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.10, 20), dark);
+    hubArm.rotation.z = Math.PI / 2;
+    hubArm.position.set(-0.13, this.R, 0);
+    this.bike.add(hubArm);
+
+    const shock = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.04, 0.30, 16), gold);
+    shock.position.set(0.05, 0.56, 0.42);
+    shock.rotation.x = 0.5;
+    this.bike.add(shock);
+
+    // ---- engine: a big V4 fills the whole middle of the bike ---------------
+    const cases = new THREE.Mesh(roundedBox(0.40, 0.30, 0.44, 0.07, 10), m.engine);
+    cases.position.set(0, 0.42, 0.62);
+    cases.castShadow = true;
+    this.bike.add(cases);
+    // Front and rear cylinder banks.
+    const frontBank = new THREE.Mesh(roundedBox(0.34, 0.22, 0.20, 0.05, 8), m.engine);
+    frontBank.position.set(0, 0.62, 0.82);
+    frontBank.rotation.x = -0.65;
+    frontBank.castShadow = true;
+    this.bike.add(frontBank);
+    const rearBank = new THREE.Mesh(roundedBox(0.34, 0.20, 0.18, 0.05, 8), m.engine);
+    rearBank.position.set(0, 0.64, 0.52);
+    rearBank.rotation.x = 0.55;
+    this.bike.add(rearBank);
+
+    // ---- frame: front frame off the heads, plus the trellis subframe -------
+    for (const dx of [-0.14, 0.14]) {
+      const spar = new THREE.Mesh(roundedBox(0.07, 0.14, 0.40, 0.045, 6), dark);
+      spar.position.set(dx, 0.80, 0.98);
+      spar.rotation.x = 0.30;
+      spar.castShadow = true;
+      this.bike.add(spar);
+    }
+
+    // ---- tank + tail --------------------------------------------------------
+    // Long slab tank the rider lies on top of, sweeping down to the seat.
+    const tank = new THREE.Mesh(roundedBox(0.40, 0.26, 0.58, 0.11, 12), m.body);
+    tank.position.set(0, 0.80, 0.86);
+    tank.rotation.x = -0.10;
+    tank.castShadow = true;
+    this.bike.add(tank);
+    const tankTop = new THREE.Mesh(roundedBox(0.30, 0.12, 0.36, 0.06, 8), m.body);
+    tankTop.position.set(0, 0.93, 0.94);
+    tankTop.rotation.x = -0.16;
+    this.bike.add(tankTop);
+
+    const seat = new THREE.Mesh(roundedBox(0.26, 0.10, 0.38, 0.05, 10), dark);
+    seat.position.set(0, 0.845, 0.50);
+    seat.rotation.x = -0.08;
+    seat.castShadow = true;
+    this.bike.add(seat);
+
+    // Stubby high tail unit, hanging off nothing.
+    const tail = new THREE.Mesh(roundedBox(0.17, 0.13, 0.34, 0.055, 10), m.body);
+    tail.position.set(0, 0.90, 0.22);
+    tail.rotation.x = -0.30;
+    tail.castShadow = true;
+    this.bike.add(tail);
+    const tailLight = new THREE.Mesh(
+      roundedBox(0.10, 0.04, 0.04, 0.018, 5),
+      new THREE.MeshStandardMaterial({
+        color: 0xd8262c, emissive: 0x8c0d12, emissiveIntensity: 0.7, roughness: 0.3,
+      }),
+    );
+    tailLight.position.set(0, 0.96, 0.07);
+    this.bike.add(tailLight);
+
+    // Winglets - the detail that says Streetfighter rather than Monster.
+    for (const dx of [-1, 1]) {
+      const wing = new THREE.Mesh(roundedBox(0.13, 0.035, 0.20, 0.016, 6), dark);
+      wing.position.set(dx * 0.26, 0.86, 1.14);
+      wing.rotation.set(0, dx * 0.18, dx * -0.22);
+      wing.castShadow = true;
+      this.bike.add(wing);
+    }
+
+    // ---- underslung exhaust -------------------------------------------------
+    const collector = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.34, 16), m.metal);
+    collector.rotation.set(Math.PI / 2 - 0.10, 0, 0);
+    collector.position.set(0, 0.30, 0.42);
+    this.bike.add(collector);
+    for (const dx of [-0.09, 0.09]) {
+      const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.042, 0.16, 14), m.metal);
+      tip.rotation.set(Math.PI / 2 - 0.25, 0, 0);
+      tip.position.set(dx, 0.40, 0.20);
+      this.bike.add(tip);
+    }
+
+    // ---- front end ----------------------------------------------------------
+    const CLAMP_Y = 0.60;
+    const CLAMP_Z = -0.24;
+    const rake = -Math.atan2(-CLAMP_Z, CLAMP_Y);
+
+    for (const dx of [-0.115, 0.115]) {
+      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.40, 20), gold);
+      upper.position.set(dx, CLAMP_Y * 0.76, CLAMP_Z * 0.76);
+      upper.rotation.x = rake;
+      upper.castShadow = true;
+      this.forkGroup.add(upper);
+      const slider = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.045, 0.36, 18), dark);
+      slider.position.set(dx, CLAMP_Y * 0.26, CLAMP_Z * 0.26);
+      slider.rotation.x = rake;
+      slider.castShadow = true;
+      this.forkGroup.add(slider);
+      // Radial brake caliper.
+      const caliper = new THREE.Mesh(roundedBox(0.05, 0.13, 0.11, 0.025, 5), dark);
+      caliper.position.set(dx * 1.3, 0.14, -0.09);
+      this.forkGroup.add(caliper);
+    }
+    for (const y of [CLAMP_Y, CLAMP_Y - 0.12]) {
+      const clamp = new THREE.Mesh(roundedBox(0.28, 0.05, 0.13, 0.022, 6), dark);
+      clamp.position.set(0, y, CLAMP_Z * (y / CLAMP_Y));
+      clamp.rotation.x = rake;
+      this.forkGroup.add(clamp);
+    }
+
+    // Low, wide bars - a Streetfighter's are flat, not clip-ons.
+    const [gx, gy, gz] = this.visual.gripLocal;
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, gx * 2.0, 16), dark);
+    bar.rotation.z = Math.PI / 2;
+    bar.position.set(0, gy, gz);
+    this.forkGroup.add(bar);
+    for (const dx of [-gx, gx]) {
+      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.12, 16), m.rubber);
+      grip.rotation.z = Math.PI / 2;
+      grip.position.set(dx, gy, gz);
+      this.forkGroup.add(grip);
+      const mirror = new THREE.Mesh(roundedBox(0.10, 0.05, 0.02, 0.012, 4), dark);
+      mirror.position.set(dx * 1.12, gy + 0.11, gz + 0.02);
+      this.forkGroup.add(mirror);
+      const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.11, 8), dark);
+      stalk.position.set(dx * 1.06, gy + 0.06, gz + 0.02);
+      this.forkGroup.add(stalk);
+    }
+
+    // Headlight nacelle with the V-shaped running light.
+    const nose = new THREE.Mesh(roundedBox(0.24, 0.19, 0.20, 0.07, 8), m.body);
+    nose.position.set(0, CLAMP_Y + 0.06, CLAMP_Z + 0.20);
+    nose.rotation.x = rake + 0.10;
+    nose.castShadow = true;
+    this.forkGroup.add(nose);
+    const drlMat = new THREE.MeshStandardMaterial({
+      color: 0xf4f8ff, emissive: 0xbcd8ff, emissiveIntensity: 0.9, roughness: 0.15,
+    });
+    for (const dx of [-1, 1]) {
+      const drl = new THREE.Mesh(roundedBox(0.10, 0.028, 0.03, 0.012, 4), drlMat);
+      drl.position.set(dx * 0.065, CLAMP_Y + 0.05, CLAMP_Z + 0.30);
+      drl.rotation.z = dx * 0.55;
+      this.forkGroup.add(drl);
+    }
+
+    // Front hugger, tight to the tyre.
+    const guardMat = m.body.clone();
+    guardMat.side = THREE.DoubleSide;
+    const guard = new THREE.Mesh(fender(this.frontR, 0.16, 1.5, 0.055, 0.30), guardMat);
+    guard.castShadow = true;
+    this.forkGroup.add(guard);
+  }
+
   /** Push a frame of sim state into the scene graph. */
   update(state: BikeState, wheelSpin: number, weightShift: number, dt: number): void {
     this.root.position.set(state.x, state.y, state.z);
@@ -802,9 +1000,28 @@ export class BikeView {
     const back = clamp01(Math.max(0, weightShift) / this.shiftRange);
     const fwd = clamp01(Math.max(0, -weightShift) / (this.shiftRange * 0.35));
     // Hips slide back along the seat; the body hinges about them.
-    this.riderRoot.position.z = this.seatZ - back * 0.13 + fwd * 0.08;
-    this.riderHips.rotation.x = -0.06 - back * 0.16 + fwd * 0.30 + state.pitch * 0.10;
-    this.riderHips.rotation.z = -state.roll * 0.45;
+    // Tricks: standing lifts the hips off the seat, kneeling drops and rocks
+    // them forward. `blend` is the sim's, so the pose and the physics agree.
+    const blend = state.trickBlend;
+    const standing = state.trick === 'stand' ? blend : 0;
+    const kneeling = state.trick === 'knee' ? blend : 0;
+    this.trickStand = standing;
+    this.trickKnee = kneeling;
+
+    this.riderRoot.position.z = this.seatZ - back * 0.13 + fwd * 0.08 + kneeling * 0.06;
+    this.riderRoot.position.y = standing * 0.30 + kneeling * 0.05;
+    this.riderHips.rotation.x =
+      -0.06 - back * 0.16 + fwd * 0.30 + state.pitch * 0.10
+      - standing * 0.10 + kneeling * 0.34;
+    // riderLean 1 = goes over exactly with the bike, 0 = stays bolt upright.
+    this.riderHips.rotation.z = -state.roll * (1 - this.riderLean);
+
+    // Eyes, for the first-person camera: on the helmet, moving with the body.
+    this.head.position.set(
+      0,
+      this.hipY + this.riderRoot.position.y + 0.62,
+      this.riderRoot.position.z + 0.10,
+    );
 
     this.solveLimbs();
 
@@ -873,8 +1090,20 @@ export class BikeView {
           -g.x * Math.sin(forkYaw) + g.z * Math.cos(forkYaw),
         ).add(this.forkOrigin);
       } else {
+        // Standing puts both feet on the pegs but with the legs straight and
+        // the body up; kneeling puts the inside knee on the seat and swings
+        // that foot back off the peg.
         _v.copy(this.pegLocal);
         _v.x *= limb.side;
+        if (this.trickStand > 0) {
+          _v.y += this.trickStand * 0.02;
+          _v.z -= this.trickStand * 0.03;
+        }
+        if (this.trickKnee > 0 && limb.side > 0) {
+          _v.x += this.trickKnee * 0.02;
+          _v.y += this.trickKnee * 0.30;
+          _v.z -= this.trickKnee * 0.30;
+        }
       }
       // Bike space -> riderRoot -> riderHips (== riderTorso, which has no
       // transform of its own).
@@ -885,8 +1114,37 @@ export class BikeView {
     }
   }
 
+  /** Frees everything this bike owns, so swapping bikes doesn't leak GPU memory. */
+  dispose(): void {
+    const seenGeo = new Set<THREE.BufferGeometry>();
+    const seenMat = new Set<THREE.Material>();
+    this.root.traverse((o) => {
+      const mesh = o as THREE.Mesh | THREE.Points;
+      if (!(mesh as THREE.Mesh).isMesh && !(mesh as THREE.Points).isPoints) return;
+      if (mesh.geometry && !seenGeo.has(mesh.geometry)) {
+        seenGeo.add(mesh.geometry);
+        mesh.geometry.dispose();
+      }
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mat of mats) {
+        if (!mat || seenMat.has(mat)) continue;
+        seenMat.add(mat);
+        const withMap = mat as THREE.MeshStandardMaterial;
+        withMap.map?.dispose();
+        mat.dispose();
+      }
+    });
+    this.root.clear();
+    this.limbs.length = 0;
+  }
+
   /** World-space point the camera should look at. */
   getFocusWorld(out: THREE.Vector3): THREE.Vector3 {
     return this.focus.getWorldPosition(out);
+  }
+
+  /** World-space eye position, for the first-person camera. */
+  getHeadWorld(out: THREE.Vector3): THREE.Vector3 {
+    return this.head.getWorldPosition(out);
   }
 }

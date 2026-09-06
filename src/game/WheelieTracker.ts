@@ -2,12 +2,14 @@ import type { BikeState } from '../sim/types';
 
 export interface WheelieRun {
   distance: number;
+  /** Distance with trick multipliers applied - what actually counts. */
+  score: number;
   duration: number;
   topSpeed: number;
   topGear: number;
 }
 
-const EMPTY: WheelieRun = { distance: 0, duration: 0, topSpeed: 0, topGear: 0 };
+const EMPTY: WheelieRun = { distance: 0, score: 0, duration: 0, topSpeed: 0, topGear: 0 };
 
 /**
  * Measures a wheelie. Distance is the only number that really matters in the
@@ -33,7 +35,7 @@ export class WheelieTracker {
   private lastZ = 0;
   private hasPrev = false;
 
-  update(state: BikeState, dt: number): void {
+  update(state: BikeState, dt: number, multiplier = 1): void {
     this.justSetRecord = false;
     this.justEnded = false;
 
@@ -49,7 +51,9 @@ export class WheelieTracker {
       if (this.hasPrev) {
         const dx = state.x - this.lastX;
         const dz = state.z - this.lastZ;
-        this.current.distance += Math.hypot(dx, dz);
+        const step = Math.hypot(dx, dz);
+        this.current.distance += step;
+        this.current.score += step * multiplier;
       }
       this.current.duration += dt;
       this.current.topSpeed = Math.max(this.current.topSpeed, state.speed);
@@ -73,7 +77,7 @@ export class WheelieTracker {
     this.justEnded = true;
     this.last = { ...this.current };
     this.lastBanked = banked;
-    if (banked && this.current.distance > this.best.distance) {
+    if (banked && this.current.score > this.best.score) {
       this.best = { ...this.current };
       this.justSetRecord = true;
     }

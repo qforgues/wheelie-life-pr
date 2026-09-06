@@ -10,7 +10,7 @@ import type { BikeId } from '../sim/tuning';
  */
 export interface BikeVisual {
   /** Selects which bodywork builder runs. */
-  style: 'dirt' | 'mini';
+  style: 'dirt' | 'mini' | 'sport';
   /** Main painted panels. */
   bodyColor: number;
   /** Number plates, seat piping, contrast panels. */
@@ -30,6 +30,11 @@ export interface BikeVisual {
   /** Footpeg position in bike-local space. */
   pegLocal: [number, number, number];
   shirt: [string, string, string, string];
+  /** Shown on the bike select screen. */
+  displayName: string;
+  tagline: string;
+  /** One-line summary of how it rides, for the picker. */
+  character: string;
 }
 
 const YZ_FRONT_R = 0.347; // 80/100-21
@@ -37,6 +42,9 @@ const YZ_REAR_R = 0.331;  // 100/90-19
 
 export const BIKE_VISUALS: Record<BikeId, BikeVisual> = {
   yz250f: {
+    displayName: 'Yamaha YZ250F',
+    tagline: '2024 · 250cc · 43 hp',
+    character: 'Light, tall and snappy. Lofts in four gears and holds a wheelie better than anything else here.',
     style: 'dirt',
     // Team Yamaha blue, white plates, blue anodised rims.
     bodyColor: 0x1b45b4,
@@ -52,6 +60,9 @@ export const BIKE_VISUALS: Record<BikeId, BikeVisual> = {
     shirt: ['#efe9dc', 'GOOD', 'BIKES', 'BETTER DAYS'],
   },
   grom: {
+    displayName: 'Honda Grom',
+    tagline: '190cc big-bore · 21 hp',
+    character: 'Small, slow and forgiving. Only lifts in 1st and 2nd, so you learn to time the pull. Start here.',
     style: 'mini',
     bodyColor: 0x1f5fd0,
     accentColor: 0xf0efe6,
@@ -63,6 +74,24 @@ export const BIKE_VISUALS: Record<BikeId, BikeVisual> = {
     seatZ: 0.40,
     gripLocal: [0.29, 0.74, -0.27],
     pegLocal: [0.17, 0.44, 0.50],
+    shirt: ['#efe9dc', 'GOOD', 'BIKES', 'BETTER DAYS'],
+  },
+  streetfighter: {
+    displayName: 'Ducati Streetfighter V4',
+    tagline: '1103cc V4 · 208 hp',
+    character: 'Brutal and heavy. It will come up on throttle alone in three gears, and then fight you the whole way.',
+    style: 'sport',
+    // Ducati red over a black frame, black forged wheels.
+    bodyColor: 0xc4161c,
+    accentColor: 0x1a1c22,
+    rimColor: 0x26282e,
+    frontWheel: castStreetWheel(0.300, 0.130),
+    rearWheel: castStreetWheel(0.336, 0.205),
+    frontWheelRadius: 0.300,
+    hipHeight: 0.92,
+    seatZ: 0.52,
+    gripLocal: [0.30, 0.60, -0.16],
+    pegLocal: [0.19, 0.46, 0.40],
     shirt: ['#efe9dc', 'GOOD', 'BIKES', 'BETTER DAYS'],
   },
 };

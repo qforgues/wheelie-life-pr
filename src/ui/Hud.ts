@@ -1,6 +1,13 @@
 import type { BikeState } from '../sim/types';
 import type { BikeTuning } from '../sim/tuning';
 import type { WheelieTracker } from '../game/WheelieTracker';
+import { TRICKS } from '../sim/tuning';
+
+const TRICK_LABEL: Record<string, string> = {
+  knee: 'KNEE',
+  stand: 'STAND',
+  none: '',
+};
 
 const MS_TO_MPH = 2.23694;
 const MS_TO_KMH = 3.6;
@@ -25,6 +32,7 @@ export class Hud {
   private runTime!: HTMLElement;
   private bestValue!: HTMLElement;
   private lastValue!: HTMLElement;
+  private trick!: HTMLElement;
   private banner!: HTMLElement;
   private toast!: HTMLElement;
   private toastTimer = 0;
@@ -38,6 +46,7 @@ export class Hud {
           <div class="hud-label">WHEELIE</div>
           <div class="hud-run-value"><span data-el="runValue">0.0</span><em>m</em></div>
           <div class="hud-run-time"><span data-el="runTime">0.0</span>s</div>
+          <div class="hud-trick" data-el="trick"></div>
         </div>
         <div class="hud-stat">
           <span class="hud-label">BEST</span>
@@ -92,9 +101,16 @@ export class Hud {
     const showing = tracker.active;
     this.runBlock.classList.toggle('is-active', showing);
     const run = showing ? tracker.current : tracker.last;
+    // Distance is raw metres; tricks multiply what the run banks, so show the
+    // bonus rather than silently inflating the distance.
     this.runValue.textContent = run.distance.toFixed(1);
+    const bonus = run.score - run.distance;
+    this.trick.textContent = state.trick !== 'none'
+      ? `${TRICK_LABEL[state.trick]}  ×${(1 + (state.trickBlend * (TRICKS[state.trick].scoreMultiplier - 1))).toFixed(1)}`
+      : bonus > 0.5 ? `+${bonus.toFixed(0)} m style` : '';
+    this.trick.classList.toggle('is-on', state.trick !== 'none');
     this.runTime.textContent = run.duration.toFixed(1);
-    this.bestValue.textContent = `${tracker.best.distance.toFixed(1)} m`;
+    this.bestValue.textContent = `${tracker.best.score.toFixed(1)} m`;
     this.lastValue.textContent = `${tracker.last.distance.toFixed(1)} m`;
     // A run you fell out of still shows, but it's marked as not counting.
     this.lastValue.classList.toggle('is-void', !tracker.lastBanked && tracker.last.distance > 0);

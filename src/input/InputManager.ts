@@ -1,4 +1,4 @@
-import { emptyInput, type RiderInput } from '../sim/types';
+import { emptyInput, type RiderInput, type TrickId } from '../sim/types';
 import { AXIS, KEY_MAP, PAD, type KeyAction, type PadFamily } from './bindings';
 
 export interface FrameInput {
@@ -11,6 +11,8 @@ export interface FrameInput {
   toggleHelp: boolean;
   toggleDebug: boolean;
   toggleAudio: boolean;
+  /** One-shot: cycle to the next camera mode. */
+  cycleCamera: boolean;
   /** Which device produced input most recently - drives the overlay's hints. */
   activeDevice: 'gamepad' | 'keyboard';
   padConnected: boolean;
@@ -53,6 +55,7 @@ export class InputManager {
     toggleHelp: false,
     toggleDebug: false,
     toggleAudio: false,
+    cycleCamera: false,
     activeDevice: 'keyboard',
     padConnected: false,
     padName: '',
@@ -135,6 +138,10 @@ export class InputManager {
     let brake = this.held('brake') ? 1 : 0;
     let steer = (this.held('steerRight') ? 1 : 0) - (this.held('steerLeft') ? 1 : 0);
     let weight = (this.held('pullBack') ? 1 : 0) - (this.held('leanForward') ? 1 : 0);
+    // Tricks are held, not toggled: let go and the rider sits back down.
+    let trick: TrickId = this.held('trickStand') ? 'stand'
+      : this.held('trickKnee') ? 'knee' : 'none';
+    let cycleCamera = this.pressed('camera');
     let shiftUp = this.pressed('shiftUp');
     let shiftDown = this.pressed('shiftDown');
     let reset = this.pressed('reset');
@@ -181,11 +188,14 @@ export class InputManager {
       shiftDown = shiftDown || this.padEdge(PAD.L1, down(PAD.L1));
       reset = reset || this.padEdge(PAD.OPTIONS, down(PAD.OPTIONS))
         || this.padEdge(PAD.CIRCLE, down(PAD.CIRCLE));
+      cycleCamera = cycleCamera || this.padEdge(PAD.TRIANGLE, down(PAD.TRIANGLE));
+      // Held, not edge-triggered - standing is a pose you hold.
+      if (down(PAD.SQUARE)) trick = 'stand';
+      else if (down(PAD.CROSS)) trick = 'knee';
       // Keep the rest of the button edges warm so nothing double-fires.
+      const edged: number[] = [PAD.R1, PAD.L1, PAD.OPTIONS, PAD.CIRCLE, PAD.TRIANGLE];
       for (let i = 0; i < pad.buttons.length; i++) {
-        if (i !== PAD.R1 && i !== PAD.L1 && i !== PAD.OPTIONS && i !== PAD.CIRCLE) {
-          this.prevPad.buttons[i] = down(i);
-        }
+        if (!edged.includes(i)) this.prevPad.buttons[i] = down(i);
       }
     }
 
@@ -195,6 +205,7 @@ export class InputManager {
     r.weight = clampSigned(weight);
     r.shiftUp = shiftUp;
     r.shiftDown = shiftDown;
+    r.trick = trick;
 
     f.cameraX = camX;
     f.cameraY = camY;
@@ -202,6 +213,7 @@ export class InputManager {
     f.toggleHelp = toggleHelp;
     f.toggleDebug = toggleDebug;
     f.toggleAudio = toggleAudio;
+    f.cycleCamera = cycleCamera;
     f.activeDevice = this.lastDevice;
 
     this.pressedThisFrame.clear();

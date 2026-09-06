@@ -3,6 +3,7 @@ import type { BikeSim } from '../sim/BikeSim';
 import type { BikeTuning } from '../sim/tuning';
 import { cloneTuning } from '../sim/tuning';
 import type { ChaseCamera } from '../view/ChaseCamera';
+import type { BikeView } from '../view/BikeView';
 import type { QualityGovernor, QualityTier } from '../core/Quality';
 import type { WheelieTracker } from '../game/WheelieTracker';
 
@@ -58,6 +59,7 @@ export class DebugPanel {
     private onReset: () => void,
     private baseline: BikeTuning,
     private quality: QualityGovernor,
+    private bikeView: BikeView,
   ) {
     this.gui = new GUI({ title: `TUNING · ${sim.getTuning().name}`, width: 320 });
     this.gui.domElement.classList.add('debug-gui');
@@ -76,6 +78,7 @@ export class DebugPanel {
     this.buildLimits(t);
     this.buildSteering(t);
     this.buildCamera();
+    this.buildRiderLook();
     this.buildGraphics();
     this.buildActions();
   }
@@ -199,6 +202,30 @@ export class DebugPanel {
     f.add(p, 'followSpeed', 1, 20, 0.1);
     f.add(p, 'speedFov', 0, 40, 1).name('speed FOV');
     f.add(p, 'autoCentre').name('auto re-centre');
+  }
+
+  private buildRiderLook(): void {
+    const f = this.gui.addFolder('Rider look').open();
+    const proxy = { lean: this.bikeView.riderLean };
+    f.add(proxy, 'lean', 0, 1, 0.01)
+      .name('leans with the bike')
+      .onChange((v: number) => { this.bikeView.riderLean = v; });
+    this.onLeanRebind = (view: BikeView) => {
+      view.riderLean = proxy.lean;
+    };
+  }
+
+  private onLeanRebind: ((view: BikeView) => void) | null = null;
+
+  /** Point the panel at a newly built bike after a garage swap. */
+  rebind(sim: BikeSim, baseline: BikeTuning, bikeView: BikeView): void {
+    this.sim = sim;
+    this.baseline = baseline;
+    this.bikeView = bikeView;
+    this.onLeanRebind?.(bikeView);
+    this.gui.title(`TUNING · ${sim.getTuning().name}`);
+    this.syncDegrees(sim.getTuning());
+    this.rebuildControllers(sim.getTuning());
   }
 
   private buildGraphics(): void {

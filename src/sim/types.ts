@@ -1,3 +1,6 @@
+/** Tricks you can pull while the front wheel is up. */
+export type TrickId = 'none' | 'knee' | 'stand';
+
 /** Engine-agnostic input snapshot. Everything the sim needs, nothing it doesn't. */
 export interface RiderInput {
   /** R2 / W. 0..1 */
@@ -15,10 +18,18 @@ export interface RiderInput {
   shiftUp: boolean;
   /** L1 - edge triggered. */
   shiftDown: boolean;
+  /**
+   * Held trick. Only engages while the front wheel is actually up; letting go
+   * of the button puts the rider back in the seat.
+   */
+  trick: TrickId;
 }
 
 export function emptyInput(): RiderInput {
-  return { throttle: 0, brake: 0, steer: 0, weight: 0, shiftUp: false, shiftDown: false };
+  return {
+    throttle: 0, brake: 0, steer: 0, weight: 0,
+    shiftUp: false, shiftDown: false, trick: 'none',
+  };
 }
 
 export type BikeMode = 'riding' | 'crashed' | 'resetting';
@@ -76,6 +87,12 @@ export interface BikeState {
   lastImpact: number;
   /** Cause of the current crash, for the reset banner. */
   crashReason: CrashReason | null;
+
+  // --- tricks ----------------------------------------------------------
+  /** Trick the rider is currently committed to. */
+  trick: TrickId;
+  /** 0..1 blend into that trick - the rider takes time to get up there. */
+  trickBlend: number;
 }
 
 export type CrashReason = 'looped' | 'lowside' | 'impact' | 'nosedive';

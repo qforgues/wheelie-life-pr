@@ -171,6 +171,50 @@ export interface BikeTuning {
 
 const DEG = Math.PI / 180;
 
+/**
+ * What each trick does to the bike.
+ *
+ * These are rider actions rather than bike properties, so they're shared across
+ * the garage. The important one is `cgHeight`: standing on the seat lifts the
+ * centre of gravity, and since the balance point is atan(cgToRear / cgHeight),
+ * raising it *lowers* the angle at which the bike tips past the point of no
+ * return. Standing up genuinely makes a wheelie easier to lift and easier to
+ * loop, which is exactly why it scores more.
+ */
+export interface TrickTuning {
+  label: string;
+  /** Metres added to the CG height while held. */
+  cgHeight: number;
+  /** Metres added to the CG's distance forward of the rear contact. */
+  cgToRear: number;
+  /** Multiplier on distance banked while it's held. */
+  scoreMultiplier: number;
+  /** How fast the rider gets into and out of it (1/s). */
+  blendRate: number;
+  /** Minimum wheelie angle before it can be started (rad). */
+  minPitch: number;
+}
+
+export const TRICKS: Record<import('./types').TrickId, TrickTuning> = {
+  none: { label: '', cgHeight: 0, cgToRear: 0, scoreMultiplier: 1, blendRate: 6, minPitch: 0 },
+  knee: {
+    label: 'KNEE ON THE SEAT',
+    cgHeight: 0.06,
+    cgToRear: -0.05,
+    scoreMultiplier: 1.6,
+    blendRate: 4.5,
+    minPitch: 14 * DEG,
+  },
+  stand: {
+    label: 'STANDING',
+    cgHeight: 0.26,
+    cgToRear: -0.02,
+    scoreMultiplier: 2.4,
+    blendRate: 2.8,
+    minPitch: 20 * DEG,
+  },
+};
+
 /** The prototype bike: a built Grom. */
 export const GROM: BikeTuning = {
   name: 'Grom 190 (built)',
@@ -376,12 +420,119 @@ export const YZ250F: BikeTuning = {
 };
 
 /**
+ * Ducati Streetfighter V4 - "a more sporty Ducati bike".
+ *
+ * 1103 cc V4, 208 hp at 12,750 off 123 N*m at 11,500, six speeds, 1.488 m
+ * wheelbase, 201 kg wet, 17" cast wheels on sticky street rubber.
+ *
+ * The third character in the garage. Where the YZ lifts because it is light
+ * with a high CG and a rider who can move, this lifts because it simply makes
+ * an absurd amount of torque. It is 94 kg heavier than the YZ, the rider is
+ * tucked into a short seat with barely any room to shift, and the balance point
+ * sits high - so it comes up violently and is then the hardest of the three to
+ * actually hold.
+ */
+export const STREETFIGHTER: BikeTuning = {
+  name: 'Ducati Streetfighter V4',
+
+  engine: {
+    idleRpm: 1400,
+    redlineRpm: 13000,
+    limiterRpm: 14000,
+    peakTorque: 123,
+    peakTorqueRpm: 11500,
+    // A big V4 pulls hard from everywhere and keeps pulling to the limiter.
+    lowEndFullness: 0.58,
+    topEndFullness: 0.88,
+    engineBrakeTorque: 26,
+    flywheelInertia: 0.09,
+  },
+
+  gearbox: {
+    primaryRatio: 1.8,
+    finalRatio: 42 / 15,
+    gearRatios: [2.462, 1.947, 1.611, 1.409, 1.238, 1.107],
+    efficiency: 0.94,
+    shiftTimeUp: 0.07,
+    shiftTimeDown: 0.07,
+    clutchSlipSpeed: 3.0,
+  },
+
+  chassis: {
+    mass: 269,
+    wheelbase: 1.488,
+    // Rear 200/60-17 => 0.216 rim + 0.120 sidewall.
+    wheelRadius: 0.336,
+    cgHeight: 0.68,
+    cgToRear: 0.70,
+    pitchInertia: 62,
+    pitchDamping: 85,
+    groundedPitchDamping: 240,
+    frontSlamRestitution: 0.18,
+    // Short sport travel: it does not soak up a speed bump the way the YZ does.
+    bumpAbsorption: 0.42,
+    maxBumpKick: 2.2,
+  },
+
+  rider: {
+    // Short seat, tucked riding position, nowhere to go.
+    weightShiftRange: 0.12,
+    weightShiftRate: 0.85,
+    yankGain: 900,
+  },
+
+  brakes: {
+    rearMaxTorque: 620,
+    frontMaxTorque: 2600,
+    rearBiasGrounded: 0.30,
+  },
+
+  tyre: {
+    gripLong: 1.35,
+    gripLat: 1.30,
+    spinThreshold: 0.10,
+  },
+
+  steering: {
+    maxYawRateLow: 1.25,
+    yawSpeedFalloff: 12,
+    wheelieSteerScale: 0.25,
+    yawResponse: 6.0,
+  },
+
+  balance: {
+    rollInstability: 0.35,
+    // Heavy: less authority to move it, and slower to come back.
+    rollAuthority: 2.1,
+    rollResponse: 8.5,
+    rollDivergence: 9.0,
+    rollCrashAngle: 42 * DEG,
+    rollDamping: 4.6,
+  },
+
+  limits: {
+    scrapePitch: 58 * DEG,
+    crashPitch: 80 * DEG,
+    wheelieCountPitch: 8 * DEG,
+    scrapeRestoreTorque: 520,
+    scrapeDrag: 420,
+    crashImpactSpeed: 6.5,
+  },
+
+  aero: {
+    dragK: 0.26,
+    rollingResistance: 0.015,
+  },
+};
+
+/**
  * The garage. Justin asked for three bikes that feel genuinely different, so
- * a bike is data rather than code - adding the Ducati later is another entry
- * here plus a bodywork style, not a rewrite.
+ * a bike is data rather than code on both sides - tuning here, bodywork and
+ * stance in view/bikeVisuals.ts.
  */
 export const BIKES = {
   yz250f: YZ250F,
+  streetfighter: STREETFIGHTER,
   grom: GROM,
 } as const;
 
