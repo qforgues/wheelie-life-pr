@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Loop } from '../core/Loop';
+import { QualityGovernor, applyQuality, initialTier } from '../core/Quality';
 import { InputManager } from '../input/InputManager';
 import { BikeSim } from '../sim/BikeSim';
 import { BIKES, cloneTuning, type BikeId } from '../sim/tuning';
@@ -52,6 +53,7 @@ export class Game {
   private debug: DebugPanel;
   private tracker = new WheelieTracker();
   private loop: Loop;
+  private quality: QualityGovernor;
 
   private focusVec = new THREE.Vector3();
   /**
@@ -68,14 +70,15 @@ export class Game {
   private wasWheelieing = false;
   /** null until the first frame, so the overlay always gets told once. */
   private padWasConnected: boolean | null = null;
+  private padWasFamily: string | null = null;
 
   constructor(container: HTMLElement) {
     // ---- renderer --------------------------------------------------------
+    const tier = initialTier();
     this.renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: tier !== 'low',
       powerPreference: 'high-performance',
     });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -106,9 +109,21 @@ export class Game {
 
     // ---- ui --------------------------------------------------------------
     container.appendChild(this.hud.root);
+    // Quality is picked from the device, then stepped down on its own if the
+    // frame rate can't hold - the Xbox browser has a fraction of a desktop's
+    // budget and it is better to lose shadows than to lose the frame rate.
+    this.quality = new QualityGovernor(tier, (settings, t) => {
+      applyQuality(settings, this.renderer, this.sky.sun, this.scene.fog as THREE.Fog);
+      this.hud.showToast(`GRAPHICS: ${t.toUpperCase()}`, 2);
+    });
+    applyQuality(this.quality.settings, this.renderer, this.sky.sun, this.scene.fog as THREE.Fog);
+
     this.overlay = new ControlsOverlay(() => this.audio.start());
     container.appendChild(this.overlay.root);
-    this.debug = new DebugPanel(this.sim, this.chase, this.tracker, () => this.resetBike());
+    this.debug = new DebugPanel(
+      this.sim, this.chase, this.tracker, () => this.resetBike(), BIKES[bikeId],
+      this.quality,
+    );
 
     this.input.attach(this.renderer.domElement);
     addEventListener('resize', () => this.onResize());
@@ -145,9 +160,10 @@ export class Game {
       this.audio.setMuted(!this.audio.isMuted);
       this.hud.showToast(this.audio.isMuted ? 'SOUND OFF' : 'SOUND ON', 1.2);
     }
-    if (frame.padConnected !== this.padWasConnected) {
+    if (frame.padConnected !== this.padWasConnected || frame.padFamily !== this.padWasFamily) {
+      this.padWasFamily = frame.padFamily;
       this.padWasConnected = frame.padConnected;
-      this.overlay.setDevice(frame.padConnected, frame.padName);
+      this.overlay.setDevice(frame.padConnected, frame.padName, frame.padFamily);
       if (frame.padConnected) this.hud.showToast(`${frame.padName} CONNECTED`, 2);
     }
 
@@ -275,6 +291,7 @@ export class Game {
     }
     this.wasWheelieing = state.wheelieing;
 
+    this.quality.update(dt);
     this.hud.update(state, this.tracker, this.sim.getTuning(), dt);
     this.debug.update(dt);
     this.audio.resumeIfNeeded();

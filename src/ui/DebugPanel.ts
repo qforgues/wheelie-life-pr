@@ -1,8 +1,9 @@
 import GUI from 'lil-gui';
 import type { BikeSim } from '../sim/BikeSim';
 import type { BikeTuning } from '../sim/tuning';
-import { GROM, cloneTuning } from '../sim/tuning';
+import { cloneTuning } from '../sim/tuning';
 import type { ChaseCamera } from '../view/ChaseCamera';
+import type { QualityGovernor, QualityTier } from '../core/Quality';
 import type { WheelieTracker } from '../game/WheelieTracker';
 
 const DEG = Math.PI / 180;
@@ -30,6 +31,7 @@ export class DebugPanel {
     wheelieNow: '0.0 m',
     best: '0.0 m',
     fps: '0',
+    quality: 'high',
     peakPower: '0 hp',
   };
   private degrees = {
@@ -44,13 +46,20 @@ export class DebugPanel {
    *  a preset swaps that object out from under them. */
   private boundFolders: GUI[] = [];
 
+  /**
+   * @param baseline stock tuning for the bike currently loaded. Presets and
+   *   "Restore defaults" work from this - they used to reset to the Grom, which
+   *   silently swapped you onto a different bike's physics mid-session.
+   */
   constructor(
     private sim: BikeSim,
     private camera: ChaseCamera,
     private tracker: WheelieTracker,
     private onReset: () => void,
+    private baseline: BikeTuning,
+    private quality: QualityGovernor,
   ) {
-    this.gui = new GUI({ title: 'WHEELIE LIFE · TUNING', width: 320 });
+    this.gui = new GUI({ title: `TUNING · ${sim.getTuning().name}`, width: 320 });
     this.gui.domElement.classList.add('debug-gui');
     this.hide();
 
@@ -67,6 +76,7 @@ export class DebugPanel {
     this.buildLimits(t);
     this.buildSteering(t);
     this.buildCamera();
+    this.buildGraphics();
     this.buildActions();
   }
 
@@ -88,19 +98,19 @@ export class DebugPanel {
   }
 
   private applyPreset(kind: 'chill' | 'real' | 'stunt'): void {
-    const t = cloneTuning(GROM);
+    const t = cloneTuning(this.baseline);
     if (kind === 'chill') {
       // Wider save window, no side-to-side wobble, softer landings.
       t.balance.rollInstability = 0;
       t.balance.rollResponse = 14;
-      t.chassis.pitchDamping = 78;
-      t.limits.crashPitch = 88 * DEG;
-      t.rider.yankGain = 1350;
+      t.chassis.pitchDamping = this.baseline.chassis.pitchDamping * 1.15;
+      t.limits.crashPitch = Math.min(89, this.baseline.limits.crashPitch / DEG + 6) * DEG;
+      t.rider.yankGain = this.baseline.rider.yankGain * 1.5;
     } else if (kind === 'stunt') {
-      t.engine.peakTorque = 34;
-      t.rider.yankGain = 1600;
+      t.engine.peakTorque = this.baseline.engine.peakTorque * 1.6;
+      t.rider.yankGain = this.baseline.rider.yankGain * 1.7;
       t.balance.rollInstability = 0.8;
-      t.limits.crashPitch = 86 * DEG;
+      t.limits.crashPitch = Math.min(89, this.baseline.limits.crashPitch / DEG + 4) * DEG;
     }
     this.sim.setTuning(t);
     this.syncDegrees(t);
@@ -191,6 +201,23 @@ export class DebugPanel {
     f.add(p, 'autoCentre').name('auto re-centre');
   }
 
+  private buildGraphics(): void {
+    const f = this.gui.addFolder('Graphics').close();
+    const proxy = { tier: this.quality.tier as QualityTier };
+    f.add(proxy, 'tier', ['high', 'medium', 'low'] as QualityTier[])
+      .name('quality')
+      .onChange((v: QualityTier) => this.quality.set(v));
+    // Reflect an automatic downgrade back into the control.
+    this.onTierPoll = () => {
+      if (proxy.tier !== this.quality.tier) {
+        proxy.tier = this.quality.tier;
+        f.controllers[0].updateDisplay();
+      }
+    };
+  }
+
+  private onTierPoll: (() => void) | null = null;
+
   private buildActions(): void {
     const f = this.gui.addFolder('Actions').open();
     f.add({ 'Reset bike (R)': () => this.onReset() }, 'Reset bike (R)');
@@ -204,7 +231,7 @@ export class DebugPanel {
     }, 'Copy tuning JSON');
     f.add({
       'Restore defaults': () => {
-        const t = cloneTuning(GROM);
+        const t = cloneTuning(this.baseline);
         this.sim.setTuning(t);
         this.syncDegrees(t);
         this.rebuildControllers(t);
@@ -249,6 +276,7 @@ export class DebugPanel {
       this.frames = 0;
       this.fpsTimer = 0;
     }
+    this.onTierPoll?.();
     if (!this.visible) return;
 
     const s = this.sim.state;
@@ -263,6 +291,7 @@ export class DebugPanel {
     this.readouts.wheelieNow = `${this.tracker.current.distance.toFixed(1)} m`;
     this.readouts.best = `${this.tracker.best.distance.toFixed(1)} m`;
     this.readouts.peakPower = `${(this.sim.engine.peakPowerKw() * 1.34102).toFixed(1)} hp`;
+    this.readouts.quality = this.quality.tier;
   }
 
   toggle(): void {

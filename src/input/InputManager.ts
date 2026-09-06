@@ -1,5 +1,5 @@
 import { emptyInput, type RiderInput } from '../sim/types';
-import { AXIS, KEY_MAP, PAD, type KeyAction } from './bindings';
+import { AXIS, KEY_MAP, PAD, type KeyAction, type PadFamily } from './bindings';
 
 export interface FrameInput {
   rider: RiderInput;
@@ -15,6 +15,8 @@ export interface FrameInput {
   activeDevice: 'gamepad' | 'keyboard';
   padConnected: boolean;
   padName: string;
+  /** Controller family, so the overlay prints the right button names. */
+  padFamily: PadFamily;
 }
 
 const DEADZONE = 0.14;
@@ -54,9 +56,20 @@ export class InputManager {
     activeDevice: 'keyboard',
     padConnected: false,
     padName: '',
+    padFamily: isXboxDevice() ? 'xbox' : 'generic',
   };
 
   attach(target: HTMLElement): void {
+    // On the Xbox browser the controller drives the browser UI by default and
+    // the page never sees it. This non-standard switch hands raw Gamepad API
+    // input to the page instead. No-op everywhere else.
+    try {
+      const nav = navigator as Navigator & { gamepadInputEmulation?: string };
+      if ('gamepadInputEmulation' in nav) nav.gamepadInputEmulation = 'gamepad';
+    } catch {
+      /* not supported here - nothing to do */
+    }
+
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
       // Don't hijack typing in the debug panel.
@@ -115,6 +128,7 @@ export class InputManager {
     const pad = this.pad();
     f.padConnected = !!pad;
     f.padName = pad ? shortPadName(this.padName || pad.id) : '';
+    f.padFamily = pad ? padFamily(this.padName || pad.id) : (isXboxDevice() ? 'xbox' : 'generic');
 
     // ---- keyboard ----------------------------------------------------------
     let throttle = this.held('throttle') ? 1 : 0;
@@ -254,9 +268,23 @@ function isGameKey(code: string): boolean {
     ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'KeyH', 'KeyP', 'KeyM'].includes(code)
   );
 }
+/** True when the page is running on an Xbox console browser. */
+export function isXboxDevice(): boolean {
+  return typeof navigator !== 'undefined' && /xbox/i.test(navigator.userAgent);
+}
+
+function padFamily(id: string): PadFamily {
+  if (/dualsense|dualshock|054c|playstation/i.test(id)) return 'playstation';
+  if (/xbox|xinput|045e/i.test(id)) return 'xbox';
+  // Xbox's browser reports a bare "Standard Gamepad" for the attached pad, so
+  // fall back to the platform when the id itself is uninformative.
+  return isXboxDevice() ? 'xbox' : 'generic';
+}
+
 function shortPadName(id: string): string {
   if (/dualsense|054c.*0ce6|wireless controller/i.test(id)) return 'DualSense';
   if (/dualshock|054c/i.test(id)) return 'DualShock';
-  if (/xbox|xinput/i.test(id)) return 'Xbox pad';
+  if (/xbox|xinput|045e/i.test(id)) return 'Xbox controller';
+  if (isXboxDevice()) return 'Xbox controller';
   return id.split('(')[0].trim().slice(0, 24) || 'Gamepad';
 }

@@ -1,4 +1,4 @@
-import { BINDINGS } from '../input/bindings';
+import { bindingsFor, type PadFamily } from '../input/bindings';
 
 /**
  * The keyboard/pad mapping card. Shown on first load, dismissed with H or any
@@ -9,6 +9,9 @@ export class ControlsOverlay {
   readonly root: HTMLDivElement;
   private visible = true;
   private deviceLine: HTMLElement;
+  private tableBody: HTMLElement;
+  private family: PadFamily | null = null;
+  private padHeader: HTMLElement;
 
   constructor(private onDismiss: () => void) {
     this.root = document.createElement('div');
@@ -20,12 +23,8 @@ export class ControlsOverlay {
         <p class="overlay-tag">CALLES ♛ BIKES ♛ ISLA ♛ LIBERTAD</p>
         <p class="overlay-device" data-el="device">Checking for a controller…</p>
         <table class="overlay-table">
-          <thead><tr><th>Action</th><th>PS5</th><th>Keyboard</th></tr></thead>
-          <tbody>
-            ${BINDINGS.map((b) => `
-              <tr><td>${b.action}</td><td class="pad">${b.pad}</td><td class="key">${b.key}</td></tr>
-            `).join('')}
-          </tbody>
+          <thead><tr><th>Action</th><th data-el="padHeader">Controller</th><th>Keyboard</th></tr></thead>
+          <tbody data-el="tableBody"></tbody>
         </table>
         <div class="overlay-tips">
           <p><b>To get it up:</b> 1st or 2nd gear, pin the throttle and pull back at the same time.</p>
@@ -37,16 +36,31 @@ export class ControlsOverlay {
       </div>
     `;
     this.deviceLine = this.root.querySelector('[data-el="device"]')!;
+    this.tableBody = this.root.querySelector('[data-el="tableBody"]')!;
+    this.padHeader = this.root.querySelector('[data-el="padHeader"]')!;
+    this.setFamily('generic');
     this.root.querySelector('[data-el="go"]')!.addEventListener('click', () => this.hide());
     this.root.addEventListener('click', (e) => {
       if (e.target === this.root) this.hide();
     });
   }
 
-  setDevice(connected: boolean, name: string): void {
+  /** Renders the button names for whichever pad is actually in use. */
+  setFamily(family: PadFamily): void {
+    if (this.family === family) return;
+    this.family = family;
+    this.padHeader.textContent =
+      family === 'xbox' ? 'Xbox' : family === 'playstation' ? 'PS5' : 'Controller';
+    this.tableBody.innerHTML = bindingsFor(family)
+      .map((b) => `<tr><td>${b.action}</td><td class="pad">${b.pad}</td><td class="key">${b.key}</td></tr>`)
+      .join('');
+  }
+
+  setDevice(connected: boolean, name: string, family: PadFamily): void {
+    this.setFamily(family);
     this.deviceLine.innerHTML = connected
-      ? `<b class="ok">${name} connected</b> — full PS5 layout live, rumble on.`
-      : `No controller detected — <b>keyboard</b> map below. Plug in a DualSense and press a button.`;
+      ? `<b class="ok">${name} connected</b> — full controller layout live.`
+      : `No controller detected — <b>keyboard</b> map below. Plug a controller in and press a button.`;
   }
 
   toggle(): void {
