@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { Loop } from '../core/Loop';
 import { InputManager } from '../input/InputManager';
 import { BikeSim } from '../sim/BikeSim';
-import { GROM, cloneTuning } from '../sim/tuning';
+import { BIKES, cloneTuning, type BikeId } from '../sim/tuning';
+import { BIKE_VISUALS } from '../view/bikeVisuals';
 import { City } from '../world/City';
 import { buildSky, type SkyRig } from '../world/Sky';
 import { BikeView } from '../view/BikeView';
@@ -89,12 +90,12 @@ export class Game {
     this.sky = buildSky(this.scene, this.renderer);
 
     // ---- bike ------------------------------------------------------------
-    const tuning = cloneTuning(GROM);
+    // Justin's pick. The Grom is the free starter bike and stays in the
+    // catalogue; switching is a one-line change until there's a garage screen.
+    const bikeId: BikeId = 'yz250f';
+    const tuning = cloneTuning(BIKES[bikeId]);
     this.sim = new BikeSim(tuning, this.city, this.city.spawn);
-    this.bikeView = new BikeView(tuning, {
-      bodyColor: 0x1f5fd0,
-      shirt: ['#efe9dc', 'GOOD', 'BIKES', 'BETTER DAYS'],
-    });
+    this.bikeView = new BikeView(tuning, BIKE_VISUALS[bikeId]);
     this.scene.add(this.bikeView.root);
 
     // ---- camera ----------------------------------------------------------

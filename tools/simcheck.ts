@@ -9,12 +9,19 @@
  *   npm run sim
  */
 import { BikeSim } from '../src/sim/BikeSim';
-import { GROM, cloneTuning } from '../src/sim/tuning';
+import { BIKES, cloneTuning, type BikeId } from '../src/sim/tuning';
 import type { GroundProvider, RiderInput } from '../src/sim/types';
 
 const DT = 1 / 120;
 const RAD = 180 / Math.PI;
 const MPH = 2.23694;
+
+const BIKE = ((process.argv[2] ?? 'yz250f') as BikeId);
+if (!BIKES[BIKE]) {
+  console.error(`unknown bike "${BIKE}". try: ${Object.keys(BIKES).join(', ')}`);
+  process.exit(1);
+}
+const SPEC = BIKES[BIKE];
 
 const flat: GroundProvider = {
   heightAt: () => 0,
@@ -50,7 +57,7 @@ function input(p: Partial<RiderInput> = {}): RiderInput {
 }
 
 function newSim(ground: GroundProvider = flat) {
-  const t = cloneTuning(GROM);
+  const t = cloneTuning(SPEC);
   // Kill the random roll wander so results are repeatable run to run.
   t.balance.rollInstability = 0;
   return new BikeSim(t, ground, { x: 0, z: 0, yaw: 0 });
@@ -84,7 +91,7 @@ function row(name: string, value: string): void {
   console.log(`  ${name.padEnd(34)} ${value}`);
 }
 
-console.log('\n=== WHEELIE LIFE PR · sim check =========================\n');
+console.log(`\n=== WHEELIE LIFE PR · sim check · ${SPEC.name} ===\n`);
 
 // --- 0. static numbers ----------------------------------------------------
 {
@@ -92,6 +99,7 @@ console.log('\n=== WHEELIE LIFE PR · sim check =========================\n');
   const t = sim.getTuning();
   const balance = Math.atan2(t.chassis.cgToRear, t.chassis.cgHeight) * RAD;
   console.log('BIKE');
+  row('name', SPEC.name);
   row('peak power', `${(sim.engine.peakPowerKw() * 1.34102).toFixed(1)} hp`);
   row('peak torque', `${t.engine.peakTorque} Nm @ ${t.engine.peakTorqueRpm} rpm`);
   row('mass (bike + rider)', `${t.chassis.mass} kg`);
@@ -111,7 +119,7 @@ console.log('\n=== WHEELIE LIFE PR · sim check =========================\n');
   let top = 0;
   for (let i = 0; i < 45 / DT; i++) {
     const s = sim.state;
-    const up = s.rpm > t.engine.redlineRpm - 250 && s.gear < 4;
+    const up = s.rpm > t.engine.redlineRpm - 250 && s.gear < t.gearbox.gearRatios.length - 1;
     // Nose down on the bars so this measures drive, not wheelie.
     sim.step(input({ throttle: 1, weight: -1, shiftUp: up }), DT);
     const mph = sim.state.speed * MPH;
@@ -149,7 +157,7 @@ function rollInto(gear: number): BikeSim | null {
 
 {
   console.log('LOFT TEST (roll into each gear at mid-range, then pin it + pull back)');
-  for (let gear = 0; gear < 5; gear++) {
+  for (let gear = 0; gear < SPEC.gearbox.gearRatios.length; gear++) {
     const sim = rollInto(gear);
     if (!sim) { row(`gear ${gear + 1}`, 'could not reach gear'); continue; }
     const entrySpeed = sim.state.speed * MPH;
@@ -306,10 +314,11 @@ function autopilot(sim: BikeSim, i: number, opts: { shift: boolean }): RiderInpu
 
 // --- 7. speed bumps ------------------------------------------------------
 {
-  // 3rd gear can't be lifted on power alone. A bump is the way in - and because
-  // the ramp rate scales with speed, hitting it faster should throw it harder.
+  // How much a bump adds in a gear that is hard to lift in. On the Grom this is
+  // the only way into a 3rd-gear wheelie at all; on the YZ it is a bonus, since
+  // that bike lofts in three gears on power.
   const BUMP_Z = 160;
-  console.log('SPEED BUMP in 3rd (bump is the only way into a 3rd-gear wheelie)');
+  console.log('SPEED BUMP in 3rd (how much does timing the pull over one add?)');
   for (const [label, pull] of [['just ride over it', false], ['pull back over it', true]] as const) {
     for (const approach of [25, 42]) {
       const target = approach / MPH;
@@ -320,7 +329,7 @@ function autopilot(sim: BikeSim, i: number, opts: { shift: boolean }): RiderInpu
         if (s.gear === 2 && !s.shifting) break;
         sim.step(input({
           throttle: 1, weight: -1,
-          shiftUp: s.gear < 2 && s.rpm > 8700 && !s.shifting,
+          shiftUp: s.gear < 2 && s.rpm > SPEC.engine.redlineRpm - 300 && !s.shifting,
         }), DT);
       }
       // ...then settle onto the approach speed, still well short of the bump.
@@ -367,7 +376,7 @@ function autopilot(sim: BikeSim, i: number, opts: { shift: boolean }): RiderInpu
   console.log('ROLL (should read as leaning, and the stick must catch it)');
 
   // The one place the harness does NOT zero out instability.
-  const real = () => new BikeSim(cloneTuning(GROM), flat, { x: 0, z: 0, yaw: 0 });
+  const real = () => new BikeSim(cloneTuning(SPEC), flat, { x: 0, z: 0, yaw: 0 });
 
   /** Hold a wheelie with the autopilot while `steer` drives the roll axis. */
   function rollRun(seconds: number, steer: (t: number, roll: number) => number) {

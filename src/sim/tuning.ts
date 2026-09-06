@@ -260,6 +260,136 @@ export const GROM: BikeTuning = {
   },
 };
 
+/**
+ * 2024 Yamaha YZ250F - the bike Justin actually asked for first.
+ *
+ * Real published numbers where they exist: 250 cc DOHC single, ~41 hp at
+ * 13,000 rpm off ~26 N*m at 8,500, 5-speed, 1.475 m wheelbase, 107 kg dry,
+ * 21"/19" spoked wheels, 12 inches of suspension travel at both ends.
+ *
+ * Against the Grom this should feel like a completely different animal, which
+ * is the whole point of having more than one: four times the power in a bike
+ * that weighs the same, a CG 16 cm higher, and a rider who can move 22 cm
+ * instead of 14. It lofts in three gears instead of two and the balance point
+ * swings much further as you move around on it.
+ */
+export const YZ250F: BikeTuning = {
+  name: 'Yamaha YZ250F (2024)',
+
+  engine: {
+    idleRpm: 1900,
+    redlineRpm: 13500,
+    limiterRpm: 14000,
+    peakTorque: 26,
+    peakTorqueRpm: 8500,
+    // A 250 four-stroke MX motor is all top end - it signs off late and hard,
+    // which is why `topEndFullness` is high and the bottom is comparatively soft.
+    lowEndFullness: 0.55,
+    topEndFullness: 0.86,
+    engineBrakeTorque: 9,
+    // Light MX flywheel. Revs and drops revs almost instantly.
+    flywheelInertia: 0.035,
+  },
+
+  gearbox: {
+    primaryRatio: 3.353,
+    finalRatio: 50 / 13,
+    gearRatios: [2.143, 1.75, 1.444, 1.222, 1.045],
+    efficiency: 0.92,
+    shiftTimeUp: 0.14,
+    shiftTimeDown: 0.1,
+    clutchSlipSpeed: 2.6,
+  },
+
+  chassis: {
+    mass: 175,
+    wheelbase: 1.475,
+    // Rear wheel: 100/90-19 => 0.241 rim + 0.090 sidewall.
+    wheelRadius: 0.331,
+    cgHeight: 0.76,
+    cgToRear: 0.72,
+    pitchInertia: 52,
+    pitchDamping: 75,
+    groundedPitchDamping: 210,
+    frontSlamRestitution: 0.15,
+    // 12 inches of fork travel soaks up almost everything.
+    bumpAbsorption: 0.74,
+    maxBumpKick: 2.6,
+  },
+
+  rider: {
+    // Long flat seat and a standing option: far more room to move than a Grom.
+    weightShiftRange: 0.22,
+    weightShiftRate: 1.2,
+    yankGain: 1100,
+  },
+
+  brakes: {
+    rearMaxTorque: 560,
+    frontMaxTorque: 1600,
+    rearBiasGrounded: 0.38,
+  },
+
+  tyre: {
+    // Knobbies on cobblestone: less bite than the Grom's street rubber.
+    gripLong: 1.05,
+    gripLat: 0.95,
+    spinThreshold: 0.12,
+  },
+
+  steering: {
+    maxYawRateLow: 1.7,
+    yawSpeedFalloff: 10,
+    wheelieSteerScale: 0.4,
+    yawResponse: 7.5,
+  },
+
+  balance: {
+    rollInstability: 0.35,
+    rollAuthority: 2.8,
+    // Taller and lighter than the Grom, so it moves around more underneath you -
+    // but the restoring term still has to win, or a held lean walks all the way
+    // to the lowside angle. At 7.5 full stick parked at 37.7 deg against a 45
+    // deg limit, which is no margin at all.
+    rollResponse: 9.5,
+    rollDivergence: 10,
+    rollCrashAngle: 45 * DEG,
+    rollDamping: 4.0,
+  },
+
+  limits: {
+    // High tail and long travel: it will stand up a lot further before the
+    // back of it finds the road.
+    scrapePitch: 68 * DEG,
+    crashPitch: 86 * DEG,
+    wheelieCountPitch: 8 * DEG,
+    scrapeRestoreTorque: 470,
+    scrapeDrag: 360,
+    crashImpactSpeed: 6.5,
+  },
+
+  aero: {
+    // Upright rider, no fairing, plate on the front: it pushes a lot of air.
+    dragK: 0.72,
+    rollingResistance: 0.018,
+  },
+};
+
+/**
+ * The garage. Justin asked for three bikes that feel genuinely different, so
+ * a bike is data rather than code - adding the Ducati later is another entry
+ * here plus a bodywork style, not a rewrite.
+ */
+export const BIKES = {
+  yz250f: YZ250F,
+  grom: GROM,
+} as const;
+
+export type BikeId = keyof typeof BIKES;
+
+/** Free starter bike, per the interview. */
+export const STARTER_BIKE: BikeId = 'grom';
+
 /** Deep clone so the debug panel can mutate a live copy without losing the baseline. */
 export function cloneTuning(t: BikeTuning): BikeTuning {
   return JSON.parse(JSON.stringify(t)) as BikeTuning;
