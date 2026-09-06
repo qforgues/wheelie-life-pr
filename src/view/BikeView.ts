@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { BikeState } from '../sim/types';
 import type { BikeTuning } from '../sim/tuning';
 import { fender, limbCapsule, roundedBox } from './geometry';
+import { buildWheel, spokedDirtWheel, type WheelSpec } from './Wheel';
 
 /**
  * Procedural Grom + rider. Built with its REAR CONTACT PATCH at the local
@@ -144,6 +145,9 @@ function shirtTexture(back: string, line1: string, line2: string, line3: string)
 export interface BikeViewOptions {
   bodyColor?: number;
   shirt?: [string, string, string, string];
+  /** Wheel build specs. Defaults to laced spoked wheels with a knobby. */
+  rearWheel?: WheelSpec;
+  frontWheel?: WheelSpec;
 }
 
 export class BikeView {
@@ -193,41 +197,24 @@ export class BikeView {
     const engineMat = new THREE.MeshStandardMaterial({ color: 0x4a4d55, roughness: 0.55, metalness: 0.6 });
 
     // ---- wheels ----------------------------------------------------------
-    const buildWheel = (radius: number, width: number, rimMat: THREE.Material) => {
-      const g = new THREE.Group();
-      const tyre = new THREE.Mesh(
-        new THREE.TorusGeometry(radius - width * 0.42, width * 0.42, 16, 40), rubber,
-      );
-      tyre.rotation.y = Math.PI / 2;
-      tyre.castShadow = true;
-      g.add(tyre);
-      const rim = new THREE.Mesh(
-        new THREE.CylinderGeometry(radius * 0.6, radius * 0.6, width * 0.72, 28), rimMat,
-      );
-      rim.rotation.z = Math.PI / 2;
-      g.add(rim);
-      // Spokes read as motion blur once it's spinning.
-      for (let i = 0; i < 5; i++) {
-        const s = new THREE.Mesh(
-          roundedBox(width * 0.5, radius * 1.15, 0.03, 0.014, 4), rimMat,
-        );
-        s.rotation.x = (i / 5) * Math.PI;
-        g.add(s);
-      }
-      const disc = new THREE.Mesh(
-        new THREE.CylinderGeometry(radius * 0.52, radius * 0.52, 0.015, 28), metal,
-      );
-      disc.rotation.z = Math.PI / 2;
-      disc.position.x = width * 0.5;
-      g.add(disc);
-      return g;
+    // Laced spokes and real tread blocks. These are the closest thing to the
+    // chase camera and the only part that spins, so they carry a lot of the
+    // read - see view/Wheel.ts.
+    const wheelMats = {
+      rubber,
+      rim: gold,
+      hub: new THREE.MeshStandardMaterial({ color: 0x8e9299, roughness: 0.4, metalness: 0.85 }),
+      spoke: new THREE.MeshStandardMaterial({ color: 0xd6dae0, roughness: 0.3, metalness: 0.9 }),
+      disc: metal,
     };
+    const rearSpec: WheelSpec = { ...(opts.rearWheel ?? spokedDirtWheel(this.R, 0.19)) };
+    const frontSpec: WheelSpec = { ...(opts.frontWheel ?? spokedDirtWheel(this.R, 0.15)) };
 
-    this.rearWheel = buildWheel(this.R, 0.17, gold);
+    this.rearWheel = buildWheel(rearSpec, wheelMats);
     this.rearWheel.position.set(0, this.R, 0);
     this.bike.add(this.rearWheel);
 
-    this.frontWheel = buildWheel(this.R, 0.14, gold);
+    this.frontWheel = buildWheel(frontSpec, wheelMats);
     this.frontWheel.position.set(0, 0, 0);
     this.forkGroup.position.set(0, this.R, WB);
     this.forkGroup.add(this.frontWheel);
@@ -415,7 +402,7 @@ export class BikeView {
     // Open-ended, so it needs to be visible from underneath too.
     const guardMat = body.clone();
     guardMat.side = THREE.DoubleSide;
-    const guard = new THREE.Mesh(fender(this.R, 0.17, 2.1, 0.022, 0.22), guardMat);
+    const guard = new THREE.Mesh(fender(this.R, 0.20, 2.1, 0.075, 0.22), guardMat);
     guard.castShadow = true;
     this.forkGroup.add(guard);
 
