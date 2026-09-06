@@ -130,3 +130,53 @@ npm run build       # production build -> dist/
 npm run preview     # serve the production build
 npm run typecheck
 ```
+
+---
+
+## Environments
+
+| | Where | Notes |
+|---|---|---|
+| **Beta** | `npm run dev` → `localhost:5173` | Hot reload, tuning panel, full quality |
+| **Live** | https://wheelie-life-pr.quentin-forgues.workers.dev | Cloudflare Workers static assets. This is the URL the Xbox loads. |
+
+```bash
+npm run check     # typecheck + build + physics harness on every bike
+npm run deploy    # runs check, then ships to live
+```
+
+`deploy` will not ship if the health check fails.
+
+### Playing it on Xbox
+
+The Xbox is a genuinely easier target than a PS5, for one reason: **Xbox has a
+real browser and the PS5 does not.** Microsoft Edge is a free, installable app
+on Xbox One and Series X|S, and it can browse to any URL. The PS5's browser is
+not user-reachable, so a web build cannot be loaded on one at all — getting
+there means Sony developer registration, a devkit and Unity or Unreal.
+
+To play:
+
+1. Open **Edge** on the Xbox (install it from the Store if it isn't there).
+2. Go to the live URL above.
+3. Press a button on the controller, then hold **RT**.
+
+The game sets `navigator.gamepadInputEmulation = 'gamepad'` on load, which is
+what stops the Xbox browser from consuming the controller for its own UI before
+the page ever sees it. Without that line the sticks just scroll the page.
+
+Button indices are identical between an Xbox pad and a DualSense under the
+Standard Gamepad mapping, so the same code drives both and only the printed
+labels change — the controls card detects which pad you're holding and relabels
+itself. Everything the interview specified as R2/L2/R1/L1/Options is RT/LT/RB/
+LB/Menu on an Xbox.
+
+Console-specific handling:
+
+- **TV overscan.** Anything within ~5% of a TV's panel edge can be cut off, and
+  the browser gives no way to detect it. Console builds pull the HUD inside a
+  safe margin and scale the type up for couch viewing distance.
+- **Quality.** Console browsers start one tier down and drop further on their
+  own if the frame rate can't hold. See `src/core/Quality.ts`.
+- **No rumble.** The Gamepad haptics API isn't available in the Xbox browser, so
+  the balance rumble channel is desktop-and-DualSense only there.

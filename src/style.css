@@ -3,6 +3,11 @@
    red, blue, white, over asphalt. */
 
 :root {
+  /* TVs overscan: anything inside ~5% of the panel edge can be cut off, and
+     the Xbox browser gives no way to detect it. Console builds pull the HUD in
+     and scale the type up for couch viewing distance. */
+  --safe: 0px;
+  --hud-scale: 1;
   --pr-red: #d4142c;
   --pr-blue: #1d3f9e;
   --pr-cyan: #23d3d3;
@@ -38,7 +43,7 @@ canvas:active { cursor: grabbing; }
 }
 
 .hud-label {
-  font-size: 11px;
+  font-size: calc(11px * var(--hud-scale));
   letter-spacing: 0.22em;
   opacity: 0.72;
   font-weight: 900;
@@ -46,8 +51,8 @@ canvas:active { cursor: grabbing; }
 
 .hud-topleft {
   position: absolute;
-  top: 22px;
-  left: 24px;
+  top: calc(22px + var(--safe));
+  left: calc(24px + var(--safe));
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -61,7 +66,7 @@ canvas:active { cursor: grabbing; }
 .hud-run.is-active { border-left-color: var(--pr-cyan); transform: translateX(2px); }
 
 .hud-run-value {
-  font-size: 54px;
+  font-size: calc(54px * var(--hud-scale));
   line-height: 0.92;
   letter-spacing: -0.02em;
 }
@@ -70,12 +75,12 @@ canvas:active { cursor: grabbing; }
 .hud-run-time { font-size: 15px; opacity: 0.78; margin-top: 2px; }
 
 .hud-stat { display: flex; align-items: baseline; gap: 10px; }
-.hud-strong { font-size: 19px; }
+.hud-strong { font-size: calc(19px * var(--hud-scale)); }
 
 .hud-bottomright {
   position: absolute;
-  right: 26px;
-  bottom: 22px;
+  right: calc(26px + var(--safe));
+  bottom: calc(22px + var(--safe));
   text-align: right;
 }
 
@@ -101,7 +106,7 @@ canvas:active { cursor: grabbing; }
 
 .hud-cluster { display: flex; align-items: flex-end; justify-content: flex-end; gap: 26px; }
 
-.hud-speed { font-size: 66px; line-height: 0.82; letter-spacing: -0.03em; position: relative; }
+.hud-speed { font-size: calc(66px * var(--hud-scale)); line-height: 0.82; letter-spacing: -0.03em; position: relative; }
 .hud-speed em { font-size: 20px; font-style: normal; opacity: 0.75; margin-left: 6px; }
 .hud-speed-alt {
   display: block;
@@ -113,7 +118,7 @@ canvas:active { cursor: grabbing; }
 
 .hud-gear { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .hud-gear-value {
-  font-size: 52px;
+  font-size: calc(52px * var(--hud-scale));
   line-height: 0.85;
   color: var(--pr-cyan);
 }
@@ -259,3 +264,11 @@ canvas:active { cursor: grabbing; }
 
 .debug-gui { z-index: 30; }
 .lil-gui { --font-family: ui-monospace, SFMono-Regular, Menlo, monospace; --font-size: 11px; }
+
+/* Console browsers: pull everything inside the overscan margin and scale up. */
+body.is-console {
+  --safe: 3.5vmin;
+  --hud-scale: 1.25;
+}
+body.is-console .overlay-card { width: min(760px, 86vw); }
+body.is-console .debug-gui { display: none !important; }
