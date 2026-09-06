@@ -41,6 +41,13 @@ export interface GearboxTuning {
 export interface ChassisTuning {
   /** Combined bike + rider mass (kg). */
   mass: number;
+  /**
+   * The rider's share of that (kg). Tricks move the rider's body, and the
+   * combined CG follows by exactly `riderMass / mass` of the movement - which
+   * is how a trick's effect on the physics is derived from the pose rather than
+   * typed in beside it.
+   */
+  riderMass: number;
   wheelbase: number;
   wheelRadius: number;
   /** Height of the combined centre of gravity above the road (m). */
@@ -181,12 +188,18 @@ const DEG = Math.PI / 180;
  * return. Standing up genuinely makes a wheelie easier to lift and easier to
  * loop, which is exactly why it scores more.
  */
-export interface TrickTuning {
+export interface TrickPose {
   label: string;
-  /** Metres added to the CG height while held. */
-  cgHeight: number;
-  /** Metres added to the CG's distance forward of the rear contact. */
-  cgToRear: number;
+  /**
+   * Where the rider's body centre goes, relative to sitting normally.
+   * `up` is metres off the seat, `back` is metres toward the tail.
+   *
+   * The sim scales these by the rider's share of the mass to move the combined
+   * CG, and the renderer poses the body from the same two numbers. One source,
+   * so what you see and what the bike does cannot disagree.
+   */
+  up: number;
+  back: number;
   /** Multiplier on distance banked while it's held. */
   scoreMultiplier: number;
   /** How fast the rider gets into and out of it (1/s). */
@@ -195,22 +208,26 @@ export interface TrickTuning {
   minPitch: number;
 }
 
-export const TRICKS: Record<import('./types').TrickId, TrickTuning> = {
-  none: { label: '', cgHeight: 0, cgToRear: 0, scoreMultiplier: 1, blendRate: 6, minPitch: 0 },
+export const TRICKS: Record<import('./types').TrickId, TrickPose> = {
+  none: { label: '', up: 0, back: 0, scoreMultiplier: 1, blendRate: 6, minPitch: 0 },
   knee: {
     label: 'KNEE ON THE SEAT',
-    cgHeight: 0.06,
-    cgToRear: -0.05,
+    // Down onto one knee: the body drops slightly and slides back over the seat.
+    up: -0.06,
+    back: 0.20,
     scoreMultiplier: 1.6,
-    blendRate: 4.5,
+    blendRate: 4.0,
     minPitch: 14 * DEG,
   },
   stand: {
     label: 'STANDING',
-    cgHeight: 0.26,
-    cgToRear: -0.02,
+    // Straight up off the seat. This is the big one: on a bike where the rider
+    // is 39% of the mass, half a metre of body movement lifts the combined CG
+    // by 21 cm, which visibly lowers the balance point.
+    up: 0.52,
+    back: 0.06,
     scoreMultiplier: 2.4,
-    blendRate: 2.8,
+    blendRate: 2.6,
     minPitch: 20 * DEG,
   },
 };
@@ -243,6 +260,7 @@ export const GROM: BikeTuning = {
 
   chassis: {
     mass: 172,
+    riderMass: 70,
     wheelbase: 1.2,
     wheelRadius: 0.24,
     cgHeight: 0.6,
@@ -347,6 +365,7 @@ export const YZ250F: BikeTuning = {
 
   chassis: {
     mass: 175,
+    riderMass: 68,
     wheelbase: 1.475,
     // Rear wheel: 100/90-19 => 0.241 rim + 0.090 sidewall.
     wheelRadius: 0.331,
@@ -460,6 +479,7 @@ export const STREETFIGHTER: BikeTuning = {
 
   chassis: {
     mass: 269,
+    riderMass: 68,
     wheelbase: 1.488,
     // Rear 200/60-17 => 0.216 rim + 0.120 sidewall.
     wheelRadius: 0.336,

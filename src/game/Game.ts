@@ -11,6 +11,7 @@ import { BikeView } from '../view/BikeView';
 import { CAMERA_LABELS } from '../view/ChaseCamera';
 import { ChaseCamera } from '../view/ChaseCamera';
 import { EngineAudio } from '../audio/EngineAudio';
+import { Voice, pickCall } from '../audio/Voice';
 import { Hud } from '../ui/Hud';
 import { ControlsOverlay } from '../ui/ControlsOverlay';
 import { DebugPanel } from '../ui/DebugPanel';
@@ -49,6 +50,7 @@ export class Game {
   private chase: ChaseCamera;
   private sky: SkyRig;
   private audio = new EngineAudio();
+  private voice = new Voice();
   private input = new InputManager();
   private hud = new Hud();
   private overlay: ControlsOverlay;
@@ -105,7 +107,7 @@ export class Game {
     const tuning = cloneTuning(BIKES[this.bikeId]);
     this.sim = new BikeSim(tuning, this.city, this.city.spawn);
     this.bikeView = new BikeView(tuning, BIKE_VISUALS[this.bikeId]);
-    this.scene.add(this.bikeView.root);
+    this.scene.add(this.bikeView.root, this.bikeView.detached);
 
     // ---- camera ----------------------------------------------------------
     this.chase = new ChaseCamera(innerWidth / innerHeight);
@@ -168,10 +170,10 @@ export class Game {
     this.bikeId = id;
     const tuning = cloneTuning(BIKES[id]);
 
-    this.scene.remove(this.bikeView.root);
+    this.scene.remove(this.bikeView.root, this.bikeView.detached);
     this.bikeView.dispose();
     this.bikeView = new BikeView(tuning, BIKE_VISUALS[id]);
-    this.scene.add(this.bikeView.root);
+    this.scene.add(this.bikeView.root, this.bikeView.detached);
 
     const at = this.city.respawnFor(this.sim.state.x, this.sim.state.z);
     this.sim = new BikeSim(tuning, this.city, at);
@@ -209,6 +211,8 @@ export class Game {
     if (frame.toggleDebug) this.debug.toggle();
     if (frame.toggleAudio) {
       this.audio.setMuted(!this.audio.isMuted);
+      this.voice.enabled = !this.audio.isMuted;
+      if (this.audio.isMuted) this.voice.stop();
       this.hud.showToast(this.audio.isMuted ? 'SOUND OFF' : 'SOUND ON', 1.2);
     }
     if (frame.padConnected !== this.padWasConnected) {
@@ -241,7 +245,13 @@ export class Game {
       // Fell out of it - the distance shows, but it doesn't count.
       if (this.tracker.active) this.tracker.endRun(false);
       if (this.sim.crashTime < dt * 1.5) {
+        // One line, shown and shouted, so the screen and the voice agree.
+        const call = pickCall(state.crashReason);
+        this.hud.crashCall = call;
         this.audio.crash();
+        if (!this.audio.isMuted) this.voice.say(call, 'es');
+        // Throw the rider off. The bike keeps sliding without them.
+        this.bikeView.startCrash(state.lastImpact, state.roll, state.yaw);
         this.chase.bump(1.0 + Math.min(1, state.lastImpact / 18));
         this.input.rumble(0.95, 0.85, 380);
       }
@@ -298,6 +308,8 @@ export class Game {
     if (this.tracker.active) this.tracker.endRun();
     const s = this.sim.state;
     this.sim.reset(this.city.respawnFor(s.x, s.z));
+    this.bikeView.endCrash();
+    this.voice.stop();
     this.snapPose();
     this.bikeView.update(this.sim.state, 0, 0, 0);
     this.chase.snapTo(this.sim.state, this.bikeView.getFocusWorld(this.focusVec));
@@ -344,7 +356,9 @@ export class Game {
     const wheelSpin = blend(p.wheelSpin, c.wheelSpin, a);
     const weightShift = blend(p.weightShift, c.weightShift, a);
 
+    const wasRagdolling = this.bikeView.isRagdolling;
     this.bikeView.update(state, wheelSpin, weightShift, dt);
+    void wasRagdolling;
     this.bikeView.getFocusWorld(this.focusVec);
     this.chase.update(state, this.focusVec, dt, this.bikeView.getHeadWorld(this.headVec));
 

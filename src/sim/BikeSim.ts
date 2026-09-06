@@ -240,10 +240,19 @@ export class BikeSim {
     const trick = TRICKS[s.trick];
 
     // CG relative to the rear contact patch, at zero pitch.
-    // Standing up raises the CG, which lowers the balance point and makes the
-    // bike both easier to lift and easier to loop. That trade is the trick.
-    const dCg = ch.cgToRear - this.weightShift + trick.cgToRear * s.trickBlend;
-    const hCg = ch.cgHeight + trick.cgHeight * s.trickBlend;
+    //
+    // A trick moves the RIDER, and the combined CG follows by the rider's share
+    // of the mass - so the pose the renderer draws and the physics the bike
+    // feels come from the same two numbers, and cannot drift apart.
+    //
+    // Standing up raises the CG, which lowers the balance point (it is
+    // atan(d/h)) and makes the bike both easier to lift and easier to loop.
+    // That trade is the whole trick.
+    const riderShare = ch.riderMass / Math.max(1, ch.mass);
+    const trickUp = trick.up * s.trickBlend * riderShare;
+    const trickBack = trick.back * s.trickBlend * riderShare;
+    const dCg = ch.cgToRear - this.weightShift - trickBack;
+    const hCg = ch.cgHeight + trickUp;
 
     s.balancePoint = Math.atan2(dCg, hCg);
 

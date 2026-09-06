@@ -198,21 +198,69 @@ export class EngineAudio {
     this.blip(180, 0.06, 0.09);
   }
 
+  /**
+   * The wipeout: bike clattering down, then a body landing on top of it.
+   *
+   * Two separate sounds because they are two separate events. The clatter is
+   * bright and metallic and starts immediately; the thud is low, soft-edged and
+   * lands a beat later, which is what makes it read as a person rather than
+   * more of the bike.
+   */
   crash(): void {
     if (!this.ctx || this.muted) return;
     const ctx = this.ctx;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noiseBuffer;
-    const g = ctx.createGain();
-    const f = ctx.createBiquadFilter();
-    f.type = 'lowpass';
-    f.frequency.setValueAtTime(4200, ctx.currentTime);
-    f.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 0.9);
-    g.gain.setValueAtTime(0.4, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.1);
-    src.connect(f); f.connect(g); g.connect(this.master);
-    src.start();
-    src.stop(ctx.currentTime + 1.2);
+    const t = ctx.currentTime;
+
+    // Metal on cobbles.
+    const clatter = ctx.createBufferSource();
+    clatter.buffer = this.noiseBuffer;
+    const cg = ctx.createGain();
+    const cf = ctx.createBiquadFilter();
+    cf.type = 'bandpass';
+    cf.frequency.setValueAtTime(3200, t);
+    cf.frequency.exponentialRampToValueAtTime(420, t + 0.8);
+    cf.Q.value = 1.1;
+    cg.gain.setValueAtTime(0.34, t);
+    cg.gain.exponentialRampToValueAtTime(0.001, t + 1.0);
+    clatter.connect(cf); cf.connect(cg); cg.connect(this.master);
+    clatter.start(t);
+    clatter.stop(t + 1.1);
+
+    this.bodyThud(0.16);
+  }
+
+  /** A person hitting the road: low, dull, and over quickly. */
+  bodyThud(delay = 0): void {
+    if (!this.ctx || this.muted) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime + delay;
+
+    // The weight of it: a short pitch-dropping sine.
+    const osc = ctx.createOscillator();
+    const og = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(150, t);
+    osc.frequency.exponentialRampToValueAtTime(42, t + 0.18);
+    og.gain.setValueAtTime(0, t);
+    og.gain.linearRampToValueAtTime(0.5, t + 0.012);
+    og.gain.exponentialRampToValueAtTime(0.001, t + 0.36);
+    osc.connect(og); og.connect(this.master);
+    osc.start(t);
+    osc.stop(t + 0.4);
+
+    // The slap of clothing and gear on top of it.
+    const slap = ctx.createBufferSource();
+    slap.buffer = this.noiseBuffer;
+    const sg = ctx.createGain();
+    const sf = ctx.createBiquadFilter();
+    sf.type = 'lowpass';
+    sf.frequency.setValueAtTime(1500, t);
+    sf.frequency.exponentialRampToValueAtTime(260, t + 0.2);
+    sg.gain.setValueAtTime(0.3, t);
+    sg.gain.exponentialRampToValueAtTime(0.001, t + 0.26);
+    slap.connect(sf); sf.connect(sg); sg.connect(this.master);
+    slap.start(t);
+    slap.stop(t + 0.3);
   }
 
   /** Short tone, used for shift barks and the personal-best chime. */

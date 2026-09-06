@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import type { BikeState } from '../sim/types';
 import type { BikeTuning } from '../sim/tuning';
 import { fender, limbCapsule, roundedBox } from './geometry';
+import { damp } from '../sim/Engine';
 import { buildWheel } from './Wheel';
 import { BIKE_VISUALS, type BikeVisual } from './bikeVisuals';
+import { TRICKS } from '../sim/tuning';
 
 /**
  * Procedural Grom + rider. Built with its REAR CONTACT PATCH at the local
@@ -22,9 +24,13 @@ const RIDER_NOMINAL_HIP = 0.88;
 
 const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _qb = new THREE.Quaternion();
 const _dir = new THREE.Vector3();
 const _pole = new THREE.Vector3();
 const _elbow = new THREE.Vector3();
+const _pole2 = new THREE.Vector3();
+const _kneeDownPole = new THREE.Vector3(0.35, -1, -0.25).normalize();
+const _balance = new THREE.Vector3();
 
 interface LimbChain {
   root: THREE.Vector3;
@@ -95,8 +101,9 @@ const UP = new THREE.Vector3(0, 1, 0);
  * right way. If the target is out of reach the limb simply straightens toward
  * it, which is exactly what an arm does when the rider leans right back.
  */
-function solveTwoBone(limb: LimbChain, target: THREE.Vector3): void {
+function solveTwoBone(limb: LimbChain, target: THREE.Vector3, pole?: THREE.Vector3): void {
   const { root, upperLen: l1, lowerLen: l2 } = limb;
+  const poleDir = pole ?? limb.pole;
   _dir.subVectors(target, root);
   let d = _dir.length();
   if (d < 1e-4) return;
@@ -113,7 +120,7 @@ function solveTwoBone(limb: LimbChain, target: THREE.Vector3): void {
   const h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
 
   // Component of the pole perpendicular to the bone axis.
-  _pole.copy(limb.pole).addScaledVector(_dir, -limb.pole.dot(_dir));
+  _pole.copy(poleDir).addScaledVector(_dir, -poleDir.dot(_dir));
   if (_pole.lengthSq() < 1e-6) _pole.set(0, 0, 1).addScaledVector(_dir, -_dir.z);
   _pole.normalize();
 
@@ -191,6 +198,13 @@ export class BikeView {
   private frontWheel = new THREE.Group();
   private forkGroup = new THREE.Group();
   private riderRoot = new THREE.Group();
+  /**
+   * Where the thrown rider lives during a crash. This has to sit in the SCENE,
+   * not under `root` - `root` carries the bike's position and yaw, so a world
+   * position assigned inside it gets that transform applied a second time and
+   * the body lands somewhere across town.
+   */
+  readonly detached = new THREE.Group();
   /** Pivot at the rider's hips. Leaning has to rotate about the hips, not
    *  about the road, or the shoulders swing back half a metre. */
   private riderHips = new THREE.Group();
@@ -212,6 +226,25 @@ export class BikeView {
   private readonly pegLocal: THREE.Vector3;
   private trickStand = 0;
   private trickKnee = 0;
+
+  /**
+   * Where the rider goes when it all ends badly.
+   *
+   * On a crash the rider is lifted out of the bike's hierarchy into world
+   * space and thrown - carrying the bike's velocity plus a toss - then falls
+   * ballistically and tumbles until it hits the road. Not a real ragdoll:
+   * the body stays one piece and the limbs go slack toward a sprawl, which
+   * reads as somebody going limp without a joint solver.
+   */
+  private ragdoll = {
+    active: false,
+    limp: 0,
+    vel: new THREE.Vector3(),
+    spin: new THREE.Vector3(),
+    pos: new THREE.Vector3(),
+    quat: new THREE.Quaternion(),
+    grounded: false,
+  };
 
   constructor(tuning: BikeTuning, visual: BikeVisual = BIKE_VISUALS.yz250f) {
     this.visual = visual;
@@ -1042,22 +1075,35 @@ export class BikeView {
     const back = clamp01(Math.max(0, weightShift) / this.shiftRange);
     const fwd = clamp01(Math.max(0, -weightShift) / (this.shiftRange * 0.35));
     // Hips slide back along the seat; the body hinges about them.
-    // Tricks: standing lifts the hips off the seat, kneeling drops and rocks
-    // them forward. `blend` is the sim's, so the pose and the physics agree.
+    // Tricks. The hips move by the trick's OWN up/back numbers - the same pair
+    // the sim scales by rider mass to shift the CG - so the body you see and
+    // the physics the bike feels are the same thing.
     const blend = state.trickBlend;
+    const pose = TRICKS[state.trick];
     const standing = state.trick === 'stand' ? blend : 0;
     const kneeling = state.trick === 'knee' ? blend : 0;
     this.trickStand = standing;
     this.trickKnee = kneeling;
 
-    this.riderRoot.position.z = this.seatZ - back * 0.13 + fwd * 0.08 + kneeling * 0.06;
-    this.riderRoot.position.y = standing * 0.30 + kneeling * 0.05;
+    this.riderRoot.position.z = this.seatZ - back * 0.13 + fwd * 0.08 - pose.back * blend;
+    this.riderRoot.position.y = pose.up * blend;
     this.riderHips.rotation.x =
       -0.06 + (this.visual.riderPitch ?? 0)
       - back * 0.16 + fwd * 0.30 + state.pitch * 0.10
-      - standing * 0.10 + kneeling * 0.34;
+      // Standing straightens the body up; kneeling folds it forward over the bars.
+      - standing * 0.22 + kneeling * 0.52;
     // riderLean 1 = goes over exactly with the bike, 0 = stays bolt upright.
     this.riderHips.rotation.z = -state.roll * (1 - this.riderLean);
+
+    if (this.ragdoll.active) {
+      this.stepRagdoll(dt);
+      // Limbs go slack: targets drift out to a sprawl and the body unfolds.
+      this.riderHips.rotation.x = damp(this.riderHips.rotation.x, 0.5, 4, dt);
+      this.riderHips.rotation.z = damp(this.riderHips.rotation.z, 0.4, 4, dt);
+      this.solveLimbs();
+      this.updateSparks(state, dt);
+      return;
+    }
 
     // Eyes, for the first-person camera: on the helmet, moving with the body.
     this.head.position.set(
@@ -1118,12 +1164,44 @@ export class BikeView {
    * rider can lean around without coming off the bike.
    */
   private solveLimbs(): void {
-    const hipsQuat = _q.setFromEuler(this.riderHips.rotation).invert();
+    const hipsQuat = _qb.setFromEuler(this.riderHips.rotation).invert();
     const rootZ = this.riderRoot.position.z;
     const forkYaw = this.forkGroup.rotation.y;
 
     for (const limb of this.limbs) {
       // Target in BIKE space.
+      if (limb.target === 'grip' && this.ragdoll.limp > 0.02) {
+        // Hands let go and the arms fling out.
+        _v.set(limb.side * (0.42 + this.ragdoll.limp * 0.22), 1.05, 0.30);
+        _v.z -= rootZ;
+        _v.y -= this.hipY;
+        _v.applyQuaternion(hipsQuat);
+        solveTwoBone(limb, _v);
+        continue;
+      }
+      if (limb.target === 'grip' && this.trickStand > 0.02) {
+        // Standing ON THE SEAT genuinely puts the bars out of reach - you let
+        // go. Left to the solver the arms just clamp at full stretch pointing
+        // at a grip they cannot touch, which reads as flailing. Blend them out
+        // to a deliberate balance pose instead: wide, low, palms down.
+        const g = this.gripLocal[limb.side < 0 ? 0 : 1];
+        _v.set(
+          g.x * Math.cos(forkYaw) + g.z * Math.sin(forkYaw),
+          g.y,
+          -g.x * Math.sin(forkYaw) + g.z * Math.cos(forkYaw),
+        ).add(this.forkOrigin);
+        _balance.set(
+          limb.side * 0.62,
+          this.hipY + this.riderRoot.position.y + 0.30,
+          this.riderRoot.position.z + 0.08,
+        );
+        _v.lerp(_balance, this.trickStand);
+        _v.z -= rootZ;
+        _v.y -= this.hipY;
+        _v.applyQuaternion(hipsQuat);
+        solveTwoBone(limb, _v);
+        continue;
+      }
       if (limb.target === 'grip') {
         const g = this.gripLocal[limb.side < 0 ? 0 : 1];
         // The bars steer, so the grips move with them.
@@ -1139,13 +1217,16 @@ export class BikeView {
         _v.copy(this.pegLocal);
         _v.x *= limb.side;
         if (this.trickStand > 0) {
-          _v.y += this.trickStand * 0.02;
-          _v.z -= this.trickStand * 0.03;
+          // Feet stay on the pegs; the hips going up straightens the legs on
+          // their own through the IK, which is exactly what standing looks like.
+          _v.x *= 1 + this.trickStand * 0.10;
         }
         if (this.trickKnee > 0 && limb.side > 0) {
-          _v.x += this.trickKnee * 0.02;
-          _v.y += this.trickKnee * 0.30;
-          _v.z -= this.trickKnee * 0.30;
+          // Inside leg comes off the peg: shin along the seat, foot out behind.
+          const seatTop = this.hipY - 0.09;
+          _v.x = limb.side * 0.15;
+          _v.y += (seatTop - _v.y) * this.trickKnee;
+          _v.z += (this.seatZ - 0.34 - _v.z) * this.trickKnee;
         }
       }
       // Bike space -> riderRoot -> riderHips (== riderTorso, which has no
@@ -1153,8 +1234,99 @@ export class BikeView {
       _v.z -= rootZ;
       _v.y -= this.hipY;
       _v.applyQuaternion(hipsQuat);
-      solveTwoBone(limb, _v);
+      // Knee-down needs the joint to break downward instead of forward, so the
+      // pole vector swings under for that leg while the trick is held.
+      if (limb.target === 'peg' && limb.side > 0 && this.trickKnee > 0) {
+        _pole2.copy(limb.pole).lerp(_kneeDownPole, this.trickKnee).normalize();
+        solveTwoBone(limb, _v, _pole2);
+      } else {
+        solveTwoBone(limb, _v);
+      }
     }
+  }
+
+  /**
+   * Throws the rider off. `speed` is the bike's road speed at impact, and
+   * `sideways` is its roll, which decides which way they get flung.
+   */
+  startCrash(speed: number, sideways: number, yaw: number): void {
+    if (this.ragdoll.active) return;
+    const r = this.ragdoll;
+    r.active = true;
+    r.limp = 0;
+    r.grounded = false;
+
+    // Take the rider's current world pose, then reparent without moving them.
+    this.riderRoot.getWorldPosition(r.pos);
+    this.riderRoot.getWorldQuaternion(r.quat);
+    this.detached.add(this.riderRoot);
+    this.riderRoot.position.copy(r.pos);
+    this.riderRoot.quaternion.copy(r.quat);
+
+    // Carried forward at the bike's speed, tossed up, and thrown to whichever
+    // side it went down.
+    const fwd = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+    r.vel.copy(fwd).multiplyScalar(speed * 0.92);
+    r.vel.addScaledVector(right, Math.sign(sideways || 1) * (1.4 + Math.random() * 1.2));
+    r.vel.y = 2.2 + Math.min(3.4, speed * 0.12);
+    r.spin.set(
+      (Math.random() - 0.5) * 5 + speed * 0.14,
+      (Math.random() - 0.5) * 4,
+      -Math.sign(sideways || 1) * (3 + Math.random() * 3),
+    );
+  }
+
+  /** Puts the rider back on the bike after a reset. */
+  endCrash(): void {
+    if (!this.ragdoll.active) return;
+    this.ragdoll.active = false;
+    this.ragdoll.limp = 0;
+    this.bike.add(this.riderRoot);
+    this.riderRoot.position.set(0, 0, this.seatZ);
+    this.riderRoot.quaternion.identity();
+  }
+
+  get isRagdolling(): boolean {
+    return this.ragdoll.active;
+  }
+
+  private stepRagdoll(dt: number): void {
+    const r = this.ragdoll;
+    // Going limp takes a moment; it is not instant even in a bad one.
+    r.limp = Math.min(1, r.limp + dt * 3.2);
+
+    if (!r.grounded) {
+      r.vel.y -= 9.81 * dt;
+      r.pos.addScaledVector(r.vel, dt);
+      const spin = _q.setFromEuler(
+        new THREE.Euler(r.spin.x * dt, r.spin.y * dt, r.spin.z * dt),
+      );
+      r.quat.premultiply(spin);
+
+      // Shoulder height off the road is where a body stops falling.
+      if (r.pos.y <= 0.34) {
+        r.pos.y = 0.34;
+        if (r.vel.y < -1.2) {
+          // One flat bounce, then it stays down.
+          r.vel.y *= -0.22;
+          r.vel.x *= 0.55;
+          r.vel.z *= 0.55;
+          r.spin.multiplyScalar(0.4);
+        } else {
+          r.grounded = true;
+          r.vel.set(0, 0, 0);
+        }
+      }
+    } else {
+      // Slide to a stop on the cobbles.
+      r.vel.multiplyScalar(Math.max(0, 1 - dt * 4.5));
+      r.pos.addScaledVector(r.vel, dt);
+      r.spin.multiplyScalar(Math.max(0, 1 - dt * 6));
+    }
+
+    this.riderRoot.position.copy(r.pos);
+    this.riderRoot.quaternion.copy(r.quat);
   }
 
   /** Frees everything this bike owns, so swapping bikes doesn't leak GPU memory. */
@@ -1178,6 +1350,7 @@ export class BikeView {
       }
     });
     this.root.clear();
+    this.detached.clear();
     this.limbs.length = 0;
   }
 

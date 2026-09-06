@@ -36,6 +36,9 @@ export class Hud {
   private banner!: HTMLElement;
   private toast!: HTMLElement;
   private toastTimer = 0;
+  /** Set by the game when a crash starts, so the banner and the spoken call
+   *  are the same line. */
+  crashCall = '';
 
   constructor() {
     this.root = document.createElement('div');
@@ -121,7 +124,7 @@ export class Hud {
         ? `<div class="hud-banner-void">${tracker.last.distance.toFixed(1)} m — didn't count, you have to land it</div>`
         : '';
       this.banner.innerHTML = `
-        <div class="hud-banner-title">${crashTitle(state.crashReason)}</div>
+        <div class="hud-banner-title">${this.crashCall}</div>
         <div class="hud-banner-sub">${crashSub(state.crashReason)}</div>${lost}`;
     } else {
       this.banner.classList.remove('is-visible');
@@ -137,15 +140,6 @@ export class Hud {
     this.toast.textContent = text;
     this.toast.classList.add('is-visible');
     this.toastTimer = seconds;
-  }
-}
-
-function crashTitle(reason: string | null): string {
-  switch (reason) {
-    case 'looped': return '¡SE FUE!';
-    case 'lowside': return 'LA TIRÓ';
-    case 'impact': return '¡BOOM!';
-    default: return 'WIPEOUT';
   }
 }
 
