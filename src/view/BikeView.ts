@@ -55,6 +55,8 @@ function makeChain(o: {
   upperRadius: number; lowerRadius: number;
   upperMat: THREE.Material; lowerMat: THREE.Material;
   endMat: THREE.Material; endRadius: number;
+  /** Overrides the default ball at the end of the chain - used for boots. */
+  endGeo?: THREE.BufferGeometry;
   pole: THREE.Vector3;
   target: 'grip' | 'peg';
   side: number;
@@ -72,7 +74,9 @@ function makeChain(o: {
     o.lowerMat,
   );
   joint.castShadow = true;
-  const end = new THREE.Mesh(new THREE.SphereGeometry(o.endRadius, 20, 16), o.endMat);
+  const end = new THREE.Mesh(
+    o.endGeo ?? new THREE.SphereGeometry(o.endRadius, 20, 16), o.endMat,
+  );
   end.castShadow = true;
   o.parent.add(upper, lower, joint, end);
   return {
@@ -353,10 +357,30 @@ export class BikeView {
       new THREE.Vector3(x, y - RIDER_NOMINAL_HIP, z);
     const skin = new THREE.MeshStandardMaterial({ color: 0xa9713f, roughness: 0.8 });
     const denim = new THREE.MeshStandardMaterial({ color: 0x3a4a68, roughness: 0.9 });
-    const shoe = new THREE.MeshStandardMaterial({ color: 0xf0efe8, roughness: 0.85 });
-    const helmetMat = new THREE.MeshStandardMaterial({ color: 0x1b1c20, roughness: 0.25, metalness: 0.3 });
+    // Gloves and boots, so the hands and feet are not bare skin and off-white
+    // pebbles. Both pick up the bike's accent for the strap, which is how real
+    // kit is sold - matched to the machine.
+    const glove = new THREE.MeshStandardMaterial({ color: 0x22242b, roughness: 0.65 });
+    const boot = new THREE.MeshStandardMaterial({ color: 0x1a1b20, roughness: 0.5 });
+    const bootTrim = new THREE.MeshStandardMaterial({
+      color: this.visual.accentColor, roughness: 0.45, metalness: 0.3,
+    });
+    // The helmet already had a chin bar, a visor and a peak - and read as a
+    // black blob anyway, because all of it was the same near-black. A helmet is
+    // recognisable by CONTRAST: a bright shell, a dark eye port, and a mirrored
+    // visor over the top of it. Shell picks up the bike's colour, so the rider
+    // matches whatever they are on.
+    const helmetMat = new THREE.MeshStandardMaterial({
+      color: this.visual.bodyColor, roughness: 0.22, metalness: 0.35,
+    });
+    const helmetTrim = new THREE.MeshStandardMaterial({
+      color: 0xf2f2ee, roughness: 0.3, metalness: 0.2,
+    });
+    // The opening itself: matt black, so the visor has something to sit over.
+    const eyePort = new THREE.MeshStandardMaterial({ color: 0x0a0b0e, roughness: 0.9 });
     const visor = new THREE.MeshStandardMaterial({
-      color: 0x1a2430, roughness: 0.1, metalness: 0.7, transparent: true, opacity: 0.9,
+      color: 0x3d5a7a, roughness: 0.06, metalness: 0.95,
+      transparent: true, opacity: 0.82,
     });
     const shirtMat = new THREE.MeshStandardMaterial({ color: shirt[0], roughness: 0.92 });
     const torso = new THREE.Mesh(roundedBox(0.32, 0.46, 0.215, 0.075, 16), shirtMat);
@@ -410,16 +434,35 @@ export class BikeView {
     const chinbar = new THREE.Mesh(roundedBox(0.19, 0.115, 0.125, 0.055, 14), helmetMat);
     chinbar.position.copy(V(0, 1.472, 0.108));
     this.riderTorso.add(chinbar);
-    const vis = new THREE.Mesh(roundedBox(0.20, 0.108, 0.058, 0.028, 12), visor);
-    vis.position.copy(V(0, 1.56, 0.13));
+    // Chin vent, which is most of what tells you which way a helmet faces.
+    const chinVent = new THREE.Mesh(roundedBox(0.085, 0.042, 0.03, 0.012, 6), eyePort);
+    chinVent.position.copy(V(0, 1.462, 0.166));
+    this.riderTorso.add(chinVent);
+
+    // The eye port sits BEHIND the visor and is deliberately matt black, so
+    // there is a hole to look into rather than a flat panel on a sphere.
+    const port = new THREE.Mesh(roundedBox(0.212, 0.098, 0.05, 0.022, 10), eyePort);
+    port.position.copy(V(0, 1.558, 0.122));
+    this.riderTorso.add(port);
+    const vis = new THREE.Mesh(roundedBox(0.208, 0.104, 0.052, 0.024, 12), visor);
+    vis.position.copy(V(0, 1.559, 0.136));
     this.riderTorso.add(vis);
-    const peak = new THREE.Mesh(roundedBox(0.185, 0.022, 0.115, 0.010, 6), helmetMat);
-    peak.position.copy(V(0, 1.598, 0.125));
+
+    // Peak in the trim colour so it reads against the shell.
+    const peak = new THREE.Mesh(roundedBox(0.195, 0.024, 0.135, 0.010, 6), helmetTrim);
+    peak.position.copy(V(0, 1.602, 0.128));
     peak.rotation.x = 0.34;
     this.riderTorso.add(peak);
+    // Two brow vents. Small, but they break up the shell.
+    for (const dx of [-0.055, 0.055]) {
+      const vent = new THREE.Mesh(roundedBox(0.038, 0.026, 0.03, 0.008, 5), helmetTrim);
+      vent.position.copy(V(dx, 1.612, 0.088));
+      vent.rotation.x = 0.3;
+      this.riderTorso.add(vent);
+    }
     const crown = new THREE.Mesh(
       new THREE.SphereGeometry(0.144, 36, 20, 0, Math.PI * 2, 0, 0.45),
-      new THREE.MeshStandardMaterial({ color: 0xe9c750, roughness: 0.35, metalness: 0.5 }),
+      helmetTrim,
     );
     crown.position.copy(helmet.position);
     this.riderTorso.add(crown);
@@ -434,7 +477,9 @@ export class BikeView {
         upperLen: 0.325, lowerLen: 0.315,
         upperRadius: 0.052, lowerRadius: 0.044,
         upperMat: shirtMat, lowerMat: skin,
-        endMat: skin, endRadius: 0.058,
+        endMat: glove, endRadius: 0.05,
+        // A hand, not a ball: narrow, and longer in the direction it grips.
+        endGeo: roundedBox(0.062, 0.085, 0.115, 0.028, 8),
         pole: new THREE.Vector3(side * 0.9, -0.35, -0.25),
         target: 'grip', side,
       }));
@@ -444,10 +489,29 @@ export class BikeView {
         upperLen: 0.37, lowerLen: 0.35,
         upperRadius: 0.075, lowerRadius: 0.062,
         upperMat: denim, lowerMat: denim,
-        endMat: shoe, endRadius: 0.066,
+        // A boot, not a ball: longer forward than it is wide, like a foot.
+        endMat: boot, endRadius: 0.066,
+        endGeo: roundedBox(0.105, 0.115, 0.235, 0.045, 8),
         pole: new THREE.Vector3(side * 0.8, -0.1, 0.9),
         target: 'peg', side,
       }));
+    }
+
+    // Boot cuffs riding on the shins, added after the chains so they can hang
+    // off the lower leg and follow it.
+    for (const limb of this.limbs) {
+      if (limb.target !== 'peg') continue;
+      const cuff = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.078, 0.070, 0.13, 14), boot,
+      );
+      const strap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.081, 0.081, 0.026, 14), bootTrim,
+      );
+      strap.position.y = 0.03;
+      cuff.add(strap);
+      cuff.position.y = -limb.lowerLen * 0.62;
+      cuff.castShadow = true;
+      limb.lower.add(cuff);
     }
 
     this.riderHips.add(this.riderTorso);
@@ -528,6 +592,32 @@ export class BikeView {
     tank.rotation.x = -0.06;
     tank.castShadow = true;
     this.bike.add(tank);
+
+    // The shrouds are the whole face of a modern Grom: flat angular panels
+    // kicked out from the tank with a hard crease down them. Almost every photo
+    // of one is taken at the angle that shows these off, and the bike had none.
+    for (const side of [-1, 1]) {
+      const shroud = new THREE.Mesh(roundedBox(0.045, 0.24, 0.40, 0.012, 6), m.body);
+      shroud.position.set(side * 0.155, 0.845, 0.755);
+      shroud.rotation.set(-0.06, side * -0.10, side * 0.07);
+      shroud.castShadow = true;
+      this.bike.add(shroud);
+      const crease = new THREE.Mesh(roundedBox(0.028, 0.075, 0.34, 0.008, 5), m.accent);
+      crease.position.set(side * 0.178, 0.876, 0.75);
+      crease.rotation.set(-0.06, side * -0.10, side * 0.07);
+      this.bike.add(crease);
+      const scoop = new THREE.Mesh(roundedBox(0.05, 0.10, 0.055, 0.014, 5), m.black);
+      scoop.position.set(side * 0.15, 0.80, 0.935);
+      scoop.rotation.y = side * -0.10;
+      this.bike.add(scoop);
+    }
+
+    // Belly pan under the engine, which the bike had nothing of.
+    const belly = new THREE.Mesh(roundedBox(0.24, 0.075, 0.36, 0.02, 6), m.body);
+    belly.position.set(0, 0.30, 0.60);
+    belly.rotation.x = -0.05;
+    belly.castShadow = true;
+    this.bike.add(belly);
 
     const seat = new THREE.Mesh(roundedBox(0.23, 0.09, 0.42, 0.0144, 10), m.black);
     seat.position.set(0, 0.79, 0.35);
@@ -950,6 +1040,41 @@ export class BikeView {
     rearBank.position.set(0, 0.64, 0.60);
     rearBank.rotation.x = 0.55;
     this.bike.add(rearBank);
+
+    // A V4 has to READ as a V4. The banks were there but buried behind the
+    // tank, so the whole middle of the bike was a featureless grey block: cam
+    // covers out on the flanks, a clutch cover on the right, and the radiator
+    // in front, which is what actually fills the frame on a naked bike.
+    const cover = new THREE.MeshStandardMaterial({
+      color: 0x9aa0a8, roughness: 0.34, metalness: 0.85,
+    });
+    for (const side of [-1, 1]) {
+      const cam = new THREE.Mesh(roundedBox(0.06, 0.13, 0.22, 0.028, 6), cover);
+      cam.position.set(side * 0.185, 0.66, 0.93);
+      cam.rotation.x = -0.65;
+      cam.castShadow = true;
+      this.bike.add(cam);
+      const camRear = new THREE.Mesh(roundedBox(0.055, 0.12, 0.19, 0.026, 6), cover);
+      camRear.position.set(side * 0.18, 0.67, 0.60);
+      camRear.rotation.x = 0.55;
+      this.bike.add(camRear);
+    }
+    // Clutch cover: the round casting on the right-hand side of every Ducati.
+    const clutch = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.115, 0.05, 20), cover);
+    clutch.rotation.z = Math.PI / 2;
+    clutch.position.set(0.215, 0.44, 0.70);
+    clutch.castShadow = true;
+    this.bike.add(clutch);
+
+    // Radiator, filling the gap under the steering head.
+    const rad = new THREE.Mesh(
+      roundedBox(0.34, 0.26, 0.05, 0.014, 5),
+      new THREE.MeshStandardMaterial({ color: 0x4a4f57, roughness: 0.55, metalness: 0.7 }),
+    );
+    rad.position.set(0, 0.66, 1.10);
+    rad.rotation.x = 0.18;
+    rad.castShadow = true;
+    this.bike.add(rad);
 
     // ---- frame: front frame off the heads, plus the trellis subframe -------
     for (const dx of [-0.14, 0.14]) {

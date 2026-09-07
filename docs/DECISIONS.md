@@ -578,3 +578,29 @@ A note on the testing, because it cost two rounds: the first version of this
 test used the ICE tier, which `alwaysHunting` - so its patrols were chasing, and
 going off-road was *correct*. The test now asserts `chasers === 0` and fails
 loudly rather than quietly measuring the wrong thing.
+
+## 32. The rider's helmet was black-on-black
+
+The helmet already had a chin bar, a visor and a peak. It still read as a
+featureless sphere, because every one of those parts was the same near-black as
+the shell: the visor was `0x1a2430` on a `0x1b1c20` shell.
+
+A helmet is recognised by **contrast**, not by having the parts. The shell now
+takes the bike's own colour, the eye port behind the visor is matt black so
+there is a hole to look into, the peak and vents are white trim, and the visor
+is a light mirrored blue. Same geometry, plus a couple of vents - it reads as a
+helmet from across the street now.
+
+Also: gloves and boots. Hands were bare skin balls and feet were off-white
+pebbles; the chain end can now take any geometry, so a foot is boot-shaped and
+the boot carries a cuff and a strap in the bike's accent colour.
+
+## 33. Each bike needed the one thing it is recognised by
+
+- **Grom**: flat angular shrouds kicked out from the tank with a hard crease
+  down them, plus an air scoop and a belly pan. Almost every photo of a modern
+  Grom is taken at the angle that shows those panels, and the bike had none.
+- **Streetfighter V4**: the engine was a featureless grey block because the
+  cylinder banks were buried behind the tank. Cam covers out on the flanks, the
+  round clutch cover every Ducati has on its right, and the radiator filling the
+  gap under the steering head - which on a naked bike is most of what you see.
