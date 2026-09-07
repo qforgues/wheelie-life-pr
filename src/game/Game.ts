@@ -45,6 +45,9 @@ function blend(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
+/** Score multiplier while the police want you. */
+const HOT_MULTIPLIER = 2;
+
 const FIXED_STEP = 1 / 120;
 const CRASH_HOLD = 1.5;
 
@@ -435,8 +438,20 @@ export class Game {
     }
 
     // Tricks multiply what the run banks while they're held.
-    this.tracker.update(state, dt, TRICKS[state.trick].scoreMultiplier * state.trickBlend
-      + (1 - state.trickBlend));
+    // Everything you ride while wanted counts double.
+    //
+    // This is what the police are FOR. Without it heat was pure downside - a
+    // tax on doing the thing the game is about - so the right play was always
+    // to keep it cool. Now a long wheelie down a main road with three cars
+    // behind you is the best-paying thing in the game, and backing off is a
+    // decision rather than the obvious answer. It stacks with tricks, because
+    // standing on the seat while wanted should be exactly as reckless as it
+    // sounds.
+    const trickMult = TRICKS[state.trick].scoreMultiplier * state.trickBlend
+      + (1 - state.trickBlend);
+    const heatMult = this.heat > 0 ? HOT_MULTIPLIER : 1;
+    this.tracker.update(state, dt, trickMult * heatMult);
+    this.hud.setHotBonus(this.heat > 0 ? HOT_MULTIPLIER : 0);
     // A landed run pays. A crashed one already ended unbanked, so it can't.
     if (this.tracker.justEnded && this.tracker.lastBanked) {
       const paid = this.progress.bank(this.tracker.last.score);

@@ -498,3 +498,26 @@ screen in between - which reads as the game deciding rather than you being
 caught. There is now a progress bar while contact is being made, and it drains
 the moment you break away. The information is the point: it turns a penalty into
 a situation you can still ride out of.
+
+## 28. Points double while you are wanted
+
+Heat used to be pure downside - a tax on doing the thing the game is about - so
+the correct play was always to keep it cool, and the whole police system was
+something to avoid rather than something to use.
+
+Everything ridden while wanted now counts **double**, and it stacks with tricks:
+
+| | cool | wanted |
+|---|---|---|
+| plain wheelie | 1x | **2x** |
+| knee on the seat | 1.6x | **3.2x** |
+| standing | 2.4x | **4.8x** |
+
+100 m standing on the seat while wanted pays $958, against $200 for the same
+100 m ridden quietly. Backing off is now a decision rather than the obvious
+answer, and standing on the seat with three cars behind you is exactly as
+reckless as it sounds.
+
+Applied per metre rather than to the whole run, the same way the trick
+multiplier is - so the bonus is on the distance you actually earned it over,
+not retroactively on the metres you rode before anyone noticed.

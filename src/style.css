@@ -788,3 +788,20 @@ body.is-console .debug-gui { display: none !important; }
   opacity: 1;
 }
 .overlay-card { transition: opacity 320ms ease-in; }
+
+/* The wanted bonus, right under the running distance so you watch it climb. */
+.hud-hot {
+  margin-top: 4px;
+  font-size: calc(13px * var(--hud-scale));
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: #ff4d5a;
+  animation: hotPulse 1.1s ease-in-out infinite;
+}
+@keyframes hotPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-hot { animation: none; }
+}

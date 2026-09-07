@@ -40,6 +40,7 @@ export class Hud {
   private updateChip!: HTMLElement;
   private bust!: HTMLElement;
   private bustFill!: HTMLElement;
+  private hot!: HTMLElement;
   private toastTimer = 0;
   /** Set by the game when a crash starts, so the banner and the spoken call
    *  are the same line. */
@@ -55,6 +56,7 @@ export class Hud {
           <div class="hud-run-value"><span data-el="runValue">0.0</span><em>m</em></div>
           <div class="hud-run-time"><span data-el="runTime">0.0</span>s</div>
           <div class="hud-trick" data-el="trick"></div>
+        <div class="hud-hot" data-el="hot" hidden>×2 WANTED</div>
         </div>
         <div class="hud-stat">
           <span class="hud-label">BEST</span>
@@ -175,6 +177,18 @@ export class Hud {
     const on = p > 0.02;
     this.bust.hidden = !on;
     if (on) this.bustFill.style.width = `${Math.round(p * 100)}%`;
+  }
+
+  /**
+   * Shows the wanted bonus while it is live.
+   *
+   * It has to be next to the running distance, not off in a corner: the whole
+   * point is to see the number climbing faster while the heat is on.
+   */
+  setHotBonus(mult: number): void {
+    const on = mult > 1;
+    if (this.hot.hidden !== !on) this.hot.hidden = !on;
+    if (on) this.hot.textContent = `×${mult} WANTED`;
   }
 
   /** The moment of capture: one hard red flash across the whole screen. */
