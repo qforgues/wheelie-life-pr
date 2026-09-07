@@ -1166,3 +1166,28 @@ and on the verges; a third of the chickens are in the road, which is the point -
 a chicken on the centreline at forty miles an hour is a decision you have to
 make. Both are baked the way the vehicles are: a horse is 1,508 triangles and
 three draw calls, a chicken is 202 and three.
+
+## 58. Winning should not crash you
+
+Found while working out why the game had locked up in a live tab. The lock-up
+was my own doing - a debug hook left installed in the browser that pinned the
+bike onto Piraña and skipped the physics step, so the bike was welded inside
+somebody, the speed could not leave zero, and the engine revved because the
+throttle was being read while nothing advanced. It lived only in that tab's
+memory and a reload cleared it. **Reload the tab when you have finished poking
+at it.**
+
+But next to it was a real one. The crew go non-solid for a battle, because you
+spend a minute riding alongside them and being solid would make it a demolition
+derby. They came back the instant the horn went - and you are very often
+standing inside somebody at that moment, so winning handed you a crash you did
+not cause.
+
+This is the police bust loop wearing different clothes: respawning inside a
+patrol, wrecking, respawning. That one took ten crashes in a row to notice. This
+one gets a grace instead: nobody is an obstacle again until you have actually
+ridden clear of them, and sitting on top of somebody holds the grace open rather
+than letting the clock run out underneath you. `npm run rivals` parks the bike
+on a rider for four seconds after a race and fails if they solidify, and checks
+they do come back once you ride away - a grace that never expires would be a
+different bug.

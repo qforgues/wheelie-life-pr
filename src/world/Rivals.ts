@@ -221,6 +221,17 @@ export class Rivals {
   private touching = -1;
   /** Set while a battle is on, so the crew stop being solid mid-race. */
   battling = false;
+  /**
+   * Seconds before the crew are solid again after a battle.
+   *
+   * You spend a whole race riding alongside somebody, often overlapping them,
+   * and the moment the horn goes they would become an obstacle you are already
+   * standing inside - so winning it would hand you a crash you did not cause.
+   * That is exactly the loop the police bust had, and it took ten respawns in a
+   * row to notice, so this one gets fixed before it can happen: nobody is solid
+   * again until you are actually clear of them.
+   */
+  private settling = 0;
 
   constructor() {
     this.rebuild();
@@ -332,6 +343,14 @@ export class Rivals {
   }
 
   /**
+   * The battle is over. Nobody becomes an obstacle again until you are clear.
+   */
+  endRace(): void {
+    this.battling = false;
+    this.settling = 3;
+  }
+
+  /**
    * Puts one rider into race mode, or takes them out of it.
    *
    * They already wheelie on their own schedule; racing shortens the rest
@@ -366,6 +385,7 @@ export class Rivals {
     this.report.hail = null;
     this.report.contact = null;
     this.report.blips.length = 0;
+    if (this.settling > 0) this.settling = Math.max(0, this.settling - dt);
     if (this.setting === 'off') return this.report;
 
     for (let i = 0; i < this.riders.length; i++) {
@@ -462,6 +482,12 @@ export class Rivals {
       g.visible = range < DRAW_RADIUS;
       this.report.blips.push({ x: r.drawX, z: r.drawZ });
 
+      // Still standing on top of somebody after a race: hold the grace open
+      // rather than letting the clock run out underneath you.
+      if (!this.battling && this.settling > 0 && range < CONTACT_RANGE * 1.6) {
+        this.settling = Math.max(this.settling, 0.5);
+      }
+
       // Contact. CONTACT_RANGE is a shade wider than the collision box so
       // brushing past counts - you should not have to actually crash into
       // somebody to get their attention.
@@ -527,9 +553,11 @@ export class Rivals {
 
   /** True if a bike of radius `r` at (x, z) is on top of a rival. */
   hits(x: number, z: number, radius: number): boolean {
-    // Nobody is an obstacle during a battle. You are riding alongside them for
-    // a minute; being solid would turn the race into a demolition derby.
-    if (this.setting === 'off' || this.battling) return false;
+    // Nobody is an obstacle during a battle, or for as long as it takes you to
+    // ride clear afterwards. You spend a race alongside them; being solid would
+    // turn it into a demolition derby, and becoming solid the instant it ends
+    // would crash you while you are still inside somebody.
+    if (this.setting === 'off' || this.battling || this.settling > 0) return false;
     for (const rider of this.riders) {
       const fx = Math.sin(rider.yaw);
       const fz = Math.cos(rider.yaw);

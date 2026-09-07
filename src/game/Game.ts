@@ -466,7 +466,7 @@ export class Game {
     if (b.running && st.mode === 'crashed') b.finish();
     if (b.phase === 'result' && !b.settled) {
       b.settled = true;
-      this.rivals.battling = false;
+      this.rivals.endRace();
       this.rivals.race(b.rival, false);
       this.settleBattle(b);
     }

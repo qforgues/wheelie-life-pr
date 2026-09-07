@@ -61,6 +61,37 @@ for (let t = 0; t < MINUTES * 60; t += DT) {
 }
 
 const pad = (s: string, n: number) => s.padEnd(n);
+
+// Winning a battle must not hand you a crash. The crew go non-solid for the
+// race, and if they came back the instant it ended you would be standing inside
+// somebody. Ride to a stop on top of one and check.
+const solidAfter: string[] = [];
+{
+  const r2 = new Rivals();
+  r2.setCount('crew');
+  const inner = (r2 as unknown as { riders: Array<{ drawX: number; drawZ: number }> }).riders;
+  r2.battling = true;
+  r2.update(DT, inner[0].drawX, inner[0].drawZ);
+  if (r2.hits(inner[0].drawX, inner[0].drawZ, 0.42)) solidAfter.push('solid DURING a battle');
+  r2.endRace();
+  // Sit on top of them for four seconds - longer than the grace - and they must
+  // still not be solid, because you have not moved off them.
+  for (let t = 0; t < 4; t += DT) {
+    r2.update(DT, inner[0].drawX, inner[0].drawZ);
+    if (r2.hits(inner[0].drawX, inner[0].drawZ, 0.42)) {
+      solidAfter.push(`solid again after ${t.toFixed(1)}s while still on top of them`);
+      break;
+    }
+  }
+  // Ride away and they come back to being an obstacle, or nothing is ever solid.
+  let cameBack = false;
+  for (let t = 0; t < 6; t += DT) {
+    r2.update(DT, 0, -900);
+    if (r2.hits(inner[1].drawX, inner[1].drawZ, 0.42)) { cameBack = true; break; }
+  }
+  if (!cameBack) solidAfter.push('the crew never became solid again after a battle');
+}
+
 console.log('');
 console.log('=========================================================');
 console.log(`LOS PIRATAS — ${riders.length} out, ${MINUTES} minutes`);
@@ -71,11 +102,13 @@ console.log(`  ${pad('front wheel up', 34)} ${(lofted / (frames * riders.length)
 console.log(`  ${pad('closest anyone came to the player', 34)} ${closest.toFixed(1)} m`);
 console.log(`  ${pad('riders who said something', 34)} ${met.size} of ${riders.length}, ${hails} hails`);
 console.log('');
+console.log(`  ${pad('solid again only once you ride clear', 34)} ${solidAfter.length === 0 ? 'yes' : solidAfter.join('; ')}`);
+console.log('');
 console.log('  best wheelie, by rider');
 for (const s of rivals.standings) console.log(`    ${pad(s.name, 12)} ${s.best.toFixed(1)} m`);
 console.log('');
 
-const problems: string[] = [];
+const problems: string[] = [...solidAfter];
 if (worst > LIMIT) problems.push(`a rider got ${worst.toFixed(2)} m off the centreline — past the ${LIMIT} m kerb line (${worstAt})`);
 if (lofted / (frames * riders.length) < 0.15) problems.push('hardly anybody is wheelieing — the street should be full of it');
 if (met.size < riders.length - 1) problems.push(`only ${met.size} of ${riders.length} riders ever came near the player`);
