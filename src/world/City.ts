@@ -8,7 +8,7 @@ import {
   makeRailing, makeShopSign, makeStreetLamp, PROP_MATERIALS,
 } from './Props';
 import {
-  makeCobbleTexture, makeFacadeTexture, makeFlagMuralTexture, makeHazardTexture, makeSidewalkTexture,
+  makeCobbleTexture, makeFacadeTexture, makeGrassTexture, makeFlagMuralTexture, makeHazardTexture, makeSidewalkTexture,
 } from './textures';
 
 /**
@@ -92,6 +92,8 @@ const CULL_RADIUS = 320;
  * so this is comfortably more than three of them side by side.
  */
 const ALLEY_WIDTH = 6.5;
+/** How far the grass runs past the outermost road before the fog takes over. */
+const GROUND_APRON = 420;
 
 interface Box2 { minX: number; maxX: number; minZ: number; maxZ: number; }
 /** A "muerto" - the tall speed humps all over the island. Real geometry. */
@@ -182,6 +184,7 @@ export class City implements GroundProvider {
     this.buildRoads();
     this.buildBlocks();
     this.buildPlaza();
+    this.buildGround();
     this.buildHeadland();
     this.buildBounds();
     this.root.add(this.traffic.root);
@@ -216,6 +219,67 @@ export class City implements GroundProvider {
   private flushBlocks(): void {
     // Cells are built lazily; nothing to do but report what we ended up with.
     this.cellCount = this.cells.length;
+  }
+
+  /**
+   * Grass everywhere the roads are not.
+   *
+   * Off the road network there was simply nothing, so you looked straight
+   * through the world at the sky dome - a pale blue void that reads as fog
+   * until you ride into it.
+   *
+   * Laid as tiles that fill the gaps BETWEEN road corridors rather than one
+   * sheet with holes in it: a single plane under the whole city would either
+   * bury the roads or float above them, and cutting holes in a plane is a lot
+   * of work to arrive at the same rectangles. Every tile shares one material
+   * and they are merged into a single mesh, so the whole ground is one draw
+   * call.
+   */
+  private buildGround(): void {
+    const tex = makeGrassTexture();
+    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
+    const R = LAYOUT.roadHalf;
+
+    // The bands between corridors, plus an apron running out past the edges so
+    // there is no visible seam at the horizon.
+    const bands = (lines: readonly number[], apron: number): Array<[number, number]> => {
+      const out: Array<[number, number]> = [];
+      const sorted = [...lines].sort((a, b) => a - b);
+      out.push([sorted[0] - apron, sorted[0] - R]);
+      for (let i = 0; i < sorted.length - 1; i++) out.push([sorted[i] + R, sorted[i + 1] - R]);
+      out.push([sorted[sorted.length - 1] + R, sorted[sorted.length - 1] + apron]);
+      return out;
+    };
+
+    const xBands = bands(LAYOUT.avenueX, GROUND_APRON);
+    const zBands = bands(LAYOUT.streetZ, GROUND_APRON);
+
+    const tiles: THREE.Mesh[] = [];
+    for (const [x0, x1] of xBands) {
+      for (const [z0, z1] of zBands) {
+        const w = x1 - x0;
+        const d = z1 - z0;
+        if (w < 0.2 || d < 0.2) continue;
+        // The plaza and the water have their own surfaces; do not lay grass
+        // over the top of them.
+        if (z0 >= LAYOUT.plaza.zMin - 8) continue;
+
+        const geo = new THREE.PlaneGeometry(w, d);
+        scaleUV(geo, w / 6, d / 6);
+        const m = new THREE.Mesh(geo, mat);
+        m.rotation.x = -Math.PI / 2;
+        // Just under kerb height, which is what the physics calls "off road",
+        // and low enough that the sidewalk slabs cover their own footprint.
+        m.position.set((x0 + x1) / 2, KERB_HEIGHT - 0.012, (z0 + z1) / 2);
+        tiles.push(m);
+      }
+    }
+    if (tiles.length) {
+      const ground = mergeMeshes(tiles, mat);
+      ground.castShadow = false;
+      ground.receiveShadow = true;
+      this.root.add(ground);
+    }
   }
 
   private buildRoads(): void {

@@ -249,6 +249,59 @@ export function makeNumberTexture(
   return tex;
 }
 
+/**
+ * Scrubby tropical grass.
+ *
+ * Everything off the road network used to be a hole you could see the sky
+ * through - a pale blue void that read as fog until you rode into it. Two tones
+ * of green with dirt patches and blade flecks, so it holds up both underfoot and
+ * as a mass at distance.
+ */
+export function makeGrassTexture(): THREE.CanvasTexture {
+  const rnd = mulberry(404);
+  const S = 256;
+  const [canvas, ctx] = makeCanvas(S, S);
+
+  ctx.fillStyle = '#4f7a35';
+  ctx.fillRect(0, 0, S, S);
+
+  // Broad tonal patches first, so it does not read as flat felt.
+  for (let i = 0; i < 26; i++) {
+    const r = 26 + rnd() * 52;
+    ctx.fillStyle = rnd() > 0.5
+      ? `rgba(96,138,58,${0.16 + rnd() * 0.2})`
+      : `rgba(58,92,40,${0.16 + rnd() * 0.2})`;
+    ctx.beginPath();
+    ctx.arc(rnd() * S, rnd() * S, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Bare earth showing through where it gets walked on.
+  for (let i = 0; i < 9; i++) {
+    ctx.fillStyle = `rgba(122,98,62,${0.12 + rnd() * 0.16})`;
+    ctx.beginPath();
+    ctx.arc(rnd() * S, rnd() * S, 10 + rnd() * 22, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Individual blades. Cheap, and they are what stops it looking like paint.
+  for (let i = 0; i < 2600; i++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const h = 1.5 + rnd() * 3;
+    ctx.strokeStyle = rnd() > 0.5
+      ? `rgba(126,168,74,${0.25 + rnd() * 0.4})`
+      : `rgba(46,74,32,${0.2 + rnd() * 0.35})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + (rnd() - 0.5) * 1.6, y - h);
+    ctx.stroke();
+  }
+
+  return finish(canvas);
+}
+
 /** Blue adoquines - the ballast-stone cobbles Old San Juan is paved with. */
 export function makeCobbleTexture(): THREE.CanvasTexture {
   const rnd = mulberry(7);

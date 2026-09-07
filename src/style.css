@@ -748,13 +748,15 @@ body.is-console .debug-gui { display: none !important; }
 }
 
 .overlay-flag {
+  /* Sized and sat on the cap height of PR rather than the text baseline, so it
+     reads as part of the wordmark instead of an icon parked beside it. */
   display: inline-block;
-  width: calc(38px * var(--hud-scale));
-  height: auto;
-  margin-left: 12px;
-  vertical-align: -0.06em;
-  border-radius: 2px;
-  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5);
+  width: auto;
+  height: 0.62em;
+  margin-left: 0.22em;
+  vertical-align: 0.04em;
+  border-radius: 1px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
 }
 
 .aim { display: flex; align-items: center; gap: 8px; margin-left: 6px; }
@@ -805,3 +807,7 @@ body.is-console .debug-gui { display: none !important; }
 @media (prefers-reduced-motion: reduce) {
   .hud-hot { animation: none; }
 }
+
+/* The controller line and the button under it are one block, not two. */
+.overlay-device { margin: 10px 0 0; line-height: 1.4; }
+.overlay-device + .overlay-go { margin-top: 14px; }

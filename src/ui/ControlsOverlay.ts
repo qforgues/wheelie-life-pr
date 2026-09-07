@@ -85,6 +85,7 @@ export class ControlsOverlay {
         <h1>WHEELIE LIFE <span>PR</span>${PR_FLAG}</h1>
         <p class="overlay-tag">CALLES ♛ BIKES ♛ ISLA ♛ LIBERTAD</p>
         <p class="overlay-device" data-el="device">Checking for a controller…</p>
+        <button class="overlay-go" data-el="go">RIDE</button>
 
         <div class="garage-head">
           <span class="garage-title">GARAGE</span>
@@ -125,7 +126,6 @@ export class ControlsOverlay {
           </div>
         </div>
         <p class="opt-blurb" data-el="mirrorBlurb"></p>
-        <button class="overlay-go" data-el="go">RIDE</button>
         <div class="upgrade" data-el="scanner"></div>
         <table class="overlay-table">
           <thead><tr><th>Action</th><th>Xbox</th><th>Keyboard</th></tr></thead>
@@ -504,8 +504,8 @@ export class ControlsOverlay {
 
   setDevice(connected: boolean, name: string): void {
     this.deviceLine.innerHTML = connected
-      ? `<b class="ok">${name} connected</b> — full layout live.`
-      : `No controller detected — <b>keyboard</b> map below. Plug a controller in and press a button.`;
+      ? `<b class="ok">${name}</b> connected`
+      : `No controller — using <b>keyboard</b>. Plug one in and press a button.`;
   }
 
   toggle(): void {

@@ -521,3 +521,17 @@ reckless as it sounds.
 Applied per metre rather than to the whole run, the same way the trick
 multiplier is - so the bonus is on the distance you actually earned it over,
 not retroactively on the metres you rode before anyone noticed.
+
+## 29. The sky blue was not sky
+
+Everything off the road network was simply nothing, so you looked straight
+through the world at the sky dome. It read as haze right up until you rode into
+it and kept going.
+
+Grass is laid as tiles filling the gaps **between** road corridors, rather than
+one sheet with holes cut in it: a single plane under the city would either bury
+the roads or float above them, and cutting holes in it is a lot of work to
+arrive at the same rectangles. Every tile shares one material and they merge
+into a single mesh, so the entire ground is one draw call - and the scene got
+*smaller*, from 9.6 MB of geometry to 5.7 MB, because the same pass tightened
+the building rows.
