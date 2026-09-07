@@ -74,6 +74,8 @@ export class Minimap {
   draw(
     x: number, z: number, yaw: number, blips: MapBlip[], heat: number,
     orientation: MapOrientation = 'north',
+    /** Chasing patrols. -1 hides the readout - it is a scanner feature. */
+    pursuit = -1,
   ): void {
     const c = this.ctx;
     const s = this.size;
@@ -175,6 +177,22 @@ export class Minimap {
       c.textBaseline = 'middle';
       c.fillText('N', 0, -half + s * 0.085);
       c.restore();
+    }
+
+    // How many are actually after you - a scanner feature, so it only appears
+    // once one is owned. Knowing it is three rather than one changes whether
+    // you run for the bridge or duck down a side street.
+    if (pursuit > 0) {
+      const pad = 6;
+      c.font = `bold ${Math.round(s * 0.085)}px ui-monospace, monospace`;
+      c.textAlign = 'right';
+      c.textBaseline = 'top';
+      const text = `${pursuit} IN PURSUIT`;
+      const w = c.measureText(text).width;
+      c.fillStyle = 'rgba(12,16,24,0.85)';
+      c.fillRect(s - pad - w - 6, pad, w + 8, s * 0.11);
+      c.fillStyle = '#ff4d5a';
+      c.fillText(text, s - pad - 3, pad + 3);
     }
 
     // Heat ring: the border goes red as the police interest rises.

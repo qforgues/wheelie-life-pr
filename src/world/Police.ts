@@ -89,22 +89,22 @@ const STYLES: Record<PoliceStyle, StyleTuning> = {
   },
   lazy: {
     shift: 3, maxChasers: 1, cruise: 10, heatSeen: 0.16, heatUnseen: 0.10, coolPerSecond: 0.35, coolDelay: 3,
-    sight: 90, speed: [0, 11, 14, 16], bustRange: 4.5, bustSeconds: 2.6,
+    sight: 90, speed: [0, 11, 14, 16], bustRange: 2.6, bustSeconds: 2.2,
     alwaysHunting: false, riotGear: false,
   },
   professional: {
     shift: 6, maxChasers: 3, cruise: 12, heatSeen: 0.34, heatUnseen: 0.22, coolPerSecond: 0.28, coolDelay: 4,
-    sight: 150, speed: [0, 15, 19, 23], bustRange: 5.5, bustSeconds: 1.4,
+    sight: 150, speed: [0, 15, 19, 23], bustRange: 2.8, bustSeconds: 1.6,
     alwaysHunting: false, riotGear: false,
   },
   aggressive: {
     shift: 9, maxChasers: 5, cruise: 14, heatSeen: 0.60, heatUnseen: 0.34, coolPerSecond: 0.22, coolDelay: 6,
-    sight: 210, speed: [0, 20, 24, 28], bustRange: 6.5, bustSeconds: 1.0,
+    sight: 210, speed: [0, 20, 24, 28], bustRange: 3.0, bustSeconds: 1.2,
     alwaysHunting: false, riotGear: false,
   },
   ice: {
     shift: 12, maxChasers: 8, cruise: 16, heatSeen: 0.85, heatUnseen: 0.60, coolPerSecond: 0.18, coolDelay: 8,
-    sight: 300, speed: [0, 25, 29, 33], bustRange: 7.5, bustSeconds: 0.7,
+    sight: 300, speed: [0, 25, 29, 33], bustRange: 3.2, bustSeconds: 0.9,
     alwaysHunting: true, riotGear: true,
   },
 };
@@ -117,6 +117,26 @@ export function isPoliceStyle(v: unknown): v is PoliceStyle {
 const GIVE_UP = 280;
 /** Patrols past this are still driving, just not drawn. */
 const DRAW_RADIUS = 260;
+/**
+ * Seconds of amnesty after being pulled over.
+ *
+ * Being caught has to actually END it. Without this the shift was still parked
+ * on the spot where you got stopped, so you respawned inside them, wrecked,
+ * respawned, wrecked - ten times over before the dice finally put you
+ * somewhere clear. Heat cannot climb and nobody chases until this runs out.
+ */
+const BUST_GRACE = 9;
+/** How long a patrol is out of action after crashing. */
+const WRECK_SECONDS = 12;
+/**
+ * Inside this a patrol abandons the road and drives straight at the rider.
+ *
+ * Roughly one junction. Far enough that a pursuit still looks like driving,
+ * close enough that they will follow you somewhere they should not.
+ */
+const RAM_RANGE = 42;
+/** How hard a hit knocks the bike sideways. Enough to cost you a wheelie. */
+const RAM_SHOVE = 1.5;
 
 interface Patrol {
   group: THREE.Group;
@@ -130,12 +150,23 @@ interface Patrol {
   active: boolean;
   /** Cruising a beat, or coming for you. */
   chasing: boolean;
+  /** Seconds left wrecked. Wrecked patrols sit still and smoke. */
+  wrecked: number;
+  /** Smoke puffs, only built once a car has actually crashed. */
+  smoke: THREE.Group | null;
 }
 
 export interface PoliceReport {
   heat: HeatLevel;
   /** How many of the shift are actively chasing. */
   chasers: number;
+  /** Metres to the nearest chasing patrol, or Infinity. Drives the siren. */
+  nearestChaser: number;
+  /**
+   * Sideways shove from a patrol leaning on the bike this frame, or 0.
+   * Positive pushes toward the rider's left.
+   */
+  shove: number;
   /** Rising edge of level 1 - the one warning you get. */
   warned: boolean;
   busted: boolean;
@@ -154,7 +185,18 @@ export class Police {
   private cleanFor = 0;
   private litLastFrame = false;
   private wanderSeed = 9127;
-  private report: PoliceReport = { heat: 0, chasers: 0, warned: false, busted: false, blips: [] };
+  private grace = 0;
+
+  /**
+   * What counts as something to crash into. Set by Game from the city.
+   *
+   * Patrols wreck on buildings, parked cars and traffic exactly like the player
+   * does, which turns a chase into something you can *win*: bait them through a
+   * junction and one of them will not make it.
+   */
+  obstacleTest: ((x: number, z: number, r: number) => boolean) | null = null;
+  private report: PoliceReport =
+    { heat: 0, chasers: 0, nearestChaser: Infinity, shove: 0, warned: false, busted: false, blips: [] };
   private style: PoliceStyle = 'professional';
   private tuning: StyleTuning = STYLES.professional;
 
@@ -175,7 +217,7 @@ export class Police {
         group, lights,
         x: start.x, z: start.z, yaw: 0,
         tx: start.x, tz: start.z,
-        active: true, chasing: false,
+        active: true, chasing: false, wrecked: 0, smoke: null,
       });
     }
   }
@@ -213,12 +255,60 @@ export class Police {
     return Math.min(3, Math.floor(this.heat)) as HeatLevel;
   }
 
+  /**
+   * Called the moment the rider is pulled over.
+   *
+   * Clears the heat, and just as importantly gets the shift *away* - a patrol
+   * left idling on the spot you respawn into is a wreck you cannot avoid.
+   */
+  private afterBust(px: number, pz: number): void {
+    this.heat = 0;
+    this.bustTimer = 0;
+    this.cleanFor = 0;
+    this.hasWarned = false;
+    this.grace = BUST_GRACE;
+    this.patrols.forEach((p, i) => {
+      p.chasing = false;
+      const away = this.farJunction(px, pz, i);
+      p.x = away.x; p.z = away.z;
+      p.tx = away.x; p.tz = away.z;
+      p.group.position.set(p.x, 0, p.z);
+      p.group.visible = false;
+    });
+    this.dimLights();
+  }
+
+  /** A junction well clear of the rider, varied per patrol so they scatter. */
+  private farJunction(px: number, pz: number, index: number): { x: number; z: number } {
+    const av: readonly number[] = LAYOUT.avenueX;
+    const st: readonly number[] = LAYOUT.streetZ;
+    const options: Array<{ x: number; z: number; d: number }> = [];
+    for (const x of av) {
+      for (const z of st) {
+        const d = Math.hypot(x - px, z - pz);
+        if (d > 200) options.push({ x, z, d });
+      }
+    }
+    if (!options.length) return { x: av[0], z: st[0] };
+    options.sort((a, b) => b.d - a.d);
+    return options[index % options.length];
+  }
+
+  private dimLights(): void {
+    for (const p of this.patrols) {
+      (p.lights[0].material as THREE.MeshStandardMaterial).emissiveIntensity = 0.12;
+      (p.lights[1].material as THREE.MeshStandardMaterial).emissiveIntensity = 0.12;
+    }
+    this.litLastFrame = false;
+  }
+
   /** Drops the heat. The shift stays on the road - they are always out there. */
   reset(): void {
     this.heat = 0;
     this.bustTimer = 0;
     this.cleanFor = 0;
     this.hasWarned = false;
+    this.grace = 0;
     for (const p of this.patrols) p.chasing = false;
   }
 
@@ -239,6 +329,21 @@ export class Police {
     }
 
     const t = this.tuning;
+
+    // Amnesty. They have had their fine; let the man ride away.
+    if (this.grace > 0) {
+      this.grace -= dt;
+      this.heat = 0;
+      this.deploy(0, px, pz);
+      this.drive(dt, px, pz, 0);
+      this.dimLights();
+      r.heat = 0;
+      r.chasers = 0;
+      r.nearestChaser = Infinity;
+      r.blips = this.patrols.map((p) => ({ x: p.x, z: p.z, chasing: false }));
+      return r;
+    }
+
     const nearest = this.nearestDistance(px, pz);
     const seen = nearest < t.sight;
 
@@ -270,12 +375,20 @@ export class Police {
     const chasers = this.deploy(level, px, pz);
     this.drive(dt, px, pz, level);
 
-    // Getting caught: a patrol on top of you, for long enough to stop.
-    if (level > 0 && riding && this.nearestDistance(px, pz) < t.bustRange) {
+    // Getting caught takes **contact**, not proximity. Being pulled over
+    // because a car drew alongside felt like nothing had happened; they have to
+    // actually get a wing into you, repeatedly, and you can shake them off by
+    // riding away from it.
+    r.shove = 0;
+    const rammer = this.contactWith(px, pz, t.bustRange);
+    if (level > 0 && riding && rammer) {
       this.bustTimer += dt;
+      // Which side they hit from decides which way the bike gets knocked.
+      const cross = Math.sin(rammer.yaw) * (pz - rammer.z) - Math.cos(rammer.yaw) * (px - rammer.x);
+      r.shove = Math.sign(cross || 1) * RAM_SHOVE;
       if (this.bustTimer >= t.bustSeconds) {
         r.busted = true;
-        this.reset();
+        this.afterBust(px, pz);
       }
     } else {
       this.bustTimer = Math.max(0, this.bustTimer - dt * 1.5);
@@ -298,13 +411,25 @@ export class Police {
 
     r.heat = level;
     r.chasers = chasers;
+    r.nearestChaser = this.nearestDistance(px, pz, true);
     r.blips = this.patrols.map((p) => ({ x: p.x, z: p.z, chasing: p.chasing }));
     return r;
   }
 
-  private nearestDistance(px: number, pz: number): number {
+  /** The chasing patrol currently touching the bike, if any. */
+  private contactWith(px: number, pz: number, range: number): Patrol | null {
+    for (const p of this.patrols) {
+      if (!p.chasing || p.wrecked > 0) continue;
+      if (Math.hypot(p.x - px, p.z - pz) < range) return p;
+    }
+    return null;
+  }
+
+  private nearestDistance(px: number, pz: number, chasingOnly = false): number {
     let best = Infinity;
     for (const p of this.patrols) {
+      if (p.wrecked > 0) continue;
+      if (chasingOnly && !p.chasing) continue;
       best = Math.min(best, Math.hypot(p.x - px, p.z - pz));
     }
     return best;
@@ -322,25 +447,43 @@ export class Police {
       ? 0
       : Math.max(1, Math.round((level / 3) * this.tuning.maxChasers));
 
-    const byRange = [...this.patrols]
-      .sort((a, b) => Math.hypot(a.x - px, a.z - pz) - Math.hypot(b.x - px, b.z - pz));
-    byRange.forEach((p, i) => { p.chasing = i < wanted; });
-    return Math.min(wanted, this.patrols.length);
+    const able = this.patrols.filter((p) => p.wrecked <= 0);
+    for (const p of this.patrols) if (p.wrecked > 0) p.chasing = false;
+    able.sort((a, b) => Math.hypot(a.x - px, a.z - pz) - Math.hypot(b.x - px, b.z - pz));
+    able.forEach((p, i) => { p.chasing = i < wanted; });
+    return Math.min(wanted, able.length);
   }
 
   private drive(dt: number, px: number, pz: number, level: number): void {
     const chaseSpeed = this.tuning.speed[level] ?? this.tuning.cruise;
 
     for (const p of this.patrols) {
+      if (p.wrecked > 0) {
+        p.wrecked -= dt;
+        this.puffSmoke(p, dt);
+        if (p.wrecked <= 0) this.recover(p, px, pz);
+        p.group.visible = Math.hypot(p.x - px, p.z - pz) < DRAW_RADIUS;
+        continue;
+      }
+
       const speed = p.chasing ? chaseSpeed : this.tuning.cruise;
 
-      // Re-target whenever the current waypoint is reached. Waypoints are grid
-      // intersections, so a patrol always drives on a road - chasing in a
-      // straight line would send them through the middle of a block.
-      if (Math.hypot(p.tx - p.x, p.tz - p.z) < 3) {
-        const next = p.chasing
-          ? this.stepToward(p.x, p.z, px, pz)
-          : this.wander(p);
+      // Far away they route the grid like a driver who knows the city. Once
+      // they are close they stop using the roads and come straight at you -
+      // that commitment is what makes them dangerous, and also what puts them
+      // into a wall when you cut a corner they cannot.
+      if (p.chasing) {
+        const range = Math.hypot(px - p.x, pz - p.z);
+        if (range < RAM_RANGE) {
+          p.tx = px;
+          p.tz = pz;
+        } else if (Math.hypot(p.tx - p.x, p.tz - p.z) < 3) {
+          const next = this.stepToward(p.x, p.z, px, pz);
+          p.tx = next.x;
+          p.tz = next.z;
+        }
+      } else if (Math.hypot(p.tx - p.x, p.tz - p.z) < 3) {
+        const next = this.wander(p);
         p.tx = next.x;
         p.tz = next.z;
       }
@@ -350,18 +493,80 @@ export class Police {
       const d = Math.hypot(dx, dz);
       if (d > 0.001) {
         const step = Math.min(d, speed * dt);
-        p.x += (dx / d) * step;
-        p.z += (dz / d) * step;
-        p.yaw = Math.atan2(dx, dz);
+        const nx = p.x + (dx / d) * step;
+        const nz = p.z + (dz / d) * step;
+
+        // Driving flat out at a moving target means sooner or later they put it
+        // into a building. Cheap to check, and it is the most satisfying thing
+        // in the whole chase.
+        if (this.obstacleTest?.(nx, nz, 1.15)) {
+          this.wreck(p);
+        } else {
+          p.x = nx;
+          p.z = nz;
+          p.yaw = Math.atan2(dx, dz);
+        }
       }
       p.group.position.set(p.x, 0, p.z);
       p.group.rotation.y = p.yaw;
 
       // Off-duty geometry still costs a draw call, so stop drawing the far half
       // of the shift - especially on ICE, where there are twelve of them.
-      const far = Math.hypot(p.x - px, p.z - pz);
-      p.group.visible = far < DRAW_RADIUS;
+      p.group.visible = Math.hypot(p.x - px, p.z - pz) < DRAW_RADIUS;
     }
+  }
+
+  /** Puts a patrol out of the chase, smoking, for a while. */
+  private wreck(p: Patrol): void {
+    p.wrecked = WRECK_SECONDS;
+    p.chasing = false;
+    // Slewed across the road, which reads as "crashed" at a glance.
+    p.yaw += 0.9;
+    if (!p.smoke) {
+      p.smoke = new THREE.Group();
+      for (let i = 0; i < 6; i++) {
+        const puff = new THREE.Mesh(
+          new THREE.SphereGeometry(0.34, 6, 5),
+          new THREE.MeshBasicMaterial({
+            color: 0x2a2c31, transparent: true, opacity: 0, depthWrite: false,
+          }),
+        );
+        puff.userData.phase = i / 6;
+        p.smoke.add(puff);
+      }
+      p.group.add(p.smoke);
+    }
+    p.smoke.visible = true;
+    p.smoke.position.set(0, 0.9, 1.7);
+  }
+
+  /** Smoke rising off a wrecked patrol: puffs that climb, swell and fade. */
+  private puffSmoke(p: Patrol, dt: number): void {
+    if (!p.smoke) return;
+    for (const puff of p.smoke.children as THREE.Mesh[]) {
+      let phase = (puff.userData.phase as number) + dt * 0.55;
+      if (phase > 1) phase -= 1;
+      puff.userData.phase = phase;
+      puff.position.set(
+        Math.sin(phase * 6.3 + puff.id) * 0.28,
+        phase * 2.1,
+        Math.cos(phase * 5.1 + puff.id) * 0.2,
+      );
+      const scale = 0.5 + phase * 1.6;
+      puff.scale.setScalar(scale);
+      // Fades out as it climbs, and eases in so nothing pops into existence.
+      const mat = puff.material as THREE.MeshBasicMaterial;
+      mat.opacity = Math.min(phase * 4, 1) * (1 - phase) * 0.6;
+    }
+  }
+
+  /** A wrecked patrol is replaced by a fresh one back on the grid. */
+  private recover(p: Patrol, px: number, pz: number): void {
+    if (p.smoke) p.smoke.visible = false;
+    const away = this.farJunction(px, pz, Math.floor(Math.random() * 17));
+    p.x = away.x; p.z = away.z;
+    p.tx = away.x; p.tz = away.z;
+    p.yaw = 0;
   }
 
   /**
@@ -428,9 +633,18 @@ export class Police {
     return best ?? { x: tax, z: tsz };
   }
 
-  /** True if a patrol is physically on top of the bike - a real collision. */
+  /**
+   * True if a patrol is physically on top of the bike - a real collision.
+   *
+   * A patrol on its beat is an ordinary car and solid like any other. One that
+   * is **chasing** is not, deliberately: it used to drive into the rider, which
+   * wrecked the bike *and* triggered the fine, so being pulled over arrived as
+   * a crash you did not cause plus a penalty. Being stopped by the police
+   * should be its own clean moment, not a collision with a bill attached.
+   */
   hits(x: number, z: number, r: number): boolean {
     for (const p of this.patrols) {
+      if (p.chasing) continue;
       // Patrols are rotated, so use the larger half-extent both ways rather
       // than pretend they are axis-aligned. Slightly generous, and forgiving
       // is the right way to be wrong about a collision you did not choose.

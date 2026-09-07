@@ -10,6 +10,7 @@ import { BIKE_VISUALS } from '../view/bikeVisuals';
 import { City } from '../world/City';
 import { Police } from '../world/Police';
 import { Minimap, type MapBlip } from '../ui/Minimap';
+import { Mirrors } from '../view/Mirrors';
 import { buildSky, buildEnvironment, type SkyRig } from '../world/Sky';
 import { makeBlobShadowTexture, setAnisotropy } from '../world/textures';
 import { BikeView } from '../view/BikeView';
@@ -96,6 +97,9 @@ export class Game {
   private minimap = new Minimap();
   private blips: MapBlip[] = [];
   private heat = 0;
+  private sirenTimer = 0;
+  private pursuit = 0;
+  private mirrors = new Mirrors();
   private updates = new UpdateWatcher(() => {
     this.overlay.showUpdate();
     this.hud.showUpdate();
@@ -123,6 +127,9 @@ export class Game {
     this.scene.add(this.city.root);
     this.scene.add(this.police.root);
     this.city.extraCollider = (x, z, r) => this.police.hits(x, z, r);
+    // Patrols crash into the same things the player does - but not into each
+    // other, and never into themselves.
+    this.police.obstacleTest = (x, z, r) => this.city.blocked(x, z, r);
     this.sky = buildSky(this.scene, this.renderer);
 
     // ---- bike ------------------------------------------------------------
@@ -169,6 +176,7 @@ export class Game {
     });
     applyQuality(this.quality.settings, this.renderer, this.sky.sun, this.scene.fog as THREE.Fog);
     this.blobShadow.visible = !this.quality.settings.shadows;
+    this.mirrors.setSize(innerWidth, innerHeight);
 
     this.overlay = new ControlsOverlay(() => this.onRide());
     this.city.traffic.setSpeed(this.progress.traffic);
@@ -281,6 +289,7 @@ export class Game {
 
   private onResize(): void {
     this.renderer.setSize(innerWidth, innerHeight);
+    this.mirrors.setSize(innerWidth, innerHeight);
     this.chase.setAspect(innerWidth / innerHeight);
   }
 
@@ -327,11 +336,29 @@ export class Game {
       dt, st.x, st.z, st.wheelieing, st.mode === 'riding',
     );
     this.heat = report.heat;
+    this.pursuit = this.progress.scanner ? report.chasers : -1;
     if (report.warned) {
       this.hud.showToast('¡BÁJALA! — POLICE WARNING', 2.6);
       this.voice.say('¡Bájala, bájala!', 'es');
     }
+    // Being leant on costs you the line rather than scripting a wreck: you can
+    // still save it, and losing it is your own doing.
+    if (report.shove !== 0) this.sim.bump(report.shove * dt * 60, -0.35 * dt * 60);
     if (report.busted) this.onBusted();
+
+    // A siren every few seconds while wanted, closer and more frantic as they
+    // gain. The border tells you in the corner of your eye; this tells you when
+    // your eyes are on the road.
+    if (report.heat > 0 && report.chasers > 0) {
+      this.sirenTimer -= dt;
+      if (this.sirenTimer <= 0) {
+        this.audio.siren(report.nearestChaser, Math.min(1, report.heat / 3));
+        // Irregular on purpose - a metronome stops being information.
+        this.sirenTimer = 2.6 - report.heat * 0.45 + Math.random() * 1.4;
+      }
+    } else {
+      this.sirenTimer = 0;
+    }
     this.blips = this.progress.scanner
       ? report.blips.map((b) => ({
         x: b.x, z: b.z, kind: b.chasing ? ('cop' as const) : ('patrol' as const),
@@ -438,6 +465,7 @@ export class Game {
    */
   private onBusted(): void {
     const fine = this.progress.fine();
+    this.audio.handcuffs();
     this.hud.showToast(fine > 0 ? `PULLED OVER — ${money(fine)} FINE` : 'PULLED OVER', 3);
     this.voice.say('Te agarraron.', 'es');
     this.hud.cash = this.progress.money;
@@ -560,8 +588,11 @@ export class Game {
     if (this.blobShadow.visible) this.placeBlobShadow(state);
     this.minimap.draw(
       state.x, state.z, state.yaw, this.blips, this.heat, this.progress.mapOrientation,
+      this.pursuit,
     );
+    this.mirrors.place(state.x, state.y, state.z, state.yaw);
     this.renderer.render(this.scene, this.chase.camera);
+    this.mirrors.render(this.renderer, this.scene);
   }
 }
 

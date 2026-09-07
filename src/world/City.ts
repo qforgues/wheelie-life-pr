@@ -748,6 +748,21 @@ export class City implements GroundProvider {
     return distanceOffRoad(x, z) > 0 ? 0.88 : 1.0;
   }
 
+  /**
+   * Anything solid that isn't the police.
+   *
+   * The patrols use this to find out whether they have just driven into a
+   * building or a parked car. It deliberately skips `extraCollider`, which is
+   * the police themselves - otherwise every patrol would instantly detect
+   * itself and wreck on the spot.
+   */
+  blocked(x: number, z: number, r = 1.1): boolean {
+    for (const b of this.colliders) {
+      if (x + r > b.minX && x - r < b.maxX && z + r > b.minZ && z - r < b.maxZ) return true;
+    }
+    return this.traffic.hits(x, z, r);
+  }
+
   collide(x: number, z: number, _speed: number): CrashReason | null {
     const r = 0.42;
     for (const b of this.colliders) {

@@ -230,6 +230,93 @@ export class EngineAudio {
   }
 
   /** A person hitting the road: low, dull, and over quickly. */
+  /**
+   * A siren somewhere behind you.
+   *
+   * The red border says you are wanted, but it lives in the corner of the
+   * screen and a wheelie is not the moment you are looking at the corner of the
+   * screen. This is the same information through an ear instead: the classic
+   * two-tone wail, panned and attenuated by how close the nearest patrol is, so
+   * it also tells you whether they are gaining.
+   *
+   * @param distance metres to the nearest chasing patrol.
+   * @param urgency  0..1 - higher heat wails faster.
+   */
+  siren(distance: number, urgency = 0.5): void {
+    if (!this.ctx || this.muted) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    // Falls off with distance and is gone by 260 m, which is where patrols
+    // stop being drawn anyway.
+    const near = Math.max(0, 1 - distance / 260);
+    if (near <= 0.02) return;
+    const level = 0.05 + near * near * 0.16;
+
+    const wail = 1.1 - urgency * 0.45;          // seconds per sweep
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    const lo = 620 + urgency * 90;
+    const hi = 1080 + urgency * 180;
+    osc.frequency.setValueAtTime(lo, t);
+    osc.frequency.linearRampToValueAtTime(hi, t + wail * 0.5);
+    osc.frequency.linearRampToValueAtTime(lo, t + wail);
+
+    // Bandpass keeps it thin and distant rather than sitting on top of the
+    // engine, which is the sound the player actually needs to hear.
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 1200;
+    bp.Q.value = 1.6;
+
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(level, t + 0.08);
+    g.gain.setValueAtTime(level, t + wail - 0.12);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + wail);
+
+    osc.connect(bp); bp.connect(g); g.connect(this.master);
+    osc.start(t);
+    osc.stop(t + wail + 0.05);
+  }
+
+  /**
+   * Cuffs closing. The sound of the run being over.
+   *
+   * A ratchet is a burst of hard clicks with a rising pitch as the teeth pass,
+   * then the double-click of it locking - which is why this is a short loop of
+   * filtered noise pops rather than one hit.
+   */
+  handcuffs(): void {
+    if (!this.ctx || this.muted) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+
+    const click = (at: number, freq: number, level: number, len = 0.028) => {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuffer;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = freq;
+      bp.Q.value = 7;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(level, t0 + at);
+      g.gain.exponentialRampToValueAtTime(0.0005, t0 + at + len);
+      src.connect(bp); bp.connect(g); g.connect(this.master);
+      src.start(t0 + at);
+      src.stop(t0 + at + len + 0.01);
+    };
+
+    // The ratchet: eight teeth, accelerating and rising.
+    for (let i = 0; i < 8; i++) {
+      const at = i * (0.030 - i * 0.0016);
+      click(at, 2400 + i * 190, 0.30 - i * 0.012);
+    }
+    // Then the lock.
+    click(0.30, 1500, 0.42, 0.05);
+    click(0.38, 1150, 0.34, 0.06);
+  }
+
   bodyThud(delay = 0): void {
     if (!this.ctx || this.muted) return;
     const ctx = this.ctx;

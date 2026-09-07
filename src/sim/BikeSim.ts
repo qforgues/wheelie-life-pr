@@ -166,6 +166,23 @@ export class BikeSim {
     s.y = this.ground.heightAt(s.x, s.z, this.tuning.chassis.wheelRadius);
   }
 
+  /**
+   * Shoved sideways by something that hit you.
+   *
+   * Used by the police when they lean on the bike. Deliberately a disturbance
+   * rather than a crash: being leant on should cost you the wheelie and make
+   * you fight for the line, so the danger is losing it yourself rather than a
+   * scripted wreck. `lateral` is signed - positive shoves toward the rider's
+   * left.
+   */
+  bump(lateral: number, pitchImpulse = 0): void {
+    const s = this.state;
+    if (s.mode !== 'riding') return;
+    this.rollRate += lateral;
+    s.yawRate += lateral * 0.35;
+    s.pitchRate += pitchImpulse;
+  }
+
   crash(reason: CrashReason, impact = 0): void {
     if (this.state.mode !== 'riding') return;
     this.state.mode = 'crashed';
