@@ -14,8 +14,9 @@
          makeAbiertoBillboard), so a slow font never delays the city. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Pacifico&display=swap" />
+    <link rel="preload" as="style"
+          href="https://fonts.googleapis.com/css2?family=Pacifico&display=swap"
+          onload="this.onload=null;this.rel='stylesheet'" />
   </head>
   <body>
     <div id="app"></div>

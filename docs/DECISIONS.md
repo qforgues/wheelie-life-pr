@@ -1400,3 +1400,35 @@ Turning the post chain off in the live page and comparing settled it in one
 screenshot: the scene was fine and the bloom was doing it. At 0.98 only things
 that are actually emissive get through — a brake light, a light bar, a glint off
 a tank — which is the entire point of having it.
+
+## 69. Health and security pass
+
+Everything green except two things I had put there myself.
+
+**The source map was publishing a private repository.** `sourcemap: true` on the
+production build meant every deploy uploaded a 3.00 MB map beside a 0.76 MB
+bundle — a map bigger than the thing it maps, three quarters of everything we
+ship. Players never download it (a browser only fetches a `.map` with devtools
+open) so it cost no bandwidth. What it cost is that **the repo is private and
+the map published the whole source anyway**, on a public URL, every time.
+
+The debugging value is real and we have needed it on the console, so it is one
+env var away rather than deleted: `SOURCEMAP=1 npm run deploy:live`. On when
+something has to be chased, off again after. Deploy went 3.81 MB → **0.81 MB**.
+
+**The font link was render-blocking.** Adding Pacifico for the Abierto hoarding
+put a plain `<link rel="stylesheet">` to Google in the head, and a plain
+stylesheet link blocks the first paint. If Google is slow or unreachable the
+console sits on a blank screen waiting for it — which is the exact shape of the
+failure this project has already had once, and nothing is allowed to stand
+between Justin and the game. It is preloaded and swapped in now.
+
+That swap means the `@font-face` can register *after* the city is built, and
+`document.fonts.load` on a face the document has never heard of resolves happily
+with nothing and never fires again — which is why the first attempt at this
+failed in silence. The hoarding asks, and keeps asking for a few seconds, then
+lets the fallback script face stand.
+
+Clean: no vulnerabilities in prod or dev, no secrets or key files tracked, cache
+headers right, map sealed on all four sides, console build 10.9 MB against a
+13 MB budget. The only host the page talks to is Google Fonts.

@@ -110,6 +110,23 @@ export default defineConfig(({ command }) => ({
   preview: { host: '0.0.0.0', port: 4173, strictPort: true },
   build: {
     target: 'es2022',
-    sourcemap: true,
+    /**
+     * No source map on a published build.
+     *
+     * It was on, and it was three of the three point eight megabytes we deploy
+     * - a map is bigger than the bundle it maps. Players never download it
+     * (browsers only fetch a .map with devtools open), so the cost was not
+     * bandwidth: it was that **the repository is private and the source map
+     * published the whole source anyway**, on a public URL, every deploy.
+     *
+     * The debugging value is real and we have needed it, so it is one env var
+     * away rather than deleted:
+     *
+     *     SOURCEMAP=1 npm run deploy:live
+     *
+     * Turn it on when something has to be chased on the console, and turn it
+     * off again after.
+     */
+    sourcemap: process.env.SOURCEMAP === '1',
   },
 }));

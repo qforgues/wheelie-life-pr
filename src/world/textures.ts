@@ -481,10 +481,24 @@ export function makeAbiertoBillboard(): THREE.CanvasTexture {
     tex.needsUpdate = true;
     abiertoRepaint = null;
   };
+  // Ask more than once.
+  //
+  // The stylesheet is preloaded and swapped in, so the @font-face may not be
+  // registered yet when the city is built - and `document.fonts.load` on a face
+  // the document has never heard of resolves happily with nothing, and never
+  // fires again. Asking once is what made the first attempt at this fail in
+  // silence. So: try, and keep trying for a few seconds, then give up and let
+  // the fallback script face stand.
   if (typeof document !== 'undefined' && document.fonts) {
-    document.fonts.load('190px Pacifico')
-      .then(() => abiertoRepaint?.())
-      .catch(() => { /* no network, no Pacifico - the fallback script still reads */ });
+    let tries = 0;
+    const ask = () => {
+      if (!abiertoRepaint) return;
+      document.fonts.load('190px Pacifico').then(() => {
+        if (document.fonts.check('190px Pacifico')) abiertoRepaint?.();
+        else if (++tries < 20) setTimeout(ask, 300);
+      }).catch(() => { /* no network, no Pacifico - the fallback still reads */ });
+    };
+    ask();
   }
   return tex;
 }
