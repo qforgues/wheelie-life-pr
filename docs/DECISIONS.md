@@ -681,3 +681,24 @@ swingarm.
 The YZ's engine was a plain grey box and it is the largest thing on the side of
 the bike. It now has a clutch cover and an ignition cover, both proud of the
 case, polished, and ringed with bolts so they read as castings.
+
+## 37. The back print had to go
+
+A flat square plane sitting proud of the jacket, which read as a parachute
+rather than a graphic. A decal only works on a surface that curves with it, and
+this one sat off a filleted box - it had already been moved once to stop the
+fillet dragging its UVs around the corner. Removed, along with the texture
+generator that fed it.
+
+The torso was one smooth slab, which is most of why the rider read as a
+mannequin. It now has the things a jacket actually has: a collar standing off
+the neck, a yoke across the shoulders, a zip down the front only, a hem that
+stops, and cuffs where the sleeve ends. All of it follows the same box, so
+nothing floats.
+
+## 38. The Grom's forks were the wrong way up
+
+The fat tube was at the bottom, which is a conventional fork. A 2022-on Grom is
+upside-down: the fat outer tube is clamped at the top and a thin chrome slider
+runs down to the axle, with a carrier at the bottom. That inverted stance is a
+large part of why the current bike looks like it does.

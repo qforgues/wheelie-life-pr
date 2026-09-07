@@ -141,33 +141,6 @@ function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
-/**
- * The shirt print, drawn on a transparent background for a decal plane.
- *
- * It used to be a face of the torso box. That meant every time the torso's
- * fillet changed, the UVs pulled the print around the corner and clipped it -
- * which happened twice. A decal sitting just proud of the back panel can't.
- */
-function shirtTexture(back: string, line1: string, line2: string, line3: string): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = 256; c.height = 256;
-  const x = c.getContext('2d')!;
-  x.clearRect(0, 0, 256, 256);
-  x.fillStyle = back === '#1a1a1e' ? '#f4f2ec' : '#1a1a1e';
-  x.textAlign = 'center';
-  x.font = 'bold 30px "Arial Black", Impact, sans-serif';
-  x.fillText(line1, 128, 118);
-  x.fillText(line2, 128, 152);
-  x.fillText(line3, 128, 186);
-  // Little crown, like the box art.
-  x.beginPath();
-  x.moveTo(104, 88); x.lineTo(114, 66); x.lineTo(128, 84); x.lineTo(142, 66);
-  x.lineTo(152, 88); x.closePath();
-  x.fill();
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
 
 /** Materials shared by every bodywork builder. */
 interface BodyMaterials {
@@ -388,20 +361,54 @@ export class BikeView {
     torso.castShadow = true;
     this.riderTorso.add(torso);
 
-    // Print sits just proud of the back panel, inside the flat area the fillet
-    // leaves behind.
-    const print = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.20, 0.20),
-      new THREE.MeshStandardMaterial({
-        map: shirtTexture(shirt[0], shirt[1], shirt[2], shirt[3]),
-        transparent: true,
-        alphaTest: 0.35,
-        roughness: 0.92,
-      }),
-    );
-    print.position.copy(V(0, 1.16, -0.109));
-    print.rotation.y = Math.PI;
-    this.riderTorso.add(print);
+    // No back print. It was a flat square floating off the jacket and read as a
+    // parachute rather than a graphic - a decal only works on a surface that
+    // curves with it, and this one sat proud of a filleted box.
+    void shirt;
+
+    // Jacket detail. The torso was one smooth slab, which is what made the
+    // rider read as a mannequin: a real jacket has a collar standing off the
+    // neck, a yoke across the shoulders, a zip down the middle and a hem that
+    // stops. All of it follows the same box, so nothing floats.
+    const jacketTrim = new THREE.MeshStandardMaterial({
+      color: this.visual.bodyColor, roughness: 0.7,
+    });
+
+    // Collar: a band around the base of the neck, standing proud of it.
+    const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.094, 0.055, 18), jacketTrim);
+    collar.position.copy(V(0, 1.395, 0.018));
+    collar.castShadow = true;
+    this.riderTorso.add(collar);
+
+    // Shoulder yoke, across the top of the chest and back.
+    const yoke = new THREE.Mesh(roundedBox(0.325, 0.075, 0.222, 0.03, 8), jacketTrim);
+    yoke.position.copy(V(0, 1.295, 0));
+    yoke.castShadow = true;
+    this.riderTorso.add(yoke);
+
+    // Zip, down the front only.
+    const zipMat = new THREE.MeshStandardMaterial({
+      color: 0xb8bcc4, roughness: 0.3, metalness: 0.9,
+    });
+    const zip = new THREE.Mesh(roundedBox(0.016, 0.30, 0.014, 0.006, 4), zipMat);
+    zip.position.copy(V(0, 1.13, 0.109));
+    this.riderTorso.add(zip);
+
+    // Hem, so the jacket ends rather than fading into the jeans.
+    const hem = new THREE.Mesh(roundedBox(0.315, 0.05, 0.215, 0.022, 6), jacketTrim);
+    hem.position.copy(V(0, 0.945, 0));
+    hem.castShadow = true;
+    this.riderTorso.add(hem);
+
+    // Cuffs where the sleeve ends and the arm begins.
+    for (const side of [-1, 1]) {
+      const cuff = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.056, 0.052, 0.045, 14), jacketTrim,
+      );
+      cuff.rotation.z = Math.PI / 2;
+      cuff.position.copy(V(side * 0.30, 1.24, 0.03));
+      this.riderTorso.add(cuff);
+    }
 
     const shoulders = new THREE.Mesh(new THREE.CapsuleGeometry(0.078, 0.22, 10, 24), shirtMat);
     shoulders.rotation.z = Math.PI / 2;
@@ -730,18 +737,33 @@ export class BikeView {
     const CLAMP_Z = -0.24;  // and how far behind it - this pair sets the rake
     const rake = -Math.atan2(-CLAMP_Z, CLAMP_Y); // ~20 degrees
 
+    // Upside-down forks, as a 2022-on Grom has.
+    //
+    // These were the wrong way round: the fat tube was at the BOTTOM, which is
+    // a conventional fork. On a USD fork the fat outer tube is clamped at the
+    // top and the thin chrome slider runs down to the axle - and that inverted
+    // stance is a big part of why the current bike looks like it does.
+    const forkGold = new THREE.MeshStandardMaterial({
+      color: 0x2b2d33, roughness: 0.3, metalness: 0.8,
+    });
     for (const dx of [-0.095, 0.095]) {
-      const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.40, 18), m.black);
-      lower.position.set(dx, CLAMP_Y * 0.28, CLAMP_Z * 0.28);
-      lower.rotation.x = rake;
-      lower.castShadow = true;
-      this.forkGroup.add(lower);
+      const outer = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.42, 18), forkGold);
+      outer.position.set(dx, CLAMP_Y * 0.70, CLAMP_Z * 0.70);
+      outer.rotation.x = rake;
+      outer.castShadow = true;
+      this.forkGroup.add(outer);
 
-      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.027, 0.027, 0.40, 18), m.metal);
-      upper.position.set(dx, CLAMP_Y * 0.72, CLAMP_Z * 0.72);
-      upper.rotation.x = rake;
-      upper.castShadow = true;
-      this.forkGroup.add(upper);
+      const slider = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.40, 18), m.metal);
+      slider.position.set(dx, CLAMP_Y * 0.26, CLAMP_Z * 0.26);
+      slider.rotation.x = rake;
+      slider.castShadow = true;
+      this.forkGroup.add(slider);
+
+      // The axle carrier the slider bottoms into.
+      const carrier = new THREE.Mesh(roundedBox(0.06, 0.13, 0.075, 0.02, 5), forkGold);
+      carrier.position.set(dx, 0.055, 0.012);
+      carrier.rotation.x = rake;
+      this.forkGroup.add(carrier);
     }
 
     const triple = new THREE.Mesh(roundedBox(0.23, 0.055, 0.13, 0.0088, 6), m.black);
