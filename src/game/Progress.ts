@@ -2,6 +2,7 @@ import { STARTER_BIKE, type BikeId } from '../sim/tuning';
 import { isTrafficSpeed, type TrafficSpeed } from '../world/Traffic';
 import { isPoliceStyle, type PoliceStyle } from '../world/Police';
 import { isOrientation, type MapOrientation } from '../ui/Minimap';
+import { isMirrorMount, type MirrorMount } from '../view/Mirrors';
 
 /**
  * Money and what you own.
@@ -22,6 +23,9 @@ export interface SaveData {
   scanner: boolean;
   police: PoliceStyle;
   mapOrientation: MapOrientation;
+  mirrors: MirrorMount;
+  mirrorAimX: number;
+  mirrorAimY: number;
 }
 
 /**
@@ -51,6 +55,10 @@ export class Progress {
   police: PoliceStyle = 'professional';
   /** Whether the GPS keeps the city still or the rider still. */
   mapOrientation: MapOrientation = 'north';
+  /** Where the mirrors hang, and the rider's trim on them. */
+  mirrors: MirrorMount = 'corners';
+  mirrorAimX = 0;
+  mirrorAimY = 0;
 
   /** Set for one frame after a payout, for the HUD toast. */
   lastPayout = 0;
@@ -138,6 +146,17 @@ export class Progress {
     this.save();
   }
 
+  setMirrors(m: MirrorMount): void {
+    this.mirrors = m;
+    this.save();
+  }
+
+  setMirrorAim(x: number, y: number): void {
+    this.mirrorAimX = Math.max(-1, Math.min(1, x));
+    this.mirrorAimY = Math.max(-1, Math.min(1, y));
+    this.save();
+  }
+
   /** Wipes back to a fresh save. Exposed in the tuning panel for testing. */
   reset(): void {
     this.money = 0;
@@ -148,6 +167,9 @@ export class Progress {
     this.scanner = false;
     this.police = 'professional';
     this.mapOrientation = 'north';
+    this.mirrors = 'corners';
+    this.mirrorAimX = 0;
+    this.mirrorAimY = 0;
     this.save();
   }
 
@@ -173,6 +195,9 @@ export class Progress {
       if (typeof d.scanner === 'boolean') this.scanner = d.scanner;
       if (isPoliceStyle(d.police)) this.police = d.police;
       if (isOrientation(d.mapOrientation)) this.mapOrientation = d.mapOrientation;
+      if (isMirrorMount(d.mirrors)) this.mirrors = d.mirrors;
+      if (typeof d.mirrorAimX === 'number') this.mirrorAimX = d.mirrorAimX;
+      if (typeof d.mirrorAimY === 'number') this.mirrorAimY = d.mirrorAimY;
     } catch {
       /* no save, or storage is unavailable - start fresh */
     }
@@ -189,6 +214,9 @@ export class Progress {
         scanner: this.scanner,
         police: this.police,
         mapOrientation: this.mapOrientation,
+        mirrors: this.mirrors,
+        mirrorAimX: this.mirrorAimX,
+        mirrorAimY: this.mirrorAimY,
       };
       localStorage.setItem(KEY, JSON.stringify(data));
     } catch {

@@ -668,3 +668,62 @@ body.is-console .debug-gui { display: none !important; }
   background: rgba(255, 77, 90, 0.18);
   color: #ff8b94;
 }
+
+/* -------------------------------------------------------- mirror aim ----- */
+.aim {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 2px 0 6px;
+}
+.aim-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 30px);
+  grid-template-rows: repeat(3, 26px);
+  gap: 3px;
+}
+.aim-pad button {
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--paper);
+  font: inherit;
+  font-size: calc(11px * var(--hud-scale));
+  line-height: 1;
+  cursor: pointer;
+}
+.aim-pad button:hover { border-color: var(--pr-cyan); color: var(--pr-cyan); }
+.aim-pad button:focus-visible { outline: 2px solid var(--paper); outline-offset: 2px; }
+/* Lay the five buttons out as a d-pad. */
+.aim-pad button:nth-child(1) { grid-area: 1 / 2; }
+.aim-pad button:nth-child(2) { grid-area: 2 / 1; }
+.aim-pad button:nth-child(3) { grid-area: 2 / 2; }
+.aim-pad button:nth-child(4) { grid-area: 2 / 3; }
+.aim-pad button:nth-child(5) { grid-area: 3 / 2; }
+
+/* ------------------------------------------------------ getting nicked --- */
+.hud-bust {
+  position: absolute;
+  left: 50%;
+  top: 22%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  border: 2px solid #ff4d5a;
+  border-radius: 3px;
+  background: rgba(26, 8, 10, 0.78);
+  color: #ff8b94;
+  font-size: calc(14px * var(--hud-scale));
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+.hud-bust-bar {
+  width: calc(200px * var(--hud-scale));
+  height: 7px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+.hud-bust-bar i { display: block; height: 100%; width: 0; background: #ff4d5a; }

@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Wheelie Life PR \u2014 prototype. Calles, Bikes, Isla, Libertad.",
+  "description": "Wheelie Life PR — prototype. Calles, Bikes, Isla, Libertad.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -17,13 +17,13 @@
     "deploy:live": "node tools/release.mjs --live"
   },
   "devDependencies": {
-    "typescript": "^5.6.3",
-    "vite": "^5.4.10",
     "@types/three": "^0.169.0",
-    "esbuild": "^0.21.5"
+    "esbuild": "^0.25.12",
+    "typescript": "^5.6.3",
+    "vite": "^7.3.6"
   },
   "dependencies": {
-    "three": "^0.169.0",
-    "lil-gui": "^0.19.2"
+    "lil-gui": "^0.19.2",
+    "three": "^0.169.0"
   }
 }

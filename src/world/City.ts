@@ -101,6 +101,49 @@ export class City implements GroundProvider {
   /** Wall materials keyed `facadeUuid:brightness`, shared across every block. */
   private wallMats = new Map<string, THREE.MeshStandardMaterial>();
   private roofMat = new THREE.MeshStandardMaterial({ color: 0x8f7358, roughness: 0.98 });
+
+  /**
+   * Building shells, shared between every building of the same size.
+   *
+   * Each building used to own its geometry, which meant ~3400 unique buffers
+   * for the city. Distance culling hides them but does **not** free them: once
+   * a mesh has been drawn its buffers stay resident, so riding around uploaded
+   * the whole city and the console ran out. Sizes are rounded to the nearest
+   * step below and the shell reused, which collapses thousands of buffers into
+   * dozens without changing how the street looks.
+   */
+  private shells = new Map<string, THREE.BufferGeometry>();
+
+  private shell(sizeX: number, height: number, sizeZ: number): THREE.BufferGeometry {
+    const key = `${sizeX}|${height}|${sizeZ}`;
+    let geo = this.shells.get(key);
+    if (!geo) {
+      geo = roundedBox(sizeX, height, sizeZ, 0.09, 3);
+      const rows = Math.max(1, Math.round(height / 9));
+      const xBays = Math.max(1, Math.round(sizeZ / 10));
+      const zBays = Math.max(1, Math.round(sizeX / 10));
+      scaleUV(geo, xBays, rows, 0);
+      scaleUV(geo, xBays, rows, 1);
+      scaleUV(geo, zBays, rows, 4);
+      scaleUV(geo, zBays, rows, 5);
+      this.shells.set(key, geo);
+    }
+    return geo;
+  }
+
+  /** Cap and cornice shells, shared the same way. */
+  private caps = new Map<string, THREE.BufferGeometry>();
+  private capMat = new THREE.MeshStandardMaterial({ color: 0xe0d6c0, roughness: 0.96 });
+
+  private cap(w: number, h: number, d: number, r: number): THREE.BufferGeometry {
+    const key = `${w}|${h}|${d}|${r}`;
+    let geo = this.caps.get(key);
+    if (!geo) {
+      geo = roundedBox(w, h, d, r, 3);
+      this.caps.set(key, geo);
+    }
+    return geo;
+  }
   private bumps: Bump[] = [];
 
   /**
@@ -254,9 +297,9 @@ export class City implements GroundProvider {
    * instead of running straight through it.
    */
   private spansBetween(
-    crossings: readonly number[], from: number, to: number,
+    crossings: readonly number[], from: number, to: number, clearance?: number,
   ): Array<[number, number]> {
-    const edge = LAYOUT.roadHalf + LAYOUT.sidewalk;
+    const edge = clearance ?? LAYOUT.roadHalf + LAYOUT.sidewalk;
     const spans: Array<[number, number]> = [];
     let cursor = from;
     for (const c of [...crossings].sort((a, b) => a - b)) {
@@ -314,15 +357,19 @@ export class City implements GroundProvider {
     const setback = LAYOUT.roadHalf + LAYOUT.sidewalk + LAYOUT.blockDepth / 2;
 
     // Rows along the avenues (buildings face +/-X), then along the streets.
+    // Rows must stop clear of the row running the other way, or the two meet
+    // inside each other at every block corner - which is the buildings growing
+    // through one another, and a pile of geometry drawn for nothing.
+    const corner = LAYOUT.roadHalf + LAYOUT.sidewalk + LAYOUT.blockDepth + 0.6;
     for (const ax of LAYOUT.avenueX) {
-      for (const [z0, z1] of this.spansBetween(LAYOUT.streetZ, MAP.zMin, MAP.zMax)) {
+      for (const [z0, z1] of this.spansBetween(LAYOUT.streetZ, MAP.zMin, MAP.zMax, corner)) {
         for (const side of [-1, 1]) {
           this.frontage(true, ax + side * setback, -side, z0, z1, facades, rnd);
         }
       }
     }
     for (const sz of LAYOUT.streetZ) {
-      for (const [x0, x1] of this.spansBetween(LAYOUT.avenueX, MAP.xMin, MAP.xMax)) {
+      for (const [x0, x1] of this.spansBetween(LAYOUT.avenueX, MAP.xMin, MAP.xMax, corner)) {
         for (const side of [-1, 1]) {
           this.frontage(false, sz + side * setback, -side, x0, x1, facades, rnd);
         }
@@ -345,8 +392,11 @@ export class City implements GroundProvider {
     let cursor = from;
     let index = 0;
     while (to - cursor > 12) {
-      const width = Math.min(to - cursor, 16 + rnd() * 12);
-      const height = 8 + rnd() * 7;
+      // Rounded to a step so the geometry can be shared. The eye cannot tell
+      // 18.3 m from 18 m across a street; the GPU very much can tell 300
+      // buffers from 30.
+      const width = quantise(Math.min(to - cursor, 16 + rnd() * 12), 2);
+      const height = quantise(8 + rnd() * 7, 1.5);
       const facade = facades[Math.floor(rnd() * facades.length)];
       const centre = cursor + width / 2;
 
@@ -378,9 +428,9 @@ export class City implements GroundProvider {
 
     if (rnd() > 0.45) {
       const wallFace = offset - facing * (LAYOUT.blockDepth / 2 - 0.35);
-      const railLen = Math.min(3.4, width * 0.45);
+      const railLen = Math.round(Math.min(3.4, width * 0.45) * 2) / 2;
       const slab = new THREE.Mesh(
-        roundedBox(alongZ ? 1.0 : railLen, 0.14, alongZ ? railLen : 1.0, 0.05, 5),
+        this.cap(alongZ ? 1.0 : railLen, 0.14, alongZ ? railLen : 1.0, 0.05),
         PROP_MATERIALS.stone,
       );
       slab.position.set(...at(wallFace, height * 0.42, centre));
@@ -478,27 +528,18 @@ export class City implements GroundProvider {
     // 3 segments is enough: with a 9 cm radius on a 12 m wall the fillet is a
     // single chamfer facet per corner, which is all a building needs - it
     // catches a highlight and stops the edge aliasing.
-    const boxGeo = roundedBox(sizeX, height, sizeZ, 0.09, 3);
     // Groups 0/1 are the +X/-X walls (spanning sizeZ), 4/5 the +Z/-Z walls
     // (spanning sizeX); 2/3 are the roof and floor, which use a flat material.
-    const rows = Math.max(1, Math.round(height / 9));
-    const xBays = Math.max(1, Math.round(sizeZ / 10));
-    const zBays = Math.max(1, Math.round(sizeX / 10));
-    scaleUV(boxGeo, xBays, rows, 0);
-    scaleUV(boxGeo, xBays, rows, 1);
-    scaleUV(boxGeo, zBays, rows, 4);
-    scaleUV(boxGeo, zBays, rows, 5);
-
-    const mesh = new THREE.Mesh(boxGeo, mats);
+    const mesh = new THREE.Mesh(this.shell(sizeX, height, sizeZ), mats);
     mesh.position.set(x, height / 2, z);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     this.blockAdd(mesh);
 
     // Parapet so the rooflines aren't razor flat against the sky.
-    const capMat = new THREE.MeshStandardMaterial({ color: 0xe0d6c0, roughness: 0.96 });
+    const capMat = this.capMat;
     const parapet = new THREE.Mesh(
-      roundedBox(sizeX + 0.35, 0.55, sizeZ + 0.35, 0.10, 3), capMat,
+      this.cap(sizeX + 0.35, 0.55, sizeZ + 0.35, 0.10), capMat,
     );
     parapet.position.set(x, height + 0.2, z);
     parapet.castShadow = true;
@@ -507,7 +548,7 @@ export class City implements GroundProvider {
     // A cornice band under the parapet gives the roofline some depth instead of
     // a single flat lip.
     const cornice = new THREE.Mesh(
-      roundedBox(sizeX + 0.55, 0.22, sizeZ + 0.55, 0.08, 3), capMat,
+      this.cap(sizeX + 0.55, 0.22, sizeZ + 0.55, 0.08), capMat,
     );
     cornice.position.set(x, height - 0.16, z);
     cornice.castShadow = true;
@@ -812,6 +853,11 @@ export class City implements GroundProvider {
  * Shared by the collision heightfield and the mesh generator so they can never
  * disagree about where the road is.
  */
+/** Rounds to a step, so sizes repeat and their geometry can be shared. */
+function quantise(v: number, step: number): number {
+  return Math.round(v / step) * step;
+}
+
 export function bumpProfile(t: number): number {
   if (t <= -1 || t >= 1) return 0;
   const c = Math.cos((t * Math.PI) / 2);

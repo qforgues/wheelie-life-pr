@@ -99,6 +99,7 @@ export class Game {
   private heat = 0;
   private sirenTimer = 0;
   private pursuit = 0;
+  private reportedFaults = new Set<string>();
   private mirrors = new Mirrors();
   private updates = new UpdateWatcher(() => {
     this.overlay.showUpdate();
@@ -181,6 +182,20 @@ export class Game {
     this.overlay = new ControlsOverlay(() => this.onRide());
     this.city.traffic.setSpeed(this.progress.traffic);
     this.overlay.setTrafficValue(this.progress.traffic);
+    this.overlay.setMirrorValues(
+      this.progress.mirrors, this.progress.mirrorAimX, this.progress.mirrorAimY,
+    );
+    this.mirrors.setMount(this.progress.mirrors);
+    this.mirrors.setAim(this.progress.mirrorAimX, this.progress.mirrorAimY);
+    this.overlay.onMirrorsPicked((mnt) => {
+      this.mirrors.setMount(mnt);
+      this.progress.setMirrors(mnt);
+    });
+    this.overlay.onMirrorAim((x, y) => {
+      this.mirrors.setAim(x, y);
+      this.progress.setMirrorAim(x, y);
+    });
+
     this.overlay.setOrientationValue(this.progress.mapOrientation);
     this.overlay.onOrientationPicked((o) => this.progress.setMapOrientation(o));
 
@@ -224,10 +239,13 @@ export class Game {
     this.input.setGamepadEmulation('mouse');
     addEventListener('resize', () => this.onResize());
 
+    // Both wrapped: a single throwing frame used to mean every subsequent frame
+    // threw too, so nothing was ever drawn again and the screen simply went
+    // white. Now the failure is reported once and the loop carries on.
     this.loop = new Loop(
       FIXED_STEP,
-      (dt) => this.fixedUpdate(dt),
-      (dt, alpha) => this.render(dt, alpha),
+      (dt) => this.guard('update', () => this.fixedUpdate(dt)),
+      (dt, alpha) => this.guard('render', () => this.render(dt, alpha)),
     );
   }
 
@@ -235,6 +253,10 @@ export class Game {
     // Never reload underneath a wheelie. A new build raises a flag on the HUD
     // and the menu; installing it is always the player's decision.
     this.updates.start();
+
+    // If the last run died, say so now rather than making anyone reproduce it.
+    const lastCrash = Diagnostics.takeLastCrash();
+    if (lastCrash) this.diagnostics.note(lastCrash);
 
     // A lost context leaves a live HUD over a blank canvas, which is exactly
     // how this failed on the Xbox. Stop the clock, say so on screen, and pick
@@ -285,6 +307,24 @@ export class Game {
     this.bikeView.update(this.sim.state, 0, 0, 0);
     this.chase.snapTo(this.sim.state, this.bikeView.getFocusWorld(this.focusVec));
     this.hud.showToast(BIKES[id].name.toUpperCase(), 2.2);
+  }
+
+  /**
+   * Runs a frame stage, reporting the first failure and swallowing repeats.
+   *
+   * Repeats are swallowed deliberately: a fault in the physics tends to happen
+   * every single frame, and a hundred identical lines is worse than one.
+   */
+  private guard(stage: string, fn: () => void): void {
+    try {
+      fn();
+    } catch (err) {
+      const msg = `${stage}: ${err instanceof Error ? err.message : String(err)}`;
+      if (this.reportedFaults.has(msg)) return;
+      this.reportedFaults.add(msg);
+      console.error(err);
+      this.diagnostics.note(msg);
+    }
   }
 
   private onResize(): void {
@@ -344,6 +384,7 @@ export class Game {
     // Being leant on costs you the line rather than scripting a wreck: you can
     // still save it, and losing it is your own doing.
     if (report.shove !== 0) this.sim.bump(report.shove * dt * 60, -0.35 * dt * 60);
+    this.hud.setBustProgress(report.bustProgress);
     if (report.busted) this.onBusted();
 
     // A siren every few seconds while wanted, closer and more frantic as they
@@ -466,6 +507,7 @@ export class Game {
   private onBusted(): void {
     const fine = this.progress.fine();
     this.audio.handcuffs();
+    this.hud.setBustProgress(0);
     this.hud.showToast(fine > 0 ? `PULLED OVER — ${money(fine)} FINE` : 'PULLED OVER', 3);
     this.voice.say('Te agarraron.', 'es');
     this.hud.cash = this.progress.money;
@@ -590,6 +632,7 @@ export class Game {
       state.x, state.z, state.yaw, this.blips, this.heat, this.progress.mapOrientation,
       this.pursuit,
     );
+    this.mirrors.setFirstPerson(this.chase.mode === 'first');
     this.mirrors.place(state.x, state.y, state.z, state.yaw);
     this.renderer.render(this.scene, this.chase.camera);
     this.mirrors.render(this.renderer, this.scene);

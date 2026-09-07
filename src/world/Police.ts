@@ -167,6 +167,15 @@ export interface PoliceReport {
    * Positive pushes toward the rider's left.
    */
   shove: number;
+  /**
+   * How far through being pulled over, 0..1.
+   *
+   * Being stopped used to happen with no warning at all - a car drew alongside
+   * and some seconds later you were simply fined, which read as the game
+   * deciding rather than you being caught. Showing the progress makes it a
+   * situation you can still ride out of.
+   */
+  bustProgress: number;
   /** Rising edge of level 1 - the one warning you get. */
   warned: boolean;
   busted: boolean;
@@ -196,7 +205,10 @@ export class Police {
    */
   obstacleTest: ((x: number, z: number, r: number) => boolean) | null = null;
   private report: PoliceReport =
-    { heat: 0, chasers: 0, nearestChaser: Infinity, shove: 0, warned: false, busted: false, blips: [] };
+    {
+      heat: 0, chasers: 0, nearestChaser: Infinity, shove: 0, bustProgress: 0,
+      warned: false, busted: false, blips: [],
+    };
   private style: PoliceStyle = 'professional';
   private tuning: StyleTuning = STYLES.professional;
 
@@ -323,7 +335,13 @@ export class Police {
     r.warned = false;
     r.busted = false;
     if (this.style === 'none') {
+      // Every field, not just heat: leaving stale counts here showed "3 IN
+      // PURSUIT" on the scanner with the police turned off.
       r.heat = 0;
+      r.chasers = 0;
+      r.nearestChaser = Infinity;
+      r.shove = 0;
+      r.bustProgress = 0;
       r.blips.length = 0;
       return r;
     }
@@ -340,6 +358,7 @@ export class Police {
       r.heat = 0;
       r.chasers = 0;
       r.nearestChaser = Infinity;
+      r.bustProgress = 0;
       r.blips = this.patrols.map((p) => ({ x: p.x, z: p.z, chasing: false }));
       return r;
     }
@@ -412,6 +431,7 @@ export class Police {
     r.heat = level;
     r.chasers = chasers;
     r.nearestChaser = this.nearestDistance(px, pz, true);
+    r.bustProgress = Math.min(1, this.bustTimer / t.bustSeconds);
     r.blips = this.patrols.map((p) => ({ x: p.x, z: p.z, chasing: p.chasing }));
     return r;
   }

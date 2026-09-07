@@ -43,7 +43,44 @@ export class Diagnostics {
 
   /** Record a breadcrumb and force the panel open. Public so the render guard
    *  can report a lost GPU context, which throws no error of its own. */
+  /**
+   * Remembers the last failure across a reload.
+   *
+   * A white screen on a console is nearly impossible to debug live: there is no
+   * devtools, and whatever went wrong has usually scrolled past by the time
+   * anyone looks. Errors are written to localStorage as they happen, and the
+   * next load surfaces them - so "it went white, I reloaded" is now enough to
+   * tell us exactly what broke.
+   */
+  private static readonly CRASH_KEY = 'wheelie-life:last-error';
+
+  private persist(msg: string): void {
+    try {
+      localStorage.setItem(Diagnostics.CRASH_KEY, JSON.stringify({
+        msg,
+        at: new Date().toISOString(),
+        ua: navigator.userAgent.slice(0, 120),
+      }));
+    } catch {
+      /* storage unavailable - the on-screen panel still works */
+    }
+  }
+
+  /** Reads and clears anything the previous session left behind. */
+  static takeLastCrash(): string | null {
+    try {
+      const raw = localStorage.getItem(Diagnostics.CRASH_KEY);
+      if (!raw) return null;
+      localStorage.removeItem(Diagnostics.CRASH_KEY);
+      const d = JSON.parse(raw) as { msg?: string; at?: string };
+      return d.msg ? `LAST SESSION: ${d.msg} (${(d.at ?? '').slice(11, 19)})` : null;
+    } catch {
+      return null;
+    }
+  }
+
   note(msg: string): void {
+    this.persist(msg);
     this.errors.unshift(msg);
     this.errors.length = Math.min(this.errors.length, 4);
     // An error is exactly when you want this on screen.

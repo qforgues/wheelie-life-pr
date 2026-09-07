@@ -8,6 +8,11 @@ import { POLICE_BLURBS, POLICE_LABELS, POLICE_ORDER, type PoliceStyle } from '..
 import {
   ORIENTATION_BLURBS, ORIENTATION_LABELS, ORIENTATION_ORDER, type MapOrientation,
 } from './Minimap';
+import {
+  MOUNT_BLURBS, MOUNT_LABELS, MOUNT_ORDER, type MirrorMount,
+} from '../view/Mirrors';
+
+const clampAim = (v: number) => Math.max(-1, Math.min(1, Math.round(v * 100) / 100));
 import { BUILD_ID } from '../core/version';
 import { hardReload } from '../core/UpdateWatcher';
 
@@ -40,6 +45,14 @@ export class ControlsOverlay {
   private policeBlurbEl!: HTMLElement;
   private police: PoliceStyle = 'professional';
   private onPolice: ((p: PoliceStyle) => void) | null = null;
+  private mirrorEl!: HTMLElement;
+  private mirrorBlurbEl!: HTMLElement;
+  private aimEl!: HTMLElement;
+  private mirrors: MirrorMount = 'corners';
+  private aimX = 0;
+  private aimY = 0;
+  private onMirrors: ((m: MirrorMount) => void) | null = null;
+  private onAim: ((x: number, y: number) => void) | null = null;
   private gpsEl!: HTMLElement;
   private gpsBlurbEl!: HTMLElement;
   private orientation: MapOrientation = 'north';
@@ -76,6 +89,21 @@ export class ControlsOverlay {
           <div class="opt-choices" data-el="gps"></div>
         </div>
         <p class="opt-blurb" data-el="gpsBlurb"></p>
+        <div class="opt">
+          <span class="opt-label">MIRRORS</span>
+          <div class="opt-choices" data-el="mirrors"></div>
+        </div>
+        <p class="opt-blurb" data-el="mirrorBlurb"></p>
+        <div class="aim" data-el="aim">
+          <span class="opt-label">AIM</span>
+          <div class="aim-pad">
+            <button type="button" data-aim="0,1" title="Up">▲</button>
+            <button type="button" data-aim="-1,0" title="Left">◀</button>
+            <button type="button" data-aim="0,0" title="Centre">●</button>
+            <button type="button" data-aim="1,0" title="Right">▶</button>
+            <button type="button" data-aim="0,-1" title="Down">▼</button>
+          </div>
+        </div>
         <div class="upgrade" data-el="scanner"></div>
         <table class="overlay-table">
           <thead><tr><th>Action</th><th>Xbox</th><th>Keyboard</th></tr></thead>
@@ -169,6 +197,32 @@ export class ControlsOverlay {
     });
     this.renderGps();
 
+    this.mirrorEl = this.root.querySelector('[data-el="mirrors"]')!;
+    this.mirrorBlurbEl = this.root.querySelector('[data-el="mirrorBlurb"]')!;
+    this.aimEl = this.root.querySelector('[data-el="aim"]')!;
+    this.mirrorEl.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-mirrors]');
+      if (!b) return;
+      e.stopPropagation();
+      this.mirrors = b.dataset.mirrors as MirrorMount;
+      this.renderMirrors();
+      this.onMirrors?.(this.mirrors);
+    });
+    this.aimEl.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-aim]');
+      if (!b) return;
+      e.stopPropagation();
+      const [dx, dy] = b.dataset.aim!.split(',').map(Number);
+      // The centre button is the only one that resets; the rest nudge.
+      if (dx === 0 && dy === 0) { this.aimX = 0; this.aimY = 0; }
+      else {
+        this.aimX = clampAim(this.aimX + dx * 0.25);
+        this.aimY = clampAim(this.aimY + dy * 0.25);
+      }
+      this.onAim?.(this.aimX, this.aimY);
+    });
+    this.renderMirrors();
+
     this.trafficEl = this.root.querySelector('[data-el="traffic"]')!;
     this.trafficEl.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>('[data-traffic]');
@@ -211,6 +265,34 @@ export class ControlsOverlay {
         : `<button class="bike-buy" data-buy-scanner type="button" ${afford ? '' : 'disabled'}>
              BUY · ${money(SCANNER_PRICE)}
            </button>`}`;
+  }
+
+  /** Called when the mirror mount changes. */
+  onMirrorsPicked(fn: (m: MirrorMount) => void): void {
+    this.onMirrors = fn;
+  }
+
+  /** Called when the rider trims the mirrors. */
+  onMirrorAim(fn: (x: number, y: number) => void): void {
+    this.onAim = fn;
+  }
+
+  setMirrorValues(mount: MirrorMount, aimX: number, aimY: number): void {
+    this.mirrors = mount;
+    this.aimX = aimX;
+    this.aimY = aimY;
+    this.renderMirrors();
+  }
+
+  private renderMirrors(): void {
+    this.mirrorEl.innerHTML = MOUNT_ORDER
+      .map((mnt) => `<button type="button" data-mirrors="${mnt}"
+             class="opt-btn${mnt === this.mirrors ? ' is-on' : ''}"
+             aria-pressed="${mnt === this.mirrors}">${MOUNT_LABELS[mnt]}</button>`)
+      .join('');
+    this.mirrorBlurbEl.textContent = MOUNT_BLURBS[this.mirrors];
+    // Nothing to aim if there are no mirrors.
+    this.aimEl.hidden = this.mirrors === 'off';
   }
 
   /** Called when the GPS orientation changes. */

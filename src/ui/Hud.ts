@@ -38,6 +38,8 @@ export class Hud {
   private banner!: HTMLElement;
   private toast!: HTMLElement;
   private updateChip!: HTMLElement;
+  private bust!: HTMLElement;
+  private bustFill!: HTMLElement;
   private toastTimer = 0;
   /** Set by the game when a crash starts, so the banner and the spoken call
    *  are the same line. */
@@ -84,6 +86,10 @@ export class Hud {
       </div>
 
       <div class="hud-banner" data-el="banner"></div>
+      <div class="hud-bust" data-el="bust" hidden>
+        <span>PULLING YOU OVER — RIDE!</span>
+        <div class="hud-bust-bar"><i data-el="bustFill"></i></div>
+      </div>
       <div class="hud-toast" data-el="toast"></div>
       <button class="hud-update" data-el="updateChip" type="button" hidden>
         UPDATE READY<small>open the menu to install</small>
@@ -159,6 +165,18 @@ export class Hud {
    * on a mouse; on a controller the menu carries the same button, which is what
    * the small print says.
    */
+  /**
+   * The one thing that makes a police encounter fair: showing it happening.
+   *
+   * You can still get away - the bar drains as soon as you break contact - so
+   * this is an instruction, not an announcement.
+   */
+  setBustProgress(p: number): void {
+    const on = p > 0.02;
+    this.bust.hidden = !on;
+    if (on) this.bustFill.style.width = `${Math.round(p * 100)}%`;
+  }
+
   showUpdate(): void {
     this.updateChip.hidden = false;
   }

@@ -440,3 +440,61 @@ Three details that carry the idea:
 Cost at the console tier: ICE with twelve on shift is 69 draw calls and 10k
 triangles over `none`, because patrols past 260 m keep driving but stop being
 drawn.
+
+## 24. Culling hides geometry; it does not free it
+
+Justin's Xbox reached the menu and went white on RIDE. The menu renders one
+still frame from the spawn point; riding moves you through the city.
+
+That distinction is the whole bug. Distance culling switches cells off, which
+saves draw calls - but **once a mesh has been drawn its buffers stay resident**.
+Riding around therefore uploaded the entire city, cumulatively, until the
+console ran out. The menu never did, which is exactly why the menu worked.
+
+Measured, then fixed:
+
+| | before | after |
+|---|---|---|
+| meshes | 4088 | 3026 |
+| unique geometries | 3459 | **1061** |
+| vertices | 769k | **220k** |
+| geometry memory | 31.8 MB | **9.6 MB** |
+
+Three causes:
+
+- **Buildings grew through each other at every block corner.** Rows along the
+  avenues and rows along the streets both ran to the junction, so each corner
+  had two buildings inside one another. Rows now stop clear of the perpendicular
+  row's depth. This alone removed about a thousand objects.
+- **Every building owned its geometry.** Sizes are rounded to a step (2 m of
+  width, 1.5 m of height) and the shell is shared: 76 shells for the whole city.
+  Nobody can tell 18.3 m from 18 m across a street; the GPU can tell 300 buffers
+  from 30.
+- **168 unique palms were 40% of every vertex in the scene**, all subtly
+  different heights nobody could pick out. Palms, railings, planters and balcony
+  slabs are now bucketed and shared.
+
+## 25. A white screen has to explain itself
+
+Two changes so this is never guesswork again. Each frame stage is wrapped, so a
+single throwing frame reports once and the loop carries on - previously one bad
+frame meant every subsequent frame threw too, nothing was drawn again, and the
+screen simply went white with no clue why. And errors are written to
+localStorage as they happen, so the *next* load surfaces what killed the last
+one. On a console there is no devtools; "it went white, I reloaded" now has to
+be enough.
+
+## 26. Mirrors: which thing is fixed, and where they hang
+
+`CORNERS` is a HUD element - easy to read, out of the way. `ON THE BIKE` brings
+them inboard and down to roughly where bar-end mirrors sit in a rider's view,
+and further in and down again in first person, where the bars are closer. A five
+button pad trims them within modest limits. Saved between sessions.
+
+## 27. Being pulled over now shows itself
+
+A patrol drew alongside and some seconds later you were fined, with nothing on
+screen in between - which reads as the game deciding rather than you being
+caught. There is now a progress bar while contact is being made, and it drains
+the moment you break away. The information is the point: it turns a penalty into
+a situation you can still ride out of.

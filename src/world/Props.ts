@@ -27,7 +27,41 @@ const SHARED = {
   }),
 };
 
+/**
+ * Palms, railings and planters, cached by shape.
+ *
+ * These are built per instance and were the single biggest block of geometry
+ * in the city - 168 unique palms was 40% of every vertex in the scene, all of
+ * them subtly different heights nobody could pick out. Rounding the inputs to a
+ * few buckets and sharing the result costs nothing visually and is the
+ * difference between the console rendering the city and running out of memory
+ * trying. `clone()` shares the underlying geometry, so each copy is just a
+ * transform.
+ */
+const PROP_CACHE = new Map<string, THREE.Group>();
+
+function cached(key: string, build: () => THREE.Group): THREE.Group {
+  let proto = PROP_CACHE.get(key);
+  if (!proto) {
+    proto = build();
+    PROP_CACHE.set(key, proto);
+  }
+  return proto.clone(true);
+}
+
+/** Rounds to a step so shapes repeat and their geometry can be shared. */
+function bucket(v: number, step: number): number {
+  return Math.round(v / step) * step;
+}
+
 export function makePalm(height = 7, seed = 0): THREE.Group {
+  // Four heights and four leanings is plenty of variety down a street.
+  const h = bucket(height, 1.2);
+  const s = Math.abs(Math.round(seed)) % 4;
+  return cached(`palm:${h}:${s}`, () => buildPalm(h, s));
+}
+
+function buildPalm(height = 7, seed = 0): THREE.Group {
   const g = new THREE.Group();
   const rnd = (n: number) => Math.sin(seed * 12.9898 + n * 78.233) * 0.5 + 0.5;
 
@@ -117,6 +151,11 @@ export function makePalm(height = 7, seed = 0): THREE.Group {
  * the balconies looked like from the street.
  */
 export function makeRailing(length: number, height = 0.85, spacing = 0.16): THREE.Group {
+  const l = Math.max(0.4, bucket(length, 0.5));
+  return cached(`rail:${l}:${height}:${spacing}`, () => buildRailing(l, height, spacing));
+}
+
+function buildRailing(length: number, height = 0.85, spacing = 0.16): THREE.Group {
   const g = new THREE.Group();
   const parts: THREE.Mesh[] = [];
 
@@ -209,6 +248,10 @@ export function makeStreetLamp(): THREE.Group {
 
 /** Terracotta planter spilling bougainvillea. */
 export function makePlanter(seed = 0): THREE.Group {
+  return cached(`planter:${Math.abs(Math.round(seed)) % 4}`, () => buildPlanter(seed));
+}
+
+function buildPlanter(seed = 0): THREE.Group {
   const g = new THREE.Group();
   const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.32, 0.55, 10), SHARED.terracotta);
   pot.position.y = 0.28;
