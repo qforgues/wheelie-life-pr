@@ -6,6 +6,10 @@
 # /assets/ is content-hashed and can be cached hard and permanently; index.html
 # and version.json must always be revalidated.
 
+# Both paths: the browser asks for "/", which does not match "/index.html".
+/
+  Cache-Control: no-cache, must-revalidate
+
 /index.html
   Cache-Control: no-cache, must-revalidate
 
