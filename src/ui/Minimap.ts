@@ -42,6 +42,8 @@ export interface MapBlip {
   x: number;
   z: number;
   kind: 'cop' | 'patrol' | 'poi';
+  /** Set only by the top scanner: which way the car is pointing. */
+  heading?: number;
 }
 
 export class Minimap {
@@ -141,6 +143,16 @@ export class Minimap {
       if (b.kind === 'cop') {
         c.strokeStyle = 'rgba(255,255,255,0.9)';
         c.lineWidth = 1.4;
+        c.stroke();
+      }
+      // Top scanner: a stub showing which way each car is pointing, so you can
+      // tell the one coming for you from the one heading away.
+      if (b.heading !== undefined) {
+        c.beginPath();
+        c.moveTo(bx, bz);
+        c.lineTo(bx + Math.sin(b.heading) * 11, bz - Math.cos(b.heading) * 11);
+        c.strokeStyle = b.kind === 'cop' ? '#ff4d5a' : '#5a8bd6';
+        c.lineWidth = 2;
         c.stroke();
       }
     }

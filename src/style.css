@@ -912,3 +912,23 @@ body.is-console .debug-gui { display: none !important; }
   color: #6ee7a8;
   font-weight: 700;
 }
+
+/* Server has a newer build than the page is running. */
+.overlay-version b.is-stale { color: #ffb020; }
+.overlay-version b.is-stale::after {
+  content: ' · PAGE IS OLDER — REFRESH';
+  font-size: 0.8em;
+  opacity: 0.8;
+}
+
+/* Whether an upgrade bolts to the bike or belongs to the rider. */
+.scope-pill {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: calc(8.5px * var(--hud-scale));
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+.scope-pill.bike { background: rgba(94, 219, 233, 0.16); color: var(--pr-cyan); }
+.scope-pill.rider { background: rgba(224, 161, 58, 0.18); color: #e0a13a; }

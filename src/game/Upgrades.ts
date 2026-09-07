@@ -12,7 +12,7 @@ import type { BikeTuning } from '../sim/tuning';
  * makes the bike harder to hold; a lighter bike loses the flywheel that keeps a
  * wheelie steady. Buying everything should not be obviously correct.
  */
-export type UpgradeId = 'engine' | 'tyres' | 'suspension' | 'weight';
+export type UpgradeId = 'engine' | 'tyres' | 'suspension' | 'weight' | 'scanner';
 
 export interface UpgradeLevel {
   label: string;
@@ -26,11 +26,19 @@ export interface UpgradeKind {
   name: string;
   /** Shown under the name when nothing is bought yet. */
   summary: string;
+  /**
+   * Whether this is bolted to the bike or belongs to the rider.
+   *
+   * The scanner is yours, not the bike's - you do not re-buy it every time you
+   * change machine - so it is tracked separately and carries a different pill.
+   */
+  scope: 'bike' | 'rider';
   levels: UpgradeLevel[];
 }
 
 export const UPGRADES: Record<UpgradeId, UpgradeKind> = {
   engine: {
+    scope: 'bike',
     name: 'ENGINE',
     summary: 'More drive. Lifts easier, and harder to hold.',
     levels: [
@@ -63,6 +71,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeKind> = {
     ],
   },
   tyres: {
+    scope: 'bike',
     name: 'TYRES',
     summary: 'Grip. Less spin off the bottom, more lean before it goes.',
     levels: [
@@ -86,6 +95,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeKind> = {
     ],
   },
   suspension: {
+    scope: 'bike',
     name: 'SUSPENSION',
     summary: 'Soaks up the muertos and steadies the balance point.',
     levels: [
@@ -105,6 +115,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeKind> = {
     ],
   },
   weight: {
+    scope: 'bike',
     name: 'WEIGHT',
     summary: 'Lighter. Quicker everywhere, and twitchier with it.',
     levels: [
@@ -116,9 +127,44 @@ export const UPGRADES: Record<UpgradeId, UpgradeKind> = {
         apply: (t) => { lighten(t, 0.20); } },
     ],
   },
+  scanner: {
+    scope: 'rider',
+    name: 'SCANNER',
+    summary: 'Police radio. Puts them on your GPS.',
+    levels: [
+      {
+        label: 'Handheld',
+        blurb: 'Anyone actively chasing you shows on the GPS.',
+        price: 1200,
+        apply: () => { /* read by the GPS, not the physics */ },
+      },
+      {
+        label: 'Full band',
+        blurb: 'The whole shift shows, not just the ones after you.',
+        price: 3400,
+        apply: () => { /* ditto */ },
+      },
+      {
+        label: 'Trunked + plates',
+        blurb: 'Adds which way each one is pointing. See them coming.',
+        price: 6800,
+        apply: () => { /* ditto */ },
+      },
+    ],
+  },
 };
 
 export const UPGRADE_IDS = Object.keys(UPGRADES) as UpgradeId[];
+
+/** Only these are applied to a bike's tuning; the rest belong to the rider. */
+export const BIKE_UPGRADE_IDS = UPGRADE_IDS.filter((id) => UPGRADES[id].scope === 'bike');
+
+/** What the scanner shows at each level. Read by the GPS. */
+export type ScannerMode = 'none' | 'chasers' | 'all' | 'heading';
+
+export function scannerMode(level: number): ScannerMode {
+  return level >= 3 ? 'heading' : level >= 2 ? 'all' : level >= 1 ? 'chasers' : 'none';
+}
 
 /** Levels owned per bike, e.g. `{ engine: 2 }` means two engine levels bought. */
 export type UpgradeLevels = Partial<Record<UpgradeId, number>>;
@@ -152,7 +198,7 @@ function lighten(t: BikeTuning, frac: number): void {
  * how anyone reads the labels.
  */
 export function applyUpgrades(t: BikeTuning, levels: UpgradeLevels): BikeTuning {
-  for (const id of UPGRADE_IDS) {
+  for (const id of BIKE_UPGRADE_IDS) {
     const owned = levels[id] ?? 0;
     if (owned > 0) UPGRADES[id].levels[owned - 1]?.apply(t);
   }

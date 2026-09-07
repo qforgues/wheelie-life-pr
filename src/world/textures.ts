@@ -302,6 +302,136 @@ export function makeGrassTexture(): THREE.CanvasTexture {
   return finish(canvas);
 }
 
+/**
+ * Billboard artwork.
+ *
+ * Two hoardings that belong to this island rather than generic ad-space: the
+ * Abierto? wordmark, and the bike club Justin named. Both drawn on a canvas at
+ * runtime like everything else here - an external image is one more thing that
+ * can fail to load on a console, and these are shapes and type.
+ */
+const BILLBOARDS = new Map<string, THREE.CanvasTexture>();
+
+/** The Abierto? wordmark: teal script, a cyan wave over it, a gold swoosh under. */
+export function makeAbiertoBillboard(): THREE.CanvasTexture {
+  const cached = BILLBOARDS.get('abierto');
+  if (cached) return cached;
+
+  const W = 1024, H = 512;
+  const [canvas, ctx] = makeCanvas(W, H);
+  ctx.fillStyle = '#07090c';
+  ctx.fillRect(0, 0, W, H);
+
+  // The wave across the top, two overlapping strokes with a break in them.
+  ctx.strokeStyle = '#31b6cc';
+  ctx.lineCap = 'round';
+  for (const [y, w, x0, x1] of [[104, 26, 250, 620], [86, 20, 560, 860]] as const) {
+    ctx.lineWidth = w;
+    ctx.beginPath();
+    ctx.moveTo(x0, y + 16);
+    ctx.bezierCurveTo(x0 + 90, y - 26, x0 + 170, y + 40, x1, y - 6);
+    ctx.stroke();
+  }
+  ctx.lineWidth = 12;
+  ctx.beginPath();
+  ctx.moveTo(880, 66);
+  ctx.lineTo(936, 58);
+  ctx.stroke();
+
+  // The wordmark. A script face if the platform has one, italic serif if not.
+  const label = 'Abierto?';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'italic 900 250px "Brush Script MT", "Snell Roundhand", Georgia, serif';
+  // Pale keyline first, then the teal fill on top of it.
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#9fe6e0';
+  ctx.lineWidth = 14;
+  ctx.strokeText(label, W / 2, H / 2 + 6);
+  ctx.fillStyle = '#1a8f8a';
+  ctx.fillText(label, W / 2, H / 2 + 6);
+
+  // The gold swoosh underlining it.
+  ctx.strokeStyle = '#f0a92b';
+  ctx.lineWidth = 34;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(150, 430);
+  ctx.bezierCurveTo(330, 470, 620, 372, 900, 352);
+  ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = ANISOTROPY;
+  BILLBOARDS.set('abierto', tex);
+  return tex;
+}
+
+/** VQS Bike Club - Los Piratas. Vieques, and the flag they ride under. */
+export function makePiratasBillboard(): THREE.CanvasTexture {
+  const cached = BILLBOARDS.get('piratas');
+  if (cached) return cached;
+
+  const W = 1024, H = 512;
+  const [canvas, ctx] = makeCanvas(W, H);
+  const rnd = mulberry(66);
+
+  ctx.fillStyle = '#0b0d12';
+  ctx.fillRect(0, 0, W, H);
+  // A weathered wash, so it reads as a board that has been up a while.
+  for (let i = 0; i < 2200; i++) {
+    ctx.fillStyle = `rgba(255,255,255,${rnd() * 0.045})`;
+    ctx.fillRect(rnd() * W, rnd() * H, 2, 2);
+  }
+
+  ctx.strokeStyle = '#e0a13a';
+  ctx.lineWidth = 8;
+  ctx.strokeRect(26, 26, W - 52, H - 52);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  ctx.fillStyle = '#5edbe9';
+  ctx.font = '700 58px Impact, "Arial Narrow", sans-serif';
+  ctx.fillText('VQS BIKE CLUB', W / 2, 116);
+
+  // The name, big.
+  ctx.font = '900 170px Impact, "Arial Narrow", sans-serif';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 16;
+  ctx.strokeText('LOS PIRATAS', W / 2, 250);
+  ctx.fillStyle = '#f2f2ee';
+  ctx.fillText('LOS PIRATAS', W / 2, 250);
+
+  // Crossed bones under it - a pirate mark without drawing a skull badly.
+  ctx.strokeStyle = '#f2f2ee';
+  ctx.lineWidth = 16;
+  ctx.lineCap = 'round';
+  for (const dir of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(W / 2 - dir * 96, 352);
+    ctx.lineTo(W / 2 + dir * 96, 404);
+    ctx.stroke();
+  }
+  for (const [x, y] of [[W / 2 - 96, 352], [W / 2 + 96, 352], [W / 2 - 96, 404], [W / 2 + 96, 404]]) {
+    ctx.fillStyle = '#f2f2ee';
+    ctx.beginPath();
+    ctx.arc(x, y, 15, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = '#e0a13a';
+  ctx.font = '700 44px Impact, "Arial Narrow", sans-serif';
+  ctx.fillText('VIEQUES  ·  PUERTO RICO', W / 2, 452);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = ANISOTROPY;
+  BILLBOARDS.set('piratas', tex);
+  return tex;
+}
+
 /** Blue adoquines - the ballast-stone cobbles Old San Juan is paved with. */
 export function makeCobbleTexture(): THREE.CanvasTexture {
   const rnd = mulberry(7);

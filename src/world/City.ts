@@ -4,11 +4,11 @@ import type { CrashReason, GroundProvider } from '../sim/types';
 import type { SpawnPoint } from '../sim/BikeSim';
 import { mergeMeshes, roundedBox, scaleUV } from '../view/geometry';
 import {
-  CAR_COLORS, makeAwning, makeFort, makeGarita, makeParkedCar, makePalm, makePlanter,
+  CAR_COLORS, makeAwning, makeBillboard, makeFort, makeGarita, makeParkedCar, makePalm, makePlanter,
   makeRailing, makeShopSign, makeStreetLamp, PROP_MATERIALS,
 } from './Props';
 import {
-  makeCobbleTexture, makeFacadeTexture, makeGrassTexture, makeFlagMuralTexture, makeHazardTexture, makeSidewalkTexture,
+  makeAbiertoBillboard, makeCobbleTexture, makeFacadeTexture, makeGrassTexture, makePiratasBillboard, makeFlagMuralTexture, makeHazardTexture, makeSidewalkTexture,
 } from './textures';
 
 /**
@@ -185,6 +185,7 @@ export class City implements GroundProvider {
     this.buildBlocks();
     this.buildPlaza();
     this.buildGround();
+    this.buildBillboards();
     this.buildHeadland();
     this.buildBounds();
     this.root.add(this.traffic.root);
@@ -279,6 +280,32 @@ export class City implements GroundProvider {
       ground.castShadow = false;
       ground.receiveShadow = true;
       this.root.add(ground);
+    }
+  }
+
+  /**
+   * Hoardings on the block corners.
+   *
+   * Placed on the outward face of a corner, angled to the road, so you ride
+   * toward them rather than past them side-on. Set back beyond the buildings so
+   * they never block a line you might be riding.
+   */
+  private buildBillboards(): void {
+    const art = [makeAbiertoBillboard(), makePiratasBillboard()];
+    const back = LAYOUT.roadHalf + LAYOUT.sidewalk + LAYOUT.blockDepth + 9;
+    let n = 0;
+
+    for (const ax of LAYOUT.avenueX) {
+      for (const sz of LAYOUT.streetZ) {
+        // Every third junction, alternating which board goes up.
+        if ((n++ % 3) !== 1) continue;
+        const side = n % 2 === 0 ? 1 : -1;
+        const board = makeBillboard(art[n % art.length], 8);
+        board.position.set(ax + side * back, 3.4, sz + side * back);
+        // Turned to face back down the junction it stands on.
+        board.rotation.y = side > 0 ? Math.PI * 0.75 : -Math.PI * 0.25;
+        this.blockAdd(board);
+      }
     }
   }
 

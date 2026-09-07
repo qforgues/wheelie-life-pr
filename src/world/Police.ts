@@ -186,7 +186,7 @@ export interface PoliceReport {
   warned: boolean;
   busted: boolean;
   /** Live positions, for the minimap. */
-  blips: Array<{ x: number; z: number; chasing: boolean }>;
+  blips: Array<{ x: number; z: number; yaw: number; chasing: boolean }>;
 }
 
 export class Police {
@@ -361,7 +361,7 @@ export class Police {
       r.chasers = 0;
       r.nearestChaser = Infinity;
       r.bustProgress = 0;
-      r.blips = this.patrols.map((p) => ({ x: p.x, z: p.z, chasing: false }));
+      r.blips = this.patrols.map((p) => ({ x: p.x, z: p.z, yaw: p.yaw, chasing: false }));
       return r;
     }
 
@@ -433,7 +433,7 @@ export class Police {
     // How close the nearest chaser is, as a warning rather than a countdown -
     // there is no timer any more, contact is the whole of it.
     r.bustProgress = r.nearestChaser < 26 ? 1 - r.nearestChaser / 26 : 0;
-    r.blips = this.patrols.map((p) => ({ x: p.x, z: p.z, chasing: p.chasing }));
+    r.blips = this.patrols.map((p) => ({ x: p.x, z: p.z, yaw: p.yaw, chasing: p.chasing }));
     return r;
   }
 

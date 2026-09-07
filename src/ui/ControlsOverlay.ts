@@ -2,7 +2,7 @@ import { BINDINGS } from '../input/bindings';
 import { BIKE_VISUALS } from '../view/bikeVisuals';
 import { BIKES, type BikeId } from '../sim/tuning';
 import type { Progress } from '../game/Progress';
-import { money, SCANNER_PRICE } from '../game/Progress';
+import { money } from '../game/Progress';
 import { UPGRADES, UPGRADE_IDS, nextLevel, type UpgradeId } from '../game/Upgrades';
 import { TRAFFIC_LABELS, TRAFFIC_ORDER, type TrafficSpeed } from '../world/Traffic';
 import { POLICE_BLURBS, POLICE_LABELS, POLICE_ORDER, type PoliceStyle } from '../world/Police';
@@ -86,8 +86,6 @@ export class ControlsOverlay {
   private updateBar!: HTMLElement;
   private traffic: TrafficSpeed = 'regular';
   private onTraffic: ((t: TrafficSpeed) => void) | null = null;
-  private scannerEl!: HTMLElement;
-  private onScanner: (() => void) | null = null;
   private tuneshopEl!: HTMLElement;
   private onUpgrade: (() => void) | null = null;
   private policeEl!: HTMLElement;
@@ -158,7 +156,6 @@ export class ControlsOverlay {
         </div>
         <p class="opt-blurb" data-el="mirrorBlurb"></p>
         <div class="tuneshop" data-el="tuneshop"></div>
-        <div class="upgrade" data-el="scanner"></div>
         <table class="overlay-table">
           <thead><tr><th>Action</th><th>Xbox</th><th>Keyboard</th></tr></thead>
           <tbody data-el="tableBody"></tbody>
@@ -209,10 +206,31 @@ export class ControlsOverlay {
       e.preventDefault();
       this.pick(card.dataset.bike as BikeId);
     });
-    const versionEl = this.root.querySelector('[data-el="version"]')!;
+    const versionEl = this.root.querySelector<HTMLElement>('[data-el="version"]')!;
     versionEl.textContent = BUILD_ID;
-    // A dev build is marked so nobody mistakes a stale dev server for the real
-    // thing - which is exactly what happened once, and looked like a cache bug.
+
+    // Then correct it from the server.
+    //
+    // BUILD_ID is baked in when the bundle is compiled, and on a dev server
+    // that happens once, at startup - so it goes on reporting whatever commit
+    // the server was launched at no matter how much has changed since. Two
+    // separate sessions were lost to "I hard refreshed and the version did not
+    // move". What the SERVER says it has is the only number worth showing.
+    void fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { build?: unknown } | null) => {
+        if (!d || typeof d.build !== 'string') return;
+        versionEl.textContent = d.build;
+        if (d.build.includes('+dev.')) versionEl.classList.add('is-dev');
+        // Bundle older than what the server holds: say so rather than let the
+        // number quietly disagree with the code that is running.
+        if (d.build !== BUILD_ID) {
+          versionEl.classList.add('is-stale');
+          versionEl.title = `page is running ${BUILD_ID}`;
+        }
+      })
+      .catch(() => { /* no manifest, e.g. a bare dev server - keep the baked id */ });
+
     if (BUILD_ID.includes('+dev.')) versionEl.classList.add('is-dev');
     // A controller cannot ask the browser for a hard reload, so the game does
     // it: drop every cache and come back on a URL the cache has never seen.
@@ -233,15 +251,6 @@ export class ControlsOverlay {
       }
     });
 
-    this.scannerEl = this.root.querySelector('[data-el="scanner"]')!;
-    this.scannerEl.addEventListener('click', (e) => {
-      if (!(e.target as HTMLElement).closest('[data-buy-scanner]')) return;
-      e.stopPropagation();
-      if (this.progress?.buyScanner()) {
-        this.renderGarage();
-        this.onScanner?.();
-      }
-    });
 
     this.policeEl = this.root.querySelector('[data-el="police"]')!;
     this.policeBlurbEl = this.root.querySelector('[data-el="policeBlurb"]')!;
@@ -356,7 +365,7 @@ export class ControlsOverlay {
 
     this.tuneshopEl.innerHTML = `
       <div class="tuneshop-head">
-        <span class="opt-label">TUNING · ${bike}</span>
+        <span class="opt-label">UPGRADES · ${bike}</span>
         ${invested > 0 ? `<span class="tuneshop-spent">${money(invested)} fitted</span>` : ''}
       </div>
       <div class="tuneshop-grid">
@@ -377,6 +386,9 @@ export class ControlsOverlay {
                 <b>${kind.name}</b>
                 <span class="pips">${pips}</span>
               </div>
+              <span class="scope-pill ${kind.scope}">
+                ${kind.scope === 'bike' ? 'TUNING' : 'GEAR'}
+              </span>
               <span class="tunepart-blurb">${next ? next.blurb : kind.summary}</span>
               <div class="tunepart-foot">${action}</div>
             </div>`;
@@ -384,26 +396,7 @@ export class ControlsOverlay {
       </div>`;
   }
 
-  /** Called after the police scanner is bought, so the HUD can update cash. */
-  onScannerBought(fn: () => void): void {
-    this.onScanner = fn;
-  }
 
-  private renderScanner(): void {
-    const owned = this.progress?.scanner ?? false;
-    const afford = this.progress?.canAfford(SCANNER_PRICE) ?? false;
-    this.scannerEl.classList.toggle('is-owned', owned);
-    this.scannerEl.innerHTML = `
-      <div>
-        <b>POLICE SCANNER</b>
-        <span>Shows patrols on your GPS while the heat is on.</span>
-      </div>
-      ${owned
-        ? '<span class="owned-tag">OWNED</span>'
-        : `<button class="bike-buy" data-buy-scanner type="button" ${afford ? '' : 'disabled'}>
-             BUY · ${money(SCANNER_PRICE)}
-           </button>`}`;
-  }
 
   /** Called when the mirror mount changes. */
   onMirrorsPicked(fn: (m: MirrorMount) => void): void {
@@ -564,7 +557,6 @@ export class ControlsOverlay {
     const p = this.progress;
     if (!p || !this.bikePick) return;
     this.cashEl.textContent = money(p.money);
-    this.renderScanner();
     this.renderTuneshop();
 
     this.bikePick.innerHTML = (Object.keys(BIKES) as BikeId[]).map((id) => {

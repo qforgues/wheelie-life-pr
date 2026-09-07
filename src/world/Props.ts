@@ -483,6 +483,58 @@ export function makePoliceCar(riot = false): { group: THREE.Group; lights: [THRE
 
 
 
+/**
+ * A roadside hoarding: the board, a frame, two legs and a light bar.
+ *
+ * Faced on both sides so it reads coming and going - a billboard you can only
+ * see from one direction looks like a mistake from the other.
+ */
+export function makeBillboard(art: THREE.Texture, width = 7.5): THREE.Group {
+  const g = new THREE.Group();
+  const h = width * 0.5;
+  const faceMat = new THREE.MeshStandardMaterial({ map: art, roughness: 0.82 });
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x2a2c33, roughness: 0.7, metalness: 0.4 });
+
+  const board = new THREE.Mesh(roundedBox(width, h, 0.18, 0.05, 4), frameMat);
+  board.position.y = h / 2;
+  board.castShadow = true;
+  board.receiveShadow = true;
+  g.add(board);
+
+  for (const side of [-1, 1]) {
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(width * 0.93, h * 0.86), faceMat);
+    face.position.set(0, h / 2, side * 0.1);
+    if (side < 0) face.rotation.y = Math.PI;
+    g.add(face);
+  }
+
+  // Legs.
+  for (const dx of [-width * 0.3, width * 0.3]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 3.0, 10), frameMat);
+    leg.position.set(dx, -1.5, 0);
+    leg.castShadow = true;
+    g.add(leg);
+  }
+
+  // Lamp gantry along the bottom edge, angled up at the artwork.
+  const gantry = new THREE.Mesh(roundedBox(width * 0.8, 0.09, 0.09, 0.03, 4), frameMat);
+  gantry.position.set(0, 0.08, 0.42);
+  g.add(gantry);
+  for (const dx of [-width * 0.26, 0, width * 0.26]) {
+    const lamp = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.09, 0.13, 0.16, 10),
+      new THREE.MeshStandardMaterial({
+        color: 0xfff2cf, emissive: 0xffe9b0, emissiveIntensity: 0.5, roughness: 0.4,
+      }),
+    );
+    lamp.rotation.x = -0.9;
+    lamp.position.set(dx, 0.14, 0.42);
+    g.add(lamp);
+  }
+
+  return g;
+}
+
 /** The garita - the domed sentry box on the fort walls. Pure PR silhouette. */
 export function makeGarita(scale = 1): THREE.Group {
   const g = new THREE.Group();

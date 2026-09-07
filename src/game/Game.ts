@@ -25,7 +25,7 @@ import { DebugPanel } from '../ui/DebugPanel';
 import { Diagnostics } from '../ui/Diagnostics';
 import { WheelieTracker } from './WheelieTracker';
 import { Progress, money } from './Progress';
-import { applyUpgrades } from './Upgrades';
+import { applyUpgrades, scannerMode } from './Upgrades';
 import type { BikeState } from '../sim/types';
 
 /** The handful of fields that need interpolating between physics steps. */
@@ -236,7 +236,6 @@ export class Game {
     this.overlay.attachProgress(this.progress, this.bikeId);
     this.overlay.onBikePicked((id) => this.setBike(id));
     this.overlay.onDiagnostics(() => this.diagnostics.toggle());
-    this.overlay.onScannerBought(() => { this.hud.cash = this.progress.money; });
     this.overlay.onUpgradeBought(() => {
       this.hud.cash = this.progress.money;
       // Rebuild on the current bike so the new part is live immediately.
@@ -385,7 +384,7 @@ export class Game {
       dt, st.x, st.z, st.wheelieing, st.mode === 'riding',
     );
     this.heat = report.heat;
-    this.pursuit = this.progress.scanner ? report.chasers : -1;
+    this.pursuit = this.progress.scannerLevel > 0 ? report.chasers : -1;
     if (report.warned) {
       this.hud.showToast('¡BÁJALA! — POLICE WARNING', 2.6);
       this.voice.say('¡Bájala, bájala!', 'es');
@@ -406,11 +405,18 @@ export class Game {
     } else {
       this.sirenTimer = 0;
     }
-    this.blips = this.progress.scanner
-      ? report.blips.map((b) => ({
-        x: b.x, z: b.z, kind: b.chasing ? ('cop' as const) : ('patrol' as const),
-      }))
-      : [];
+    // What the scanner shows depends on how much of one you own.
+    const mode = scannerMode(this.progress.scannerLevel);
+    this.blips = mode === 'none'
+      ? []
+      : report.blips
+        .filter((b) => mode !== 'chasers' || b.chasing)
+        .map((b) => ({
+          x: b.x, z: b.z,
+          kind: b.chasing ? ('cop' as const) : ('patrol' as const),
+          // Level three adds which way each one is pointing.
+          heading: mode === 'heading' ? b.yaw : undefined,
+        }));
 
     const state = this.sim.state;
     const blocked = this.overlay.isVisible;

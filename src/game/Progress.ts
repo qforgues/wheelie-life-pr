@@ -21,7 +21,8 @@ export interface SaveData {
   lastBike: BikeId;
   bestScore: number;
   traffic: TrafficSpeed;
-  scanner: boolean;
+  /** Legacy: replaced by the levelled scanner upgrade. */
+  scanner?: boolean;
   police: PoliceStyle;
   mapOrientation: MapOrientation;
   mirrors: MirrorMount;
@@ -30,12 +31,8 @@ export interface SaveData {
   upgrades: Partial<Record<BikeId, UpgradeLevels>>;
 }
 
-/**
- * What the police scanner costs. A serious purchase - it sits between the
- * YZ250F and the Ducati, so buying it is a real decision about what you want
- * next rather than pocket change.
- */
-export const SCANNER_PRICE = 6000;
+/** Rider-scope upgrades live here rather than on a bike. */
+const RIDER_KEY = '__rider__';
 
 const KEY = 'wheelie-life:save:v1';
 
@@ -52,7 +49,6 @@ export class Progress {
   /** Justin's call every session, so it is remembered rather than re-picked. */
   traffic: TrafficSpeed = 'regular';
   /** Shows patrols on the GPS. Justin asked for this as a purchase. */
-  scanner = false;
   /** How hard la policía plays. Justin's call, saved between sessions. */
   police: PoliceStyle = 'professional';
   /** Whether the GPS keeps the city still or the rider still. */
@@ -111,15 +107,6 @@ export class Progress {
     this.save();
   }
 
-  /** Buys the police scanner. Returns false if already owned or unaffordable. */
-  buyScanner(): boolean {
-    if (this.scanner || !this.canAfford(SCANNER_PRICE)) return false;
-    this.money -= SCANNER_PRICE;
-    this.scanner = true;
-    this.save();
-    return true;
-  }
-
   /**
    * A fine for getting pulled over: a fifth of what's on hand, capped.
    *
@@ -154,9 +141,20 @@ export class Progress {
     this.save();
   }
 
-  /** Levels owned of one part on one bike. */
+  /**
+   * Levels owned of one part.
+   *
+   * Rider-scope parts (the scanner) are kept under one key rather than per
+   * bike - you do not re-buy your own radio every time you change machine.
+   */
   levelOf(bike: BikeId, id: UpgradeId): number {
-    return this.upgrades[bike]?.[id] ?? 0;
+    const key = UPGRADES[id].scope === 'rider' ? RIDER_KEY : bike;
+    return this.upgrades[key as BikeId]?.[id] ?? 0;
+  }
+
+  /** How much scanner the rider owns, whatever they are riding. */
+  get scannerLevel(): number {
+    return this.upgrades[RIDER_KEY as BikeId]?.scanner ?? 0;
   }
 
   /** All the levels bolted to a bike, for applying to its tuning. */
@@ -173,8 +171,9 @@ export class Progress {
     const next = nextLevel(id, owned);
     if (!next || !this.canAfford(next.price)) return false;
     this.money -= next.price;
-    const forBike = this.upgrades[bike] ?? (this.upgrades[bike] = {});
-    forBike[id] = owned + 1;
+    const key = (UPGRADES[id].scope === 'rider' ? RIDER_KEY : bike) as BikeId;
+    const bucket = this.upgrades[key] ?? (this.upgrades[key] = {});
+    bucket[id] = owned + 1;
     this.save();
     return true;
   }
@@ -202,7 +201,6 @@ export class Progress {
     this.lastBike = STARTER_BIKE;
     this.bestScore = 0;
     this.traffic = 'regular';
-    this.scanner = false;
     this.police = 'professional';
     this.mapOrientation = 'north';
     this.mirrors = 'corners';
@@ -230,7 +228,7 @@ export class Progress {
         this.bestScore = Math.max(0, d.bestScore);
       }
       if (isTrafficSpeed(d.traffic)) this.traffic = d.traffic;
-      if (typeof d.scanner === 'boolean') this.scanner = d.scanner;
+      const legacyScanner = d.scanner === true;
       if (isPoliceStyle(d.police)) this.police = d.police;
       if (isOrientation(d.mapOrientation)) this.mapOrientation = d.mapOrientation;
       if (isMirrorMount(d.mirrors)) this.mirrors = d.mirrors;
@@ -249,6 +247,12 @@ export class Progress {
         }
         this.upgrades = clean;
       }
+      // A save from before the scanner was levelled owned it outright; that is
+      // worth level one rather than nothing.
+      if (legacyScanner && this.scannerLevel === 0) {
+        const rider = this.upgrades[RIDER_KEY as BikeId] ?? (this.upgrades[RIDER_KEY as BikeId] = {});
+        rider.scanner = 1;
+      }
       const a = d.mirrorAim as unknown as Record<string, unknown> | undefined;
       if (a && ['lx', 'ly', 'rx', 'ry'].every((k) => typeof a[k] === 'number')) {
         this.mirrorAim = d.mirrorAim as MirrorAim;
@@ -266,7 +270,6 @@ export class Progress {
         lastBike: this.lastBike,
         bestScore: this.bestScore,
         traffic: this.traffic,
-        scanner: this.scanner,
         police: this.police,
         mapOrientation: this.mapOrientation,
         mirrors: this.mirrors,
