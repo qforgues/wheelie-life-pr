@@ -766,3 +766,20 @@ little bits, and those are what the eye uses to decide something is a machine
 rather than a moulded shape. Radiator, header heat shield, mirrors on stalks,
 amber indicators front and rear, a rear hugger and a chain guard. None of it is
 big and all of it is load-bearing.
+
+## 44. Street life, and what it cost
+
+More palms, people on the pavement, dominoes in the plaza, and a tenth of the
+traffic on cuatrimotos - which is how the island actually rides.
+
+The pedestrians nearly went out the door at 2,000 triangles each: 125k across
+the city, two thirds of the entire scene, for figures you pass at 30 mph. Cut to
+a few hundred each and cached by colour, they are 32k. Five shirt colours became
+two for the same reason facades went from twelve to six - after the cell bake, a
+material is a draw call in every block it appears in.
+
+Draw calls went 533 to 894 and that is honest: more palms means palm materials
+in more cells, and that is the price of the thing being asked for. Frame timings
+across this session ranged from 19 ms to 2.6 ms for the *same* scene depending
+on tab state and GPU clocking, so draw calls are the only number here worth
+quoting.

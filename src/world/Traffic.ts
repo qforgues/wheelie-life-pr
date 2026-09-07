@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CAR_COLORS, CAR_HALF, makeCar } from './Props';
+import { CAR_COLORS, CAR_HALF, makeATV, makeCar } from './Props';
 import { LAYOUT, MAP } from './City';
 
 /**
@@ -62,6 +62,8 @@ interface Car {
  */
 const PER_LANE = 2;
 const DRAW_RADIUS = 220;
+/** Share of traffic that is an ATV rather than a car. */
+const ATV_SHARE = 0.10;
 /** How far either side of the centreline a lane sits. */
 const LANE = 2.3;
 
@@ -101,7 +103,11 @@ export class Traffic {
   ): void {
     const span = to - from;
     for (let i = 0; i < PER_LANE; i++) {
-      const group = makeCar(CAR_COLORS[Math.floor(rnd() * CAR_COLORS.length)]);
+      // A tenth of the traffic is somebody on a four-track. They obey the same
+      // lane and the same collision box - it just looks like a different
+      // Sunday, which is what a street here actually looks like.
+      const colour = CAR_COLORS[Math.floor(rnd() * CAR_COLORS.length)];
+      const group = rnd() < ATV_SHARE ? makeATV(colour) : makeCar(colour);
       // The body's front is +Z, so an avenue car heading -Z is turned around
       // and a street car is a quarter turn from either.
       group.rotation.y = onAvenue

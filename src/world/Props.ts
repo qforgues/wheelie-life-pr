@@ -535,6 +535,180 @@ export function makeBillboard(art: THREE.Texture, width = 7.5): THREE.Group {
   return g;
 }
 
+/**
+ * A four-track with somebody on it.
+ *
+ * Cuatrimotos on the road are a real part of how the island rides, and Justin
+ * asked for them in the traffic. Built as one group so Traffic can drop it in
+ * wherever a car would go - it obeys the same lane, the same box, the same
+ * everything, it just looks like a different Sunday.
+ */
+export function makeATV(color: number): THREE.Group {
+  const g = new THREE.Group();
+  const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.3 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1f2127, roughness: 0.75 });
+
+  const body = new THREE.Mesh(roundedBox(1.02, 0.42, 1.55, 0.14, 6), paint);
+  body.position.y = 0.62;
+  body.castShadow = true;
+  g.add(body);
+
+  // Front rack and a snout.
+  const rack = new THREE.Mesh(roundedBox(0.78, 0.07, 0.42, 0.04, 4), dark);
+  rack.position.set(0, 0.86, 0.62);
+  g.add(rack);
+  const nose = new THREE.Mesh(roundedBox(0.82, 0.26, 0.36, 0.10, 5), paint);
+  nose.position.set(0, 0.70, 0.80);
+  g.add(nose);
+
+  // Seat and bars.
+  const seat = new THREE.Mesh(roundedBox(0.42, 0.16, 0.72, 0.07, 5), dark);
+  seat.position.set(0, 0.92, -0.10);
+  g.add(seat);
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.72, 8), dark);
+  bar.rotation.z = Math.PI / 2;
+  bar.position.set(0, 1.10, 0.42);
+  g.add(bar);
+
+  // Fat balloon tyres, which are most of an ATV's silhouette.
+  for (const [dx, dz] of [[-0.52, 0.55], [0.52, 0.55], [-0.52, -0.55], [0.52, -0.55]] as const) {
+    const tyre = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.135, 6, 12), SHARED.tyre);
+    tyre.rotation.y = Math.PI / 2;
+    tyre.position.set(dx, 0.30, dz);
+    tyre.castShadow = true;
+    g.add(tyre);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.20, 10), SHARED.chrome);
+    hub.rotation.z = Math.PI / 2;
+    hub.position.set(dx, 0.30, dz);
+    g.add(hub);
+  }
+
+  g.add(makeStandingRider(0, 1.02, -0.06, 0.9));
+  return g;
+}
+
+/**
+ * A person, at the fidelity a person seen from a moving bike deserves.
+ *
+ * Deliberately simple: capsules and a head. At any distance you actually see
+ * one of these from, silhouette and colour are the whole of it, and a hundred
+ * detailed pedestrians would cost more than the entire city.
+ */
+export function makePerson(shirt: number, trousers: number, seated = false): THREE.Group {
+  return cached(`person:${shirt}:${trousers}:${seated}`, () => buildPerson(shirt, trousers, seated));
+}
+
+function buildPerson(shirt: number, trousers: number, seated = false): THREE.Group {
+  const g = new THREE.Group();
+  const skinMat = new THREE.MeshStandardMaterial({ color: 0xa9713f, roughness: 0.85 });
+  const shirtMat = new THREE.MeshStandardMaterial({ color: shirt, roughness: 0.9 });
+  const legMat = new THREE.MeshStandardMaterial({ color: trousers, roughness: 0.9 });
+
+  const legLen = seated ? 0.34 : 0.72;
+  const hip = seated ? 0.46 : 0.82;
+
+  // Deliberately coarse. A first pass at (6,10) capsules and a 12x10 head came
+  // to ~2000 triangles a person and 125k across the city - two thirds of the
+  // whole scene, for figures you pass at 30 mph. At this resolution they are a
+  // few hundred each and read identically from a bike.
+  for (const dx of [-0.09, 0.09]) {
+    const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.072, legLen, 3, 6), legMat);
+    leg.position.set(dx, hip - legLen / 2 - 0.05, seated ? 0.12 : 0);
+    if (seated) leg.rotation.x = Math.PI / 2.2;
+    leg.castShadow = true;
+    g.add(leg);
+  }
+
+  const torso = new THREE.Mesh(roundedBox(0.30, 0.46, 0.19, 0.08, 2), shirtMat);
+  torso.position.set(0, hip + 0.23, 0);
+  torso.castShadow = true;
+  g.add(torso);
+
+  for (const dx of [-0.19, 0.19]) {
+    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.44, 3, 6), shirtMat);
+    arm.position.set(dx, hip + 0.22, seated ? 0.06 : 0);
+    if (seated) arm.rotation.x = -0.5;
+    g.add(arm);
+  }
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.115, 8, 6), skinMat);
+  head.position.set(0, hip + 0.58, 0);
+  head.castShadow = true;
+  g.add(head);
+
+  return g;
+}
+
+/** Somebody sat on a machine - used on the ATV. */
+function makeStandingRider(x: number, y: number, z: number, scale: number): THREE.Group {
+  const p = makePerson(0xe8e4d8, 0x2f3b52, true);
+  p.position.set(x, y - 0.46, z);
+  p.scale.setScalar(scale);
+  return p;
+}
+
+/**
+ * A domino table with four viejos round it.
+ *
+ * The single most Puerto Rican thing that could be put in a plaza. Four chairs,
+ * four players, a slab of tiles on the table - and they are all facing in,
+ * because that is the point of the game.
+ */
+export function makeDominoTable(seed = 0): THREE.Group {
+  const g = new THREE.Group();
+  // Local rng: this file has no need of the shared one and a table only wants
+  // its tiles scattered differently from the next table's.
+  let n = (seed * 31 + 7) >>> 0;
+  const rnd = () => {
+    n = (n * 1664525 + 1013904223) >>> 0;
+    return n / 4294967296;
+  };
+  const wood = new THREE.MeshStandardMaterial({ color: 0x8a6a44, roughness: 0.85 });
+  const plastic = new THREE.MeshStandardMaterial({ color: 0xd8dde2, roughness: 0.7 });
+
+  const top = new THREE.Mesh(roundedBox(1.0, 0.06, 1.0, 0.03, 4), plastic);
+  top.position.y = 0.74;
+  top.castShadow = true;
+  top.receiveShadow = true;
+  g.add(top);
+  for (const [dx, dz] of [[-0.42, 0.42], [0.42, 0.42], [-0.42, -0.42], [0.42, -0.42]] as const) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.74, 6), wood);
+    leg.position.set(dx, 0.37, dz);
+    g.add(leg);
+  }
+
+  // The tiles, face down in the middle - the shuffle before a hand.
+  for (let i = 0; i < 14; i++) {
+    const tile = new THREE.Mesh(roundedBox(0.05, 0.016, 0.095, 0.006, 3), plastic);
+    tile.position.set((rnd() - 0.5) * 0.5, 0.782, (rnd() - 0.5) * 0.5);
+    tile.rotation.y = rnd() * Math.PI;
+    g.add(tile);
+  }
+
+  // Four players, mostly older, in the shirts you actually see on a plaza.
+  const shirts = [0xf0ece0, 0x8fb7d8, 0xe0d08a, 0xcf8f7a];
+  const trousers = [0x4a4f5a, 0x36404f, 0x5a5348, 0x2f3b52];
+  const seats: Array<[number, number, number]> = [
+    [0, -1.0, 0], [0, 1.0, Math.PI], [-1.0, 0, Math.PI / 2], [1.0, 0, -Math.PI / 2],
+  ];
+  seats.forEach(([sx, sz, ry], i) => {
+    const chair = new THREE.Mesh(roundedBox(0.4, 0.06, 0.4, 0.02, 3), wood);
+    chair.position.set(sx * 0.92, 0.45, sz * 0.92);
+    g.add(chair);
+    const back = new THREE.Mesh(roundedBox(0.4, 0.42, 0.05, 0.02, 3), wood);
+    back.position.set(sx * 1.1, 0.68, sz * 1.1);
+    back.rotation.y = ry;
+    g.add(back);
+
+    const person = makePerson(shirts[i], trousers[i], true);
+    person.position.set(sx * 0.92, 0.0, sz * 0.92);
+    person.rotation.y = ry + Math.PI;
+    g.add(person);
+  });
+
+  return g;
+}
+
 /** The garita - the domed sentry box on the fort walls. Pure PR silhouette. */
 export function makeGarita(scale = 1): THREE.Group {
   const g = new THREE.Group();

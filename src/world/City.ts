@@ -4,7 +4,8 @@ import type { CrashReason, GroundProvider } from '../sim/types';
 import type { SpawnPoint } from '../sim/BikeSim';
 import { bakeSubtree, mergeMeshes, roundedBox, scaleUV } from '../view/geometry';
 import {
-  CAR_COLORS, makeAwning, makeBillboard, makeFort, makeGarita, makeParkedCar, makePalm, makePlanter,
+  CAR_COLORS, makeAwning, makeBillboard, makeDominoTable, makeFort, makeGarita,
+  makeParkedCar, makePalm, makePerson, makePlanter,
   makeRailing, makeShopSign, makeStreetLamp, PROP_MATERIALS,
 } from './Props';
 import {
@@ -620,19 +621,39 @@ export class City implements GroundProvider {
 
     // Street furniture out on the pavement.
     const roll = rnd();
-    if (roll > 0.80) {
+    // Palms got a bigger slice: San Juan streets are full of them and the old
+    // split left long stretches with nothing growing at all.
+    if (roll > 0.86) {
       const lamp = makeStreetLamp();
       lamp.rotation.y = faceYaw + Math.PI / 2;
       lamp.position.set(...at(kerbOffset, KERB_HEIGHT, centre));
       this.blockAdd(lamp);
-    } else if (roll > 0.66) {
+    } else if (roll > 0.58) {
       const palm = makePalm(6 + rnd() * 3.5, index * 7 + centre);
       palm.position.set(...at(kerbOffset, KERB_HEIGHT, centre));
       this.blockAdd(palm);
-    } else if (roll > 0.56) {
+    } else if (roll > 0.38) {
       const planter = makePlanter(index);
       planter.position.set(...at(kerbOffset, KERB_HEIGHT, centre));
       this.blockAdd(planter);
+    }
+
+    // Somebody on the pavement. Not many - a handful down a street reads as
+    // lived-in, a crowd reads as a parade and costs a fortune to draw.
+    if (rnd() > 0.72) {
+      // Two shirts and one pair of trousers. Every extra colour is another
+      // material, and after the cell bake a material is a draw call in every
+      // block it appears in - five shirts cost 350 draw calls across the city.
+      const shirts = [0xf0ece0, 0x8fb7d8];
+      const trousers = [0x36404f];
+      const person = makePerson(
+        shirts[Math.floor(rnd() * shirts.length)],
+        trousers[Math.floor(rnd() * trousers.length)],
+      );
+      const along = centre + (rnd() - 0.5) * width * 0.6;
+      person.position.set(...at(kerbOffset + facing * 0.4, KERB_HEIGHT, along));
+      person.rotation.y = rnd() * Math.PI * 2;
+      this.blockAdd(person);
     }
 
     // Cars against the kerb - obstacles, not traffic.
@@ -792,6 +813,15 @@ export class City implements GroundProvider {
         leg.position.set(x + dx, 0.23, LAYOUT.seaWallZ - 3.2);
         this.root.add(leg);
       }
+    }
+
+    // Dominoes under the palms. Four viejos to a table, and this is the most
+    // Puerto Rican thing that could possibly be in a plaza.
+    for (const [dx, dz, seed] of [[-14, -18, 3], [13, -22, 9], [-4, -30, 17]] as const) {
+      const table = makeDominoTable(seed);
+      table.position.set(dx, KERB_HEIGHT, p.zMax + dz);
+      table.rotation.y = seed * 0.7;
+      this.root.add(table);
     }
 
     // Flagpole. La monoestrellada over the water.
