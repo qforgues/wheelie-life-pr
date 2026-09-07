@@ -783,3 +783,32 @@ in more cells, and that is the price of the thing being asked for. Frame timings
 across this session ranged from 19 ms to 2.6 ms for the *same* scene depending
 on tab state and GPU clocking, so draw calls are the only number here worth
 quoting.
+
+## 45. La bomba
+
+A wrecked patrol no longer recovers on a timer. It sits and smokes until a fire
+truck routes to it along the grid, spends four seconds putting the fire out, and
+sends the car back on shift. A wreck stopped being a number ticking down and
+became something you can watch happen.
+
+Two things had to be measured before it worked:
+
+**One truck cannot keep up.** Baiting an aggressive shift into the kerb wrecked
+**eight of nine** cars faster than the bomba could clear them, and the city was
+left with no police at all. Wrecks are now capped at two at a time; past that a
+patrol that would have binned it peels away instead.
+
+**It was turning out from the wrong end of the island.** `farJunction` picks the
+*furthest* junction, so every call was a 400 m drive and took 43 seconds. From a
+station about 170 m out it is 11 s - long enough to see it coming, short enough
+that you are not waiting on it.
+
+## 46. Chumas, cuatrimotos, and ICE in Hummers
+
+A tenth of the traffic on four-tracks and a tenth on scooters, both obeying the
+same lane and the same collision box as a car - only the silhouette changes.
+
+ICE turns up in big black wagons rather than patrol cars: squarer, taller, half
+again as long, push bar and roof rack, strobes behind the screen instead of a
+light bar. Which unit is coming has to be readable from the end of a street,
+because it changes whether running is worth trying.

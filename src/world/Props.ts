@@ -588,6 +588,227 @@ export function makeATV(color: number): THREE.Group {
 }
 
 /**
+ * A bomba - the fire truck that comes for a wrecked patrol.
+ *
+ * Long red box with a ladder on top and a beacon, which is all a fire engine
+ * needs to be from a moving bike. The beacon is returned so it can flash on the
+ * way to a call.
+ */
+export function makeFireTruck(): { group: THREE.Group; beacon: THREE.Mesh } {
+  const g = new THREE.Group();
+  const red = new THREE.MeshStandardMaterial({ color: 0xc62128, roughness: 0.4, metalness: 0.3 });
+  const trim = new THREE.MeshStandardMaterial({ color: 0x24262c, roughness: 0.7 });
+  const metal = new THREE.MeshStandardMaterial({ color: 0xb8bcc4, roughness: 0.35, metalness: 0.85 });
+
+  const body = new THREE.Mesh(roundedBox(2.10, 1.30, 5.40, 0.10, 3), red);
+  body.position.y = 1.30;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  g.add(body);
+
+  const cab = new THREE.Mesh(roundedBox(2.00, 0.86, 1.70, 0.09, 3), red);
+  cab.position.set(0, 2.10, 1.75);
+  cab.castShadow = true;
+  g.add(cab);
+  const screen = new THREE.Mesh(roundedBox(1.84, 0.60, 0.10, 0.04, 3),
+    new THREE.MeshStandardMaterial({
+      color: 0x1a2029, roughness: 0.12, metalness: 0.5, transparent: true, opacity: 0.88,
+    }));
+  screen.position.set(0, 2.16, 2.58);
+  g.add(screen);
+
+  // Ladder along the roof.
+  for (const dx of [-0.32, 0.32]) {
+    const rail = new THREE.Mesh(roundedBox(0.08, 0.08, 4.20, 0.03, 3), metal);
+    rail.position.set(dx, 2.06, -0.60);
+    g.add(rail);
+  }
+  for (let i = 0; i < 9; i++) {
+    const rung = new THREE.Mesh(roundedBox(0.72, 0.05, 0.05, 0.02, 3), metal);
+    rung.position.set(0, 2.06, -2.40 + i * 0.45);
+    g.add(rung);
+  }
+
+  // Lockers down the flanks, which is what a pump looks like side-on.
+  for (const side of [-1, 1]) {
+    for (const dz of [-1.5, -0.2, 1.1]) {
+      const locker = new THREE.Mesh(roundedBox(0.06, 0.70, 1.05, 0.03, 3), trim);
+      locker.position.set(side * 1.06, 1.28, dz);
+      g.add(locker);
+    }
+  }
+
+  for (const [dx, dz] of [[-0.92, 1.80], [0.92, 1.80], [-0.92, -1.70], [0.92, -1.70]] as const) {
+    const tyre = new THREE.Mesh(new THREE.TorusGeometry(0.40, 0.16, 6, 12), SHARED.tyre);
+    tyre.rotation.y = Math.PI / 2;
+    tyre.position.set(dx, 0.46, dz);
+    tyre.castShadow = true;
+    g.add(tyre);
+  }
+
+  const beacon = new THREE.Mesh(
+    roundedBox(0.70, 0.14, 0.24, 0.05, 3),
+    new THREE.MeshStandardMaterial({
+      color: 0xff2a3a, emissive: 0xff2a3a, emissiveIntensity: 1.4, roughness: 0.3,
+    }),
+  );
+  beacon.position.set(0, 2.60, 1.70);
+  g.add(beacon);
+
+  return { group: g, beacon };
+}
+
+/**
+ * A chuma - a Vespa-shaped scooter with somebody on it.
+ *
+ * Step-through frame, a legshield up front, the body swelling behind the seat,
+ * and small wheels. That silhouette is the whole read at any distance you see
+ * one from, so it is four shapes and no more.
+ */
+export function makeScooter(color: number): THREE.Group {
+  const g = new THREE.Group();
+  const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.45 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x24262c, roughness: 0.7 });
+
+  // Legshield: the tall panel between the rider's knees and the front wheel.
+  const shield = new THREE.Mesh(roundedBox(0.44, 0.62, 0.16, 0.10, 6), paint);
+  shield.position.set(0, 0.66, 0.52);
+  shield.rotation.x = -0.14;
+  shield.castShadow = true;
+  g.add(shield);
+
+  // Floorpan you step through.
+  const floor = new THREE.Mesh(roundedBox(0.40, 0.09, 0.52, 0.04, 4), dark);
+  floor.position.set(0, 0.36, 0.16);
+  g.add(floor);
+
+  // The body swells behind the seat - the bit that makes it a Vespa.
+  const haunch = new THREE.Mesh(roundedBox(0.50, 0.42, 0.62, 0.18, 8), paint);
+  haunch.position.set(0, 0.60, -0.28);
+  haunch.castShadow = true;
+  g.add(haunch);
+
+  const seat = new THREE.Mesh(roundedBox(0.30, 0.11, 0.48, 0.05, 5), dark);
+  seat.position.set(0, 0.86, -0.16);
+  g.add(seat);
+
+  // Bars and a round headlight on the shield.
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.56, 8), dark);
+  bar.rotation.z = Math.PI / 2;
+  bar.position.set(0, 1.02, 0.56);
+  g.add(bar);
+  const lamp = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.085, 0.085, 0.05, 12),
+    new THREE.MeshStandardMaterial({
+      color: 0xf6f2e2, emissive: 0x3a3830, emissiveIntensity: 0.4, roughness: 0.2,
+    }),
+  );
+  lamp.rotation.x = Math.PI / 2 - 0.14;
+  lamp.position.set(0, 0.90, 0.60);
+  g.add(lamp);
+
+  // Small wheels, which is the other half of the silhouette.
+  for (const dz of [0.52, -0.44]) {
+    const tyre = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.07, 6, 12), SHARED.tyre);
+    tyre.rotation.y = Math.PI / 2;
+    tyre.position.set(0, 0.22, dz);
+    tyre.castShadow = true;
+    g.add(tyre);
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.10, 0.10, 10), SHARED.chrome);
+    rim.rotation.z = Math.PI / 2;
+    rim.position.set(0, 0.22, dz);
+    g.add(rim);
+  }
+
+  const rider = makePerson(0xe8e4d8, 0x36404f, true);
+  rider.position.set(0, 0.40, -0.14);
+  rider.scale.setScalar(0.92);
+  g.add(rider);
+  return g;
+}
+
+/**
+ * The ICE unit: a big black wagon rather than a patrol car.
+ *
+ * It has to be recognisable at the far end of a street, because seeing one
+ * changes whether running is worth trying. Squarer, taller and half again as
+ * long as a police car, with a push bar and a roof rack.
+ */
+export function makeHummer(): { group: THREE.Group; lights: [THREE.Mesh, THREE.Mesh] } {
+  const g = new THREE.Group();
+  const body = new THREE.MeshStandardMaterial({ color: 0x0f1013, roughness: 0.42, metalness: 0.5 });
+  const trim = new THREE.MeshStandardMaterial({ color: 0x2f3239, roughness: 0.65, metalness: 0.4 });
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0x14181e, roughness: 0.12, metalness: 0.5, transparent: true, opacity: 0.88,
+  });
+
+  // Slab sides, flat roof, no curves worth speaking of.
+  const hull = new THREE.Mesh(roundedBox(2.06, 0.86, 4.70, 0.10, 3), body);
+  hull.position.y = 0.98;
+  hull.castShadow = true;
+  hull.receiveShadow = true;
+  g.add(hull);
+  const cab = new THREE.Mesh(roundedBox(1.92, 0.66, 2.60, 0.09, 3), glass);
+  cab.position.set(0, 1.62, -0.28);
+  cab.castShadow = true;
+  g.add(cab);
+  const roof = new THREE.Mesh(roundedBox(1.84, 0.14, 2.50, 0.06, 3), body);
+  roof.position.set(0, 1.96, -0.28);
+  g.add(roof);
+
+  // Bonnet, squared off flat.
+  const bonnet = new THREE.Mesh(roundedBox(1.94, 0.30, 1.30, 0.07, 3), body);
+  bonnet.position.set(0, 1.52, 1.42);
+  g.add(bonnet);
+  const grille = new THREE.Mesh(roundedBox(1.60, 0.40, 0.14, 0.04, 3), trim);
+  grille.position.set(0, 1.42, 2.06);
+  g.add(grille);
+
+  // Push bar across the front, and a rack on the roof.
+  const bar = new THREE.Mesh(roundedBox(1.86, 0.60, 0.16, 0.05, 3), trim);
+  bar.position.set(0, 1.00, 2.32);
+  g.add(bar);
+  for (const dx of [-0.62, 0.62]) {
+    const post = new THREE.Mesh(roundedBox(0.14, 0.80, 0.14, 0.04, 3), trim);
+    post.position.set(dx, 1.10, 2.26);
+    g.add(post);
+  }
+  const rack = new THREE.Mesh(roundedBox(1.70, 0.10, 1.90, 0.04, 3), trim);
+  rack.position.set(0, 2.08, -0.40);
+  g.add(rack);
+
+  // Tall square-shouldered tyres.
+  for (const [dx, dz] of [[-0.92, 1.52], [0.92, 1.52], [-0.92, -1.52], [0.92, -1.52]] as const) {
+    const tyre = new THREE.Mesh(new THREE.TorusGeometry(0.40, 0.17, 6, 12), SHARED.tyre);
+    tyre.rotation.y = Math.PI / 2;
+    tyre.position.set(dx, 0.48, dz);
+    tyre.castShadow = true;
+    g.add(tyre);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.20, 0.26, 8), trim);
+    hub.rotation.z = Math.PI / 2;
+    hub.position.set(dx, 0.48, dz);
+    g.add(hub);
+    const arch = new THREE.Mesh(roundedBox(0.30, 0.50, 1.00, 0.10, 3), trim);
+    arch.position.set(dx * 0.98, 0.76, dz);
+    g.add(arch);
+  }
+
+  // Concealed strobes behind the screen rather than a light bar.
+  const stripGeo = roundedBox(0.40, 0.10, 0.06, 0.02, 2);
+  const red = new THREE.Mesh(stripGeo, new THREE.MeshStandardMaterial({
+    color: 0xff2a3a, emissive: 0xff2a3a, emissiveIntensity: 1.2, roughness: 0.3,
+  }));
+  red.position.set(-0.44, 1.90, 0.92);
+  const blue = new THREE.Mesh(stripGeo, new THREE.MeshStandardMaterial({
+    color: 0x2a6cff, emissive: 0x2a6cff, emissiveIntensity: 1.2, roughness: 0.3,
+  }));
+  blue.position.set(0.44, 1.90, 0.92);
+  g.add(red, blue);
+
+  return { group: g, lights: [red, blue] };
+}
+
+/**
  * A person, at the fidelity a person seen from a moving bike deserves.
  *
  * Deliberately simple: capsules and a head. At any distance you actually see

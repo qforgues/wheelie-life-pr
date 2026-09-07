@@ -319,8 +319,12 @@ export function makeAbiertoBillboard(): THREE.CanvasTexture {
 
   const W = 1024, H = 512;
   const [canvas, ctx] = makeCanvas(W, H);
-  ctx.fillStyle = '#07090c';
+  // White ground: it is a painted sign, not a backlit one.
+  ctx.fillStyle = '#f7f5f0';
   ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(0,0,0,0.10)';
+  ctx.lineWidth = 10;
+  ctx.strokeRect(16, 16, W - 32, H - 32);
 
   // The wave across the top, two overlapping strokes with a break in them.
   ctx.strokeStyle = '#31b6cc';
@@ -345,8 +349,8 @@ export function makeAbiertoBillboard(): THREE.CanvasTexture {
   ctx.font = 'italic 900 250px "Brush Script MT", "Snell Roundhand", Georgia, serif';
   // Pale keyline first, then the teal fill on top of it.
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = '#9fe6e0';
-  ctx.lineWidth = 14;
+  ctx.strokeStyle = '#0d5f5c';
+  ctx.lineWidth = 12;
   ctx.strokeText(label, W / 2, H / 2 + 6);
   ctx.fillStyle = '#1a8f8a';
   ctx.fillText(label, W / 2, H / 2 + 6);

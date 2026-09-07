@@ -621,14 +621,16 @@ export class City implements GroundProvider {
 
     // Street furniture out on the pavement.
     const roll = rnd();
-    // Palms got a bigger slice: San Juan streets are full of them and the old
-    // split left long stretches with nothing growing at all.
+    // Street furniture sits on the kerb - `kerbOffset` is the pavement edge, so
+    // everything here faces the road by construction. Palms are the expensive
+    // one: each cell holding a palm pays for its trunk and leaf materials, so
+    // the count is kept deliberately lean.
     if (roll > 0.86) {
       const lamp = makeStreetLamp();
       lamp.rotation.y = faceYaw + Math.PI / 2;
       lamp.position.set(...at(kerbOffset, KERB_HEIGHT, centre));
       this.blockAdd(lamp);
-    } else if (roll > 0.58) {
+    } else if (roll > 0.72) {
       const palm = makePalm(6 + rnd() * 3.5, index * 7 + centre);
       palm.position.set(...at(kerbOffset, KERB_HEIGHT, centre));
       this.blockAdd(palm);

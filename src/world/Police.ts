@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { makePoliceCar, CAR_HALF } from './Props';
+import { makePoliceCar, makeHummer, makeFireTruck, CAR_HALF } from './Props';
 import { LAYOUT } from './City';
 
 /**
@@ -126,8 +126,25 @@ const DRAW_RADIUS = 260;
  * somewhere clear. Heat cannot climb and nobody chases until this runs out.
  */
 const BUST_GRACE = 9;
-/** How long a patrol is out of action after crashing. */
-const WRECK_SECONDS = 12;
+/**
+ * A wrecked patrol waits for the bomba.
+ *
+ * It no longer recovers on a timer. A fire truck routes to it along the grid,
+ * puts the fire out, and only then does the car go back on shift - which turns
+ * a wreck from a number ticking down into something you can watch happen.
+ */
+const EXTINGUISH_SECONDS = 4;
+/** The bomba is not in a hurry, and it is nice to watch it coming. */
+const FIRE_TRUCK_SPEED = 21;
+/**
+ * How many patrols may be burning at once.
+ *
+ * There is one bomba, and it takes it a while to reach a call. Without a cap,
+ * baiting an aggressive shift into the kerb wrecked eight of nine cars faster
+ * than the truck could clear them and the city was left with no police at all.
+ * Past this, a patrol that would have binned it breaks off instead.
+ */
+const MAX_BURNING = 2;
 /**
  * Inside this a patrol abandons the road and drives straight at the rider.
  *
@@ -209,6 +226,22 @@ export class Police {
    * junction and one of them will not make it.
    */
   obstacleTest: ((x: number, z: number, r: number) => boolean) | null = null;
+  /**
+   * The bomba, and what it is currently doing.
+   *
+   * One truck for the whole city: it queues, because a fleet of fire engines
+   * converging on a street would be funnier than it is atmospheric. Idle it
+   * sits off-map costing nothing.
+   */
+  private fire: {
+    group: THREE.Group;
+    beacon: THREE.Mesh;
+    x: number; z: number; yaw: number;
+    tx: number; tz: number;
+    target: Patrol | null;
+    dousing: number;
+  } | null = null;
+
   private report: PoliceReport =
     {
       heat: 0, chasers: 0, nearestChaser: Infinity, shove: 0, bustProgress: 0,
@@ -222,11 +255,91 @@ export class Police {
   }
 
   /** Builds a shift of the right size and livery for the current style. */
+  /** Built on demand - most sessions never wreck a patrol at all. */
+  private ensureFireTruck(): void {
+    if (this.fire) return;
+    const { group, beacon } = makeFireTruck();
+    group.visible = false;
+    this.root.add(group);
+    this.fire = {
+      group, beacon,
+      x: 0, z: 0, yaw: 0, tx: 0, tz: 0,
+      target: null, dousing: 0,
+    };
+  }
+
+  /**
+   * Sends the bomba to whichever wreck has been burning longest.
+   *
+   * It routes the grid exactly like a patrol does, so it drives on roads and
+   * turns at junctions, and it only starts putting the fire out once it has
+   * actually arrived.
+   */
+  private driveFireTruck(dt: number, px: number, pz: number): void {
+    const burning = this.patrols.filter((p) => p.wrecked > 0);
+    if (!burning.length) {
+      if (this.fire) this.fire.group.visible = false;
+      return;
+    }
+    this.ensureFireTruck();
+    const f = this.fire!;
+
+    if (!f.target || f.target.wrecked <= 0) {
+      f.target = burning[0];
+      // Turn out from a junction a few blocks off, so you see it coming
+      // without waiting for it to cross the whole island. farJunction picks the
+      // FURTHEST, which had the bomba driving 400 m to every call.
+      const from = this.nearJunction(f.target.x, f.target.z, 170);
+      f.x = from.x; f.z = from.z;
+      f.tx = from.x; f.tz = from.z;
+      f.dousing = 0;
+    }
+
+    const t = f.target;
+    const reach = Math.hypot(t.x - f.x, t.z - f.z);
+
+    if (reach < 7) {
+      // On scene. Put it out, then send the car back to work.
+      f.dousing += dt;
+      if (f.dousing >= EXTINGUISH_SECONDS) {
+        t.wrecked = 0;
+        this.recover(t, px, pz);
+        f.target = null;
+        f.dousing = 0;
+      }
+    } else {
+      if (Math.hypot(f.tx - f.x, f.tz - f.z) < 3) {
+        const next = this.stepToward(f.x, f.z, t.x, t.z);
+        f.tx = next.x; f.tz = next.z;
+      }
+      const dx = f.tx - f.x;
+      const dz = f.tz - f.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 0.001) {
+        const step = Math.min(d, FIRE_TRUCK_SPEED * dt);
+        f.x += (dx / d) * step;
+        f.z += (dz / d) * step;
+        f.yaw = Math.atan2(dx, dz);
+      }
+    }
+
+    f.group.position.set(f.x, 0, f.z);
+    f.group.rotation.y = f.yaw;
+    f.group.visible = Math.hypot(f.x - px, f.z - pz) < DRAW_RADIUS;
+    // Beacon runs the whole time it is on a call.
+    (f.beacon.material as THREE.MeshStandardMaterial).emissiveIntensity =
+      Math.sin(this.flash * 1.4) > 0 ? 2.2 : 0.2;
+  }
+
   private rebuild(): void {
     for (const p of this.patrols) this.root.remove(p.group);
     this.patrols = [];
     for (let i = 0; i < this.tuning.shift; i++) {
-      const { group, lights } = makePoliceCar(this.tuning.riotGear);
+      // ICE turns up in black wagons rather than patrol cars, which is the
+      // point: you should know what is coming from the end of the street.
+      const { group, lights } = this.tuning.riotGear
+        ? makeHummer()
+        : makePoliceCar(false);
       const start = this.junctionByIndex(i);
       group.position.set(start.x, 0, start.z);
       this.root.add(group);
@@ -291,6 +404,19 @@ export class Police {
       p.group.visible = false;
     });
     this.dimLights();
+  }
+
+  /** The junction closest to a given distance from a point. */
+  private nearJunction(x: number, z: number, want: number): { x: number; z: number } {
+    let best: { x: number; z: number } = { x: LAYOUT.avenueX[0], z: LAYOUT.streetZ[0] };
+    let bestErr = Infinity;
+    for (const ax of LAYOUT.avenueX) {
+      for (const sz of LAYOUT.streetZ) {
+        const err = Math.abs(Math.hypot(ax - x, sz - z) - want);
+        if (err < bestErr) { bestErr = err; best = { x: ax, z: sz }; }
+      }
+    }
+    return best;
   }
 
   /** A junction well clear of the rider, varied per patrol so they scatter. */
@@ -404,6 +530,7 @@ export class Police {
 
     const chasers = this.deploy(level, px, pz);
     this.drive(dt, px, pz, level);
+    this.driveFireTruck(dt, px, pz);
 
     // Getting caught takes **contact**, not proximity. Being pulled over
     // because a car drew alongside felt like nothing had happened; they have to
@@ -489,9 +616,8 @@ export class Police {
 
     for (const p of this.patrols) {
       if (p.wrecked > 0) {
-        p.wrecked -= dt;
+        // Smoking, and going nowhere until the fire crew have been.
         this.puffSmoke(p, dt);
-        if (p.wrecked <= 0) this.recover(p, px, pz);
         p.group.visible = Math.hypot(p.x - px, p.z - pz) < DRAW_RADIUS;
         continue;
       }
@@ -562,7 +688,15 @@ export class Police {
         // as atmosphere - so this is only ever the last few metres of a
         // committed run at the rider.
         if (committed && this.obstacleTest?.(nx, nz, 1.15)) {
-          this.wreck(p);
+          if (this.burningCount() < MAX_BURNING) {
+            this.wreck(p);
+          } else {
+            // The queue is full: this one thinks better of it and peels away.
+            p.chasing = false;
+            const off = this.wander(p);
+            p.tx = off.x;
+            p.tz = off.z;
+          }
         } else {
           p.x = nx;
           p.z = nz;
@@ -577,9 +711,15 @@ export class Police {
     }
   }
 
-  /** Puts a patrol out of the chase, smoking, for a while. */
+  private burningCount(): number {
+    let n = 0;
+    for (const p of this.patrols) if (p.wrecked > 0) n++;
+    return n;
+  }
+
+  /** Puts a patrol out of the chase, smoking, until the bomba arrives. */
   private wreck(p: Patrol): void {
-    p.wrecked = WRECK_SECONDS;
+    p.wrecked = Infinity;   // cleared by the fire crew, not by a clock
     p.chasing = false;
     // Slewed across the road, which reads as "crashed" at a glance.
     p.yaw += 0.9;

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CAR_COLORS, CAR_HALF, makeATV, makeCar } from './Props';
+import { CAR_COLORS, CAR_HALF, makeATV, makeCar, makeScooter } from './Props';
 import { LAYOUT, MAP } from './City';
 
 /**
@@ -62,8 +62,9 @@ interface Car {
  */
 const PER_LANE = 2;
 const DRAW_RADIUS = 220;
-/** Share of traffic that is an ATV rather than a car. */
+/** Shares of traffic that are not cars. */
 const ATV_SHARE = 0.10;
+const SCOOTER_SHARE = 0.10;
 /** How far either side of the centreline a lane sits. */
 const LANE = 2.3;
 
@@ -107,7 +108,14 @@ export class Traffic {
       // lane and the same collision box - it just looks like a different
       // Sunday, which is what a street here actually looks like.
       const colour = CAR_COLORS[Math.floor(rnd() * CAR_COLORS.length)];
-      const group = rnd() < ATV_SHARE ? makeATV(colour) : makeCar(colour);
+      // A tenth on cuatrimotos and a tenth on chumas. Both obey the same lane
+      // and the same collision box; only the silhouette changes.
+      const roll = rnd();
+      const group = roll < ATV_SHARE
+        ? makeATV(colour)
+        : roll < ATV_SHARE + SCOOTER_SHARE
+          ? makeScooter(colour)
+          : makeCar(colour);
       // The body's front is +Z, so an avenue car heading -Z is turned around
       // and a street car is a quarter turn from either.
       group.rotation.y = onAvenue
