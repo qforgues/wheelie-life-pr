@@ -53,7 +53,10 @@ canvas:active { cursor: grabbing; }
 
 .hud-topleft {
   position: absolute;
-  top: calc(22px + var(--safe));
+  /* Clears the left mirror. Mirrors.setSize publishes its height as
+     --mirror-h, because the mirror is sized from the viewport in JS and the
+     stats were landing right on top of it. Falls back to 0 when off. */
+  top: calc(22px + var(--safe) + var(--mirror-h, 0px));
   left: calc(24px + var(--safe));
   display: flex;
   flex-direction: column;

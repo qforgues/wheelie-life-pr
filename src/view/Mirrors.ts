@@ -59,6 +59,10 @@ export class Mirrors {
     const w = Math.max(74, Math.min(132, width * 0.095));
     const h = w * 0.6;
     const margin = Math.max(14, width * 0.018);
+    // The HUD reads this to place itself below the mirror rather than under it.
+    document.documentElement.style.setProperty(
+      '--mirror-h', `${this.enabled ? Math.round(margin + h) : 0}px`,
+    );
 
     for (const side of [-1, 1] as const) {
       const x = side < 0 ? margin : width - margin - w;
