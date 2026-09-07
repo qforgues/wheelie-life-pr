@@ -13,7 +13,7 @@
     "sim:all": "npm run sim --silent -- yz250f && node node_modules/.cache/simcheck.mjs streetfighter && node node_modules/.cache/simcheck.mjs grom",
     "check": "npm run typecheck && npm run build && npm run sim:all && npm run rivals && npm run scene && npm run edges && npm run battles",
     "deploy": "node tools/release.mjs",
-    "beta": "npm run build && vite preview",
+    "beta": "npm run build && node tools/beta.mjs",
     "deploy:live": "node tools/release.mjs --live",
     "rivals": "esbuild tools/rivalcheck.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/rivalcheck.mjs --log-level=error && node node_modules/.cache/rivalcheck.mjs",
     "scene": "esbuild tools/vehiclecheck.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/scenecheck.mjs --log-level=error && node node_modules/.cache/scenecheck.mjs",

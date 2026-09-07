@@ -1345,3 +1345,16 @@ And the rider's jacket trim takes the **outfit's** contrast colour rather than
 the bike's paint. That was right when there was one kit and wrong the moment
 there were three: black-and-gold leathers with the Yamaha's blue running through
 the collar is two outfits at once.
+
+## 66. `npm run beta` keeps itself up
+
+Twice now a deploy has left Quentin with a dead localhost tab and no clue why.
+
+`npm run beta` was `vite preview` in the foreground, so it died with whatever
+shell launched it — including every time a deploy stopped it to avoid serving a
+half-written build. Nothing said so; 4173 just stopped answering.
+
+It runs through `tools/beta.mjs` now, which probes the port first: if something
+is already serving 4173 it says so and exits, and if nothing is it takes over.
+Either way the port ends up serving the game, which is the only thing the caller
+ever wanted — and running it twice is harmless instead of a port clash.
