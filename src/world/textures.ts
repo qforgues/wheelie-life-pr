@@ -19,6 +19,37 @@ export const PALETTE = {
   sea: '#1c7fa8',
 };
 
+/**
+ * The facades the city is actually painted with, chosen rather than rolled.
+ *
+ * The palette above has twelve colours in it and the city can only afford a
+ * handful of facade textures - one material each, and after the cell bake every
+ * material is a draw call in every cell that uses it. Which handful used to be
+ * decided by seeding the generator and taking whatever came out, and what came
+ * out was lavender, mint, acid yellow, cream and teal twice: five colours, and
+ * between them **not one** of the blue, mustard, coral, terracotta or rose that
+ * a street in Old San Juan is actually painted. The city read as generic
+ * Caribbean pastel.
+ *
+ * So they are named. Blue and teal for the cool end, mustard through coral to
+ * terracotta for the warm, one rose, one cream - and every one of them gets its
+ * own shutter colour, because two facades with the same dark green doors read
+ * as the same building twice down a street.
+ *
+ * Shutters are the other half of the look: deep green, navy, oxblood and indigo
+ * against white trim, which is what all that ironwork sits in front of.
+ */
+export const SAN_JUAN_FACADES: Array<{ base: string; trim: string; shutter: string }> = [
+  { base: '#7fb6cc', trim: '#ffffff', shutter: '#8c3a2e' }, // sky blue, oxblood doors
+  { base: '#e9ba52', trim: '#fbf6e9', shutter: '#1f6b52' }, // mustard, green doors
+  { base: '#e0776b', trim: '#ffffff', shutter: '#2f5d7c' }, // coral, navy doors
+  { base: '#3ba39c', trim: '#f4ead3', shutter: '#5c4a2e' }, // teal, brown doors
+  { base: '#e79cb4', trim: '#ffffff', shutter: '#3a3f6b' }, // rose, indigo doors
+  { base: '#c9714c', trim: '#fbf6e9', shutter: '#2f5d7c' }, // terracotta, navy doors
+  { base: '#6f9fd8', trim: '#ffffff', shutter: '#1f6b52' }, // cornflower, green doors
+  { base: '#f0e0c0', trim: '#ffffff', shutter: '#8c3a2e' }, // cream, oxblood doors
+];
+
 function mulberry(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -149,15 +180,22 @@ function window0(
   if (balcony) ironRail(ctx, x - w * 0.3, y + h * 0.55, w * 1.6, h * 0.42, rnd);
 }
 
-export function makeFacadeTexture(seed: number, floors = 3, bays = 3): THREE.CanvasTexture {
+export function makeFacadeTexture(
+  seed: number, floors = 3, bays = 3,
+  scheme?: { base: string; trim: string; shutter: string },
+): THREE.CanvasTexture {
   const rnd = mulberry(seed);
   const W = 512;
   const H = 512;
   const [canvas, ctx] = makeCanvas(W, H);
 
-  const base = PALETTE.facades[Math.floor(rnd() * PALETTE.facades.length)];
-  const trim = PALETTE.trim[Math.floor(rnd() * PALETTE.trim.length)];
-  const shutter = PALETTE.shutters[Math.floor(rnd() * PALETTE.shutters.length)];
+  // A caller that names its colours gets them; anything else still rolls, which
+  // is what the one-off signs and murals want.
+  const base = scheme ? scheme.base : PALETTE.facades[Math.floor(rnd() * PALETTE.facades.length)];
+  const trim = scheme ? scheme.trim : PALETTE.trim[Math.floor(rnd() * PALETTE.trim.length)];
+  const shutter = scheme
+    ? scheme.shutter
+    : PALETTE.shutters[Math.floor(rnd() * PALETTE.shutters.length)];
   stucco(ctx, W, H, base, rnd);
 
   const floorH = H / floors;

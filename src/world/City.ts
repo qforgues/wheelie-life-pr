@@ -10,7 +10,7 @@ import {
   makeRailing, makeShopSign, makeStreetLamp, PROP_MATERIALS,
 } from './Props';
 import {
-  makeAbiertoBillboard, makeChainLinkTexture, makeCobbleTexture, makeFacadeTexture, makeGrassTexture, makePiratasBillboard, makeFlagMuralTexture, makeHazardTexture, makeSidewalkTexture,
+  makeAbiertoBillboard, makeChainLinkTexture, makeCobbleTexture, SAN_JUAN_FACADES, makeFacadeTexture, makeGrassTexture, makePiratasBillboard, makeFlagMuralTexture, makeHazardTexture, makeSidewalkTexture,
 } from './textures';
 
 /**
@@ -567,7 +567,14 @@ export class City implements GroundProvider {
     // it. Twelve facades and a light/dark variant of each was 24 wall
     // materials, and dense corners were 31 meshes. Six reads no differently
     // down a street where the buildings are all different sizes anyway.
-    const facades = Array.from({ length: 6 }, (_, i) => makeFacadeTexture(i * 1637 + 13, 3, 3));
+    // Eight, not six, and named rather than rolled - see SAN_JUAN_FACADES.
+    //
+    // Six was the budget when the city was submitting a thousand draw calls.
+    // Sharing the materials by recipe took about a quarter off that, and two
+    // more facades is the best thing to spend it on: colour down a street is
+    // most of what makes this place look like the place.
+    const facades = SAN_JUAN_FACADES.map((scheme, i) =>
+      makeFacadeTexture(i * 1637 + 13, 3, 3, scheme));
     let seed = 0;
     const rnd = () => {
       seed = (seed * 1664525 + 1013904223) >>> 0;

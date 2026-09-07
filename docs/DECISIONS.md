@@ -970,3 +970,39 @@ Baked vehicles are cloned from a cached prototype, so the light bars have to be
 found by name rather than held from the build. `npm run scene` checks every
 vehicle against a draw-call budget and checks all seven animated lights survive
 the bake and the clone - a rename would otherwise silently kill every siren.
+
+## 51. The city was never painted San Juan
+
+Justin's dad: "building colors look less like san juan."
+
+The palette has twelve colours in it and the city can only afford a handful of
+facade textures - one material each, and after the cell bake every material is a
+draw call in every cell that uses it. **Which handful was decided by rolling
+dice.** `makeFacadeTexture(i * 1637 + 13)` seeded the generator and took whatever
+came out, and what came out was:
+
+    lavender, teal, cream, teal again, mint, acid yellow
+
+Five colours for a whole city, one of them twice. And between them not one of
+the **sky blue, mustard, coral, terracotta or rose** that a street in Old San
+Juan is actually painted - every one of those was in the palette and never once
+got picked. The city read as generic Caribbean pastel because it was generic
+Caribbean pastel.
+
+They are named now: `SAN_JUAN_FACADES`, eight schemes, each with its own trim
+and its own shutter colour - two facades with the same dark green doors read as
+the same building twice down a street. Blue and teal at the cool end, mustard
+through coral to terracotta at the warm, one rose, one cream. Deep green, navy,
+oxblood and indigo doors against white trim, which is what all that ironwork
+stands in front of.
+
+Six was the budget when the city was submitting a thousand draw calls. Sharing
+the materials by recipe (#49) took about a quarter off that, and two more
+facades cost **8 meshes** in cull range - 1474 to 1482. Colour down a street is
+most of what makes this place look like the place; it is the best thing that
+budget could have been spent on.
+
+The lesson is the one this project keeps relearning in different clothes: a
+random pick out of a good list is not the same as a good pick. It was true of
+the billboards that only ever showed one of two designs, and of the seven riders
+who turned out on five corners.
