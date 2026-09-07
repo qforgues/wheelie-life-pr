@@ -161,9 +161,15 @@ export class Mirrors {
     // The HUD reads this to place itself below the mirror rather than under it,
     // but only when a mirror is actually sitting in the top-left corner.
     const leftInCorner = this.mount === 'corners' && clampX(lx) < width * 0.25;
-    document.documentElement.style.setProperty(
-      '--mirror-h', leftInCorner ? `${Math.round(clampY(ly) + h - (height - height))}px` : '0px',
-    );
+    // The overlay camera has y = 0 at the BOTTOM, so the CSS distance from the
+    // top of the screen down to the mirror's lower edge is `height - y` - NOT
+    // `y + h`, which is measured from the wrong end and came out at 815px on an
+    // 840px screen. That pushed the whole stats block off the bottom.
+    const belowMirror = height - clampY(ly);
+    // Never allow this to shove the HUD somewhere it cannot be seen, whatever
+    // the arithmetic says.
+    const offset = leftInCorner ? Math.round(Math.min(belowMirror, height * 0.3)) : 0;
+    document.documentElement.style.setProperty('--mirror-h', `${offset}px`);
   }
 
   /** Changes where the mirrors hang and rebuilds them in place. */
