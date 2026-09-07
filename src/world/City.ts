@@ -584,7 +584,11 @@ export class City implements GroundProvider {
    * already rolling in 2nd - which is the gear you want to be in to lift.
    */
   respawnFor(x: number, z: number): SpawnPoint {
-    const rolling = { speed: 11, gear: 1 };
+    // Always 1st. Coming back in 2nd meant the gear you restarted in depended
+    // on whether you had just crashed or just loaded the page, which is exactly
+    // the sort of inconsistency that makes a practice loop feel unreliable.
+    // BikeSim caps this speed to whatever 1st can actually carry per bike.
+    const rolling = { speed: 11, gear: 0 };
     const p = LAYOUT.plaza;
     if (z > p.zMin - 20) {
       return { x: 0, z: p.zMin - 70, yaw: 0, ...rolling };

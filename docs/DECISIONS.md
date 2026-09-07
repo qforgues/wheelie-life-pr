@@ -175,11 +175,30 @@ prototype miserable to learn on. Default `rollInstability` is **0.5** of realist
 with generous self-centring, and the debug panel has a **Chill** preset that sets
 it to zero along with a wider save window.
 
-## 12. Crash resets drop you back in rolling
+## 12. Crash resets drop you back in rolling, always in 1st
 
-25 mph in 2nd, ~24 m back up the street, 1.5 s after the wipeout. Resetting to a
-standstill turned every attempt into a six-second run-up, which wrecked the
-practice loop. Second gear at 25 mph is exactly wheelie-ready.
+~24 m back up the street, 1.5 s after the wipeout. Resetting to a standstill
+turned every attempt into a six-second run-up, which wrecked the practice loop.
+
+Originally this came back in 2nd. That was wrong for a reason that took a
+player to spot: the gear you restarted in depended on whether you had just
+crashed or just loaded the page (a fresh spawn is 1st at a standstill), so
+"what gear am I in" became something you had to check rather than know. It is
+now **always 1st**.
+
+Speed is capped per bike rather than fixed, because 25 mph in 1st is 94% of
+redline on the Grom - the starter bike - which would mean upshifting before you
+could even pull. `BikeSim.reset` clamps road speed to whatever the requested
+gear carries at 68% of redline, so every bike lands in its powerband:
+
+| | respawn |
+|---|---|
+| Grom | 18 mph, 6120 rpm |
+| YZ250F | 25 mph, 8770 rpm |
+| Streetfighter | 25 mph, 3879 rpm |
+
+All three lift on throttle-and-pull straight from there, and none of them
+respawns against the limiter.
 
 ## 13. Tiling lives on the geometry, not on the texture
 

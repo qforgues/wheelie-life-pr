@@ -70,7 +70,7 @@ export class ControlsOverlay {
         <button class="overlay-go" data-el="go">RIDE</button>
         <button class="overlay-diag" data-el="diag" type="button">Diagnostics</button>
         <p class="overlay-foot">
-          View toggles this card · D-pad up shows diagnostics · Menu resets
+          <b>View</b> opens this menu any time · D-pad up shows diagnostics · Menu resets the bike
           <br>On a keyboard: H · D · P for the tuning panel · R to reset
         </p>
         <p class="overlay-version">

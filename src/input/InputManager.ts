@@ -141,7 +141,7 @@ export class InputManager {
     let shiftUp = this.pressed('shiftUp');
     let shiftDown = this.pressed('shiftDown');
     let reset = this.pressed('reset');
-    const toggleHelp = this.pressed('toggleHelp');
+    let toggleHelp = this.pressed('toggleHelp');
     const toggleDebug = this.pressed('toggleDebug');
     const toggleAudio = this.pressed('toggleAudio');
 
@@ -186,11 +186,15 @@ export class InputManager {
         || this.padEdge(PAD.B, down(PAD.B));
       cycleCamera = cycleCamera || this.padEdge(PAD.Y, down(PAD.Y));
       toggleDiagnostics = toggleDiagnostics || this.padEdge(PAD.DPAD_UP, down(PAD.DPAD_UP));
+      // View opens and closes the menu. The controls card has always advertised
+      // this and the button was never actually read, which left a controller
+      // with no way back to the menu at all - Menu/B resets the bike.
+      toggleHelp = toggleHelp || this.padEdge(PAD.VIEW, down(PAD.VIEW));
       // Held, not edge-triggered - standing is a pose you hold.
       if (down(PAD.X)) trick = 'stand';
       else if (down(PAD.A)) trick = 'knee';
       // Keep the rest of the button edges warm so nothing double-fires.
-      const edged: number[] = [PAD.RB, PAD.LB, PAD.MENU, PAD.B, PAD.Y, PAD.DPAD_UP];
+      const edged: number[] = [PAD.RB, PAD.LB, PAD.MENU, PAD.B, PAD.Y, PAD.DPAD_UP, PAD.VIEW];
       for (let i = 0; i < pad.buttons.length; i++) {
         if (!edged.includes(i)) this.prevPad.buttons[i] = down(i);
       }

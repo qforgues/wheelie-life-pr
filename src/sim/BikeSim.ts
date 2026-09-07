@@ -39,6 +39,12 @@ export interface SpawnPoint {
  * d' hits zero at pitch = atan(d / h). That angle IS the balance point, it moves
  * when the rider shifts their weight, and it is never drawn on screen.
  */
+/**
+ * Share of redline a respawn is allowed to sit at. Low enough to leave real
+ * pull in the gear, high enough that you are not bogged down.
+ */
+const RESPAWN_RPM_FRACTION = 0.68;
+
 export class BikeSim {
   readonly state: BikeState;
   readonly engine: Engine;
@@ -125,6 +131,18 @@ export class BikeSim {
     s.gear = Math.min(p.gear ?? 0, this.tuning.gearbox.gearRatios.length - 1);
     this.gearbox.reset();
     this.gearbox.gear = s.gear;
+    // Never drop the player in on the limiter.
+    //
+    // Respawning is always in 1st now, and 25 mph in 1st is 94% of redline on
+    // the Grom - the starter bike - which would mean upshifting before you
+    // could even pull. Cap the road speed to whatever the requested gear can
+    // carry at a useful rpm, so every bike lands in its powerband instead of
+    // against the rev limiter.
+    const usableRpm = this.tuning.engine.redlineRpm * RESPAWN_RPM_FRACTION;
+    const usableSpeed =
+      ((usableRpm / RPM_PER_RADS) * this.tuning.chassis.wheelRadius) / this.gearbox.totalRatio;
+    s.speed = Math.min(s.speed, usableSpeed);
+
     s.rpm = Math.max(
       this.tuning.engine.idleRpm,
       (s.speed / this.tuning.chassis.wheelRadius) * this.gearbox.totalRatio * RPM_PER_RADS,

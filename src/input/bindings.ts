@@ -52,7 +52,7 @@ export const BINDINGS: BindingRow[] = [
   { action: 'Change camera', pad: 'Y', key: 'C' },
   { action: 'Look around', pad: 'Right stick', key: 'Drag mouse' },
   { action: 'Reset', pad: 'Menu / B', key: 'R' },
-  { action: 'Controls card', pad: 'View', key: 'H' },
+  { action: 'Menu / exit to menu', pad: 'View', key: 'H' },
   { action: 'Diagnostics', pad: 'D-pad up', key: 'D' },
 ];
 
