@@ -652,3 +652,16 @@ body.is-console .debug-gui { display: none !important; }
   letter-spacing: 0.12em;
   opacity: 1;
 }
+
+.opt-blurb {
+  margin: -2px 0 0;
+  font-size: calc(11px * var(--hud-scale));
+  line-height: 1.5;
+  opacity: 0.6;
+  text-align: left;
+}
+.opt-btn.is-on.is-ice {
+  border-color: #ff4d5a;
+  background: rgba(255, 77, 90, 0.18);
+  color: #ff8b94;
+}

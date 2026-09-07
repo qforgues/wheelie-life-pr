@@ -349,3 +349,37 @@ Two things that were deliberately *not* done:
   nearest the rider, which meant they stalled a block away and never arrived; at
   a junction they then re-picked the leg they were already parked on. Both were
   found by simulating a chase rather than by watching one.
+
+## 20. Police difficulty is a ladder, and the old tuning made them impossible
+
+Five settings: **none / lazy / pro / aggro / ice**, saved between sessions.
+
+Shipping the first version taught us something the simulated chase had not.
+The test held a wheelie for ninety seconds; a person does three seconds up and
+five down. Heat rose at 0.14/s and decayed at 0.22/s, so breaking even required
+wheelieing **61% of the time** - and a real rider never saw a single patrol.
+The feature was live and inert.
+
+The fix is that interest lingers: `coolDelay` seconds of clean riding before
+heat falls at all, which is how a wanted level has always worked and is what the
+first version was missing. Measured against realistic riding:
+
+| | 2s up / 8s down | 3s up / 5s down | 5s up / 4s down | 8s up / 3s down |
+|---|---|---|---|---|
+| none | never | never | never | never |
+| lazy | never | never | — | 13 s |
+| pro | never | 11 s | 5 s | — |
+| aggro | — | 3 s | — | — |
+
+Two properties worth keeping: barely wheelieing stays clean even on **pro**, so
+learning is never punished; and **lazy** ignores anything short of a committed
+run.
+
+**ICE** is the exception to the whole design - `alwaysHunting`, so heat climbs
+whether or not you have done anything, and the only way out is distance. Riot
+units are a visibly different vehicle: matte black instead of white, amber and
+white lights, a push bar and a caged cabin, because what is coming for you has
+to be readable from a long way off.
+
+The scanner is **$6,000**, between the YZ250F and the Ducati. It reveals patrols
+on the GPS - it has never gated whether police exist.

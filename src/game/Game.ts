@@ -173,6 +173,14 @@ export class Game {
     this.overlay = new ControlsOverlay(() => this.onRide());
     this.city.traffic.setSpeed(this.progress.traffic);
     this.overlay.setTrafficValue(this.progress.traffic);
+    this.police.setStyle(this.progress.police);
+    this.overlay.setPoliceValue(this.progress.police);
+    this.overlay.onPolicePicked((style) => {
+      this.police.setStyle(style);
+      this.progress.setPolice(style);
+      this.heat = 0;
+      this.blips = [];
+    });
     this.overlay.onTrafficPicked((t) => {
       this.city.traffic.setSpeed(t);
       this.progress.setTraffic(t);

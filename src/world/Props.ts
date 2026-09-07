@@ -372,6 +372,12 @@ const LIGHT_RED = new THREE.MeshStandardMaterial({
 const LIGHT_BLUE = new THREE.MeshStandardMaterial({
   color: 0x2a6cff, emissive: 0x2a6cff, emissiveIntensity: 1.4, roughness: 0.3,
 });
+const LIGHT_AMBER = new THREE.MeshStandardMaterial({
+  color: 0xffa422, emissive: 0xffa422, emissiveIntensity: 1.4, roughness: 0.3,
+});
+const LIGHT_WHITE = new THREE.MeshStandardMaterial({
+  color: 0xfff4e0, emissive: 0xfff4e0, emissiveIntensity: 1.4, roughness: 0.3,
+});
 
 /**
  * A patrol car: the white body with a light bar on the roof.
@@ -380,13 +386,17 @@ const LIGHT_BLUE = new THREE.MeshStandardMaterial({
  * stationary police car and one that is coming for you have to read differently
  * from a long way off, and at minimap distance the flash is the only cue.
  */
-export function makePoliceCar(): { group: THREE.Group; lights: [THREE.Mesh, THREE.Mesh] } {
-  const group = makeCar(0xf2f4f7);
+export function makePoliceCar(riot = false): { group: THREE.Group; lights: [THREE.Mesh, THREE.Mesh] } {
+  // Riot units are a different vehicle entirely at a glance: matte black
+  // instead of white, amber running lights, a bull bar and a cage on the roof.
+  // The player has to be able to tell which kind is coming from a long way off,
+  // because the answer changes whether running is worth trying.
+  const group = makeCar(riot ? 0x15171c : 0xf2f4f7);
 
   const barGeo = roundedBox(0.34, 0.13, 0.5, 0.05, 2);
-  const red = new THREE.Mesh(barGeo, LIGHT_RED);
+  const red = new THREE.Mesh(barGeo, riot ? LIGHT_AMBER : LIGHT_RED);
   red.position.set(-0.2, 1.62, -0.1);
-  const blue = new THREE.Mesh(barGeo, LIGHT_BLUE);
+  const blue = new THREE.Mesh(barGeo, riot ? LIGHT_WHITE : LIGHT_BLUE);
   blue.position.set(0.2, 1.62, -0.1);
   const spine = new THREE.Mesh(
     roundedBox(0.9, 0.09, 0.42, 0.04, 2),
@@ -395,14 +405,34 @@ export function makePoliceCar(): { group: THREE.Group; lights: [THREE.Mesh, THRE
   spine.position.set(0, 1.57, -0.1);
   group.add(spine, red, blue);
 
-  // A dark stripe down the flanks so it is not just a white car.
+  const trim = new THREE.MeshStandardMaterial({
+    color: riot ? 0x3a3d46 : 0x14161c, roughness: 0.7,
+  });
   for (const side of [-1, 1]) {
-    const stripe = new THREE.Mesh(
-      roundedBox(0.04, 0.3, 2.6, 0.02, 2),
-      new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.7 }),
-    );
+    const stripe = new THREE.Mesh(roundedBox(0.04, 0.3, 2.6, 0.02, 2), trim);
     stripe.position.set(side * 0.88, 0.78, 0);
     group.add(stripe);
+  }
+
+  if (riot) {
+    // Push bar across the nose.
+    const bar = new THREE.Mesh(roundedBox(1.6, 0.5, 0.14, 0.06, 2), trim);
+    bar.position.set(0, 0.62, 2.16);
+    group.add(bar);
+    for (const dx of [-0.5, 0.5]) {
+      const post = new THREE.Mesh(roundedBox(0.12, 0.62, 0.12, 0.04, 2), trim);
+      post.position.set(dx, 0.66, 2.1);
+      group.add(post);
+    }
+    // Mesh over the windows, so the cabin reads as caged rather than glazed.
+    for (const side of [-1, 1]) {
+      const cage = new THREE.Mesh(roundedBox(0.05, 0.42, 1.9, 0.02, 2), trim);
+      cage.position.set(side * 0.79, 1.24, -0.16);
+      group.add(cage);
+    }
+    const roofRack = new THREE.Mesh(roundedBox(1.2, 0.08, 1.3, 0.04, 2), trim);
+    roofRack.position.set(0, 1.55, -0.9);
+    group.add(roofRack);
   }
 
   return { group, lights: [red, blue] };

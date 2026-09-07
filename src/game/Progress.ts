@@ -1,5 +1,6 @@
 import { STARTER_BIKE, type BikeId } from '../sim/tuning';
 import { isTrafficSpeed, type TrafficSpeed } from '../world/Traffic';
+import { isPoliceStyle, type PoliceStyle } from '../world/Police';
 
 /**
  * Money and what you own.
@@ -18,10 +19,15 @@ export interface SaveData {
   bestScore: number;
   traffic: TrafficSpeed;
   scanner: boolean;
+  police: PoliceStyle;
 }
 
-/** What the police scanner costs. Cheap: it is a quality-of-life buy, not a wall. */
-export const SCANNER_PRICE = 600;
+/**
+ * What the police scanner costs. A serious purchase - it sits between the
+ * YZ250F and the Ducati, so buying it is a real decision about what you want
+ * next rather than pocket change.
+ */
+export const SCANNER_PRICE = 6000;
 
 const KEY = 'wheelie-life:save:v1';
 
@@ -39,6 +45,8 @@ export class Progress {
   traffic: TrafficSpeed = 'regular';
   /** Shows patrols on the GPS. Justin asked for this as a purchase. */
   scanner = false;
+  /** How hard la policía plays. Justin's call, saved between sessions. */
+  police: PoliceStyle = 'professional';
 
   /** Set for one frame after a payout, for the HUD toast. */
   lastPayout = 0;
@@ -116,6 +124,11 @@ export class Progress {
     this.save();
   }
 
+  setPolice(p: PoliceStyle): void {
+    this.police = p;
+    this.save();
+  }
+
   /** Wipes back to a fresh save. Exposed in the tuning panel for testing. */
   reset(): void {
     this.money = 0;
@@ -124,6 +137,7 @@ export class Progress {
     this.bestScore = 0;
     this.traffic = 'regular';
     this.scanner = false;
+    this.police = 'professional';
     this.save();
   }
 
@@ -147,6 +161,7 @@ export class Progress {
       }
       if (isTrafficSpeed(d.traffic)) this.traffic = d.traffic;
       if (typeof d.scanner === 'boolean') this.scanner = d.scanner;
+      if (isPoliceStyle(d.police)) this.police = d.police;
     } catch {
       /* no save, or storage is unavailable - start fresh */
     }
@@ -161,6 +176,7 @@ export class Progress {
         bestScore: this.bestScore,
         traffic: this.traffic,
         scanner: this.scanner,
+        police: this.police,
       };
       localStorage.setItem(KEY, JSON.stringify(data));
     } catch {

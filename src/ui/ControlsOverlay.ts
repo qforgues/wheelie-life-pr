@@ -4,6 +4,7 @@ import { BIKES, type BikeId } from '../sim/tuning';
 import type { Progress } from '../game/Progress';
 import { money, SCANNER_PRICE } from '../game/Progress';
 import { TRAFFIC_LABELS, TRAFFIC_ORDER, type TrafficSpeed } from '../world/Traffic';
+import { POLICE_BLURBS, POLICE_LABELS, POLICE_ORDER, type PoliceStyle } from '../world/Police';
 import { BUILD_ID } from '../core/version';
 import { hardReload } from '../core/UpdateWatcher';
 
@@ -32,6 +33,10 @@ export class ControlsOverlay {
   private onTraffic: ((t: TrafficSpeed) => void) | null = null;
   private scannerEl!: HTMLElement;
   private onScanner: (() => void) | null = null;
+  private policeEl!: HTMLElement;
+  private policeBlurbEl!: HTMLElement;
+  private police: PoliceStyle = 'professional';
+  private onPolice: ((p: PoliceStyle) => void) | null = null;
 
   constructor(private onDismiss: () => void) {
     this.root = document.createElement('div');
@@ -54,6 +59,11 @@ export class ControlsOverlay {
           <span class="opt-label">TRAFFIC</span>
           <div class="opt-choices" data-el="traffic"></div>
         </div>
+        <div class="opt">
+          <span class="opt-label">POLICÍA</span>
+          <div class="opt-choices" data-el="police"></div>
+        </div>
+        <p class="opt-blurb" data-el="policeBlurb"></p>
         <div class="upgrade" data-el="scanner"></div>
         <table class="overlay-table">
           <thead><tr><th>Action</th><th>Xbox</th><th>Keyboard</th></tr></thead>
@@ -125,6 +135,16 @@ export class ControlsOverlay {
       }
     });
 
+    this.policeEl = this.root.querySelector('[data-el="police"]')!;
+    this.policeBlurbEl = this.root.querySelector('[data-el="policeBlurb"]')!;
+    this.policeEl.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-police]');
+      if (!b) return;
+      e.stopPropagation();
+      this.setPolice(b.dataset.police as PoliceStyle);
+    });
+    this.renderPolice();
+
     this.trafficEl = this.root.querySelector('[data-el="traffic"]')!;
     this.trafficEl.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>('[data-traffic]');
@@ -167,6 +187,32 @@ export class ControlsOverlay {
         : `<button class="bike-buy" data-buy-scanner type="button" ${afford ? '' : 'disabled'}>
              BUY · ${money(SCANNER_PRICE)}
            </button>`}`;
+  }
+
+  /** Called when the police difficulty changes. */
+  onPolicePicked(fn: (p: PoliceStyle) => void): void {
+    this.onPolice = fn;
+  }
+
+  /** Sets the toggle without firing the callback, for restoring a saved value. */
+  setPoliceValue(p: PoliceStyle): void {
+    this.police = p;
+    this.renderPolice();
+  }
+
+  private setPolice(p: PoliceStyle): void {
+    this.police = p;
+    this.renderPolice();
+    this.onPolice?.(p);
+  }
+
+  private renderPolice(): void {
+    this.policeEl.innerHTML = POLICE_ORDER
+      .map((p) => `<button type="button" data-police="${p}"
+             class="opt-btn${p === this.police ? ' is-on' : ''}${p === 'ice' ? ' is-ice' : ''}"
+             aria-pressed="${p === this.police}">${POLICE_LABELS[p]}</button>`)
+      .join('');
+    this.policeBlurbEl.textContent = POLICE_BLURBS[this.police];
   }
 
   /** Called when the traffic setting changes. */

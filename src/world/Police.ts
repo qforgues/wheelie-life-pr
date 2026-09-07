@@ -21,21 +21,90 @@ import { LAYOUT } from './City';
 
 export type HeatLevel = 0 | 1 | 2 | 3;
 
-/** Heat gained per second of wheelie while in sight of a patrol. */
-const HEAT_PER_SECOND = 0.30;
-/** Heat gained per second of wheelie with no patrol nearby - the call goes in. */
-const HEAT_PER_SECOND_UNSEEN = 0.14;
-/** Heat lost per second when riding clean and unseen. */
-const COOL_PER_SECOND = 0.22;
-/** How close a patrol has to be to see you at all. */
-const SIGHT = 150;
-/** Inside this, and stopped, you are getting pulled over. */
-const BUST_RANGE = 5.5;
-const BUST_SECONDS = 1.4;
-/** Cops give up beyond this. */
-const GIVE_UP = 280;
+/** How hard the police play. Justin's ladder. */
+export type PoliceStyle = 'none' | 'lazy' | 'professional' | 'aggressive' | 'ice';
 
-const SPEED_BY_HEAT = [0, 15, 19, 23];
+export const POLICE_ORDER: PoliceStyle[] = ['none', 'lazy', 'professional', 'aggressive', 'ice'];
+
+export const POLICE_LABELS: Record<PoliceStyle, string> = {
+  none: 'NONE',
+  lazy: 'LAZY',
+  professional: 'PRO',
+  aggressive: 'AGGRO',
+  ice: 'ICE',
+};
+
+export const POLICE_BLURBS: Record<PoliceStyle, string> = {
+  none: 'Nobody is watching. Wheelie all day.',
+  lazy: 'They notice eventually, and give up quickly.',
+  professional: 'One warning, then they work the grid properly.',
+  aggressive: 'Three cars, no patience, and they drive hard.',
+  ice: 'Riot gear. They come for you whether you did anything or not.',
+};
+
+interface StyleTuning {
+  /** Most patrols out at once. */
+  patrols: number;
+  /** Heat per second of wheelie, in sight of a patrol and out of it. */
+  heatSeen: number;
+  heatUnseen: number;
+  coolPerSecond: number;
+  /**
+   * Seconds of clean riding before heat starts falling at all.
+   *
+   * Without this the maths quietly made police impossible: heat rose at 0.14/s
+   * and fell at 0.22/s, so you had to be wheelieing 61% of the time merely to
+   * break even, and a real rider doing three seconds up and five down never saw
+   * a single patrol. Interest should linger after they have noticed you.
+   */
+  coolDelay: number;
+  /** How far a patrol can see, and how fast it drives at each heat level. */
+  sight: number;
+  speed: number[];
+  bustRange: number;
+  bustSeconds: number;
+  /**
+   * ICE only: heat climbs whether or not you are doing anything wrong, so the
+   * only way out is distance. Everyone else needs a reason to chase you.
+   */
+  alwaysHunting: boolean;
+  riotGear: boolean;
+}
+
+const STYLES: Record<PoliceStyle, StyleTuning> = {
+  none: {
+    patrols: 0, heatSeen: 0, heatUnseen: 0, coolPerSecond: 1, coolDelay: 0,
+    sight: 0, speed: [0, 0, 0, 0], bustRange: 0, bustSeconds: 99,
+    alwaysHunting: false, riotGear: false,
+  },
+  lazy: {
+    patrols: 2, heatSeen: 0.16, heatUnseen: 0.10, coolPerSecond: 0.35, coolDelay: 3,
+    sight: 90, speed: [0, 11, 14, 16], bustRange: 4.5, bustSeconds: 2.6,
+    alwaysHunting: false, riotGear: false,
+  },
+  professional: {
+    patrols: 3, heatSeen: 0.34, heatUnseen: 0.22, coolPerSecond: 0.28, coolDelay: 4,
+    sight: 150, speed: [0, 15, 19, 23], bustRange: 5.5, bustSeconds: 1.4,
+    alwaysHunting: false, riotGear: false,
+  },
+  aggressive: {
+    patrols: 3, heatSeen: 0.60, heatUnseen: 0.34, coolPerSecond: 0.22, coolDelay: 6,
+    sight: 210, speed: [0, 20, 24, 28], bustRange: 6.5, bustSeconds: 1.0,
+    alwaysHunting: false, riotGear: false,
+  },
+  ice: {
+    patrols: 3, heatSeen: 0.85, heatUnseen: 0.60, coolPerSecond: 0.18, coolDelay: 8,
+    sight: 300, speed: [0, 25, 29, 33], bustRange: 7.5, bustSeconds: 0.7,
+    alwaysHunting: true, riotGear: true,
+  },
+};
+
+export function isPoliceStyle(v: unknown): v is PoliceStyle {
+  return typeof v === 'string' && (POLICE_ORDER as string[]).includes(v);
+}
+
+/** Cops give up beyond this whatever the style. */
+const GIVE_UP = 280;
 
 interface Patrol {
   group: THREE.Group;
@@ -66,7 +135,10 @@ export class Police {
   private bustTimer = 0;
   private hasWarned = false;
   private flash = 0;
+  private cleanFor = 0;
   private report: PoliceReport = { heat: 0, warned: false, busted: false, blips: [] };
+  private style: PoliceStyle = 'professional';
+  private tuning: StyleTuning = STYLES.professional;
 
   constructor() {
     // Three is the ceiling from the interview. They are built once and parked
@@ -81,13 +153,43 @@ export class Police {
     }
   }
 
+  get styleName(): PoliceStyle {
+    return this.style;
+  }
+
+  /**
+   * Switches how hard they play. Rebuilds the cars, because riot units look
+   * different and there is no point paying for that geometry until ICE is on.
+   */
+  setStyle(style: PoliceStyle): void {
+    if (style === this.style) return;
+    const wasRiot = this.tuning.riotGear;
+    this.style = style;
+    this.tuning = STYLES[style];
+    this.reset();
+    if (this.tuning.riotGear !== wasRiot) this.rebuild();
+    this.root.visible = style !== 'none';
+  }
+
+  private rebuild(): void {
+    for (const p of this.patrols) this.root.remove(p.group);
+    this.patrols = [];
+    for (let i = 0; i < 3; i++) {
+      const { group, lights } = makePoliceCar(this.tuning.riotGear);
+      group.visible = false;
+      this.root.add(group);
+      this.patrols.push({ group, lights, x: 0, z: 0, yaw: 0, tx: 0, tz: 0, active: false });
+    }
+  }
+
   get heatLevel(): HeatLevel {
-    return Math.min(3, Math.floor(this.heat)) as HeatLevel;
+    return Math.min(this.tuning.patrols, Math.floor(this.heat)) as HeatLevel;
   }
 
   reset(): void {
     this.heat = 0;
     this.bustTimer = 0;
+    this.cleanFor = 0;
     this.hasWarned = false;
     for (const p of this.patrols) {
       p.active = false;
@@ -105,17 +207,32 @@ export class Police {
     const r = this.report;
     r.warned = false;
     r.busted = false;
+    if (this.style === 'none') {
+      r.heat = 0;
+      r.blips.length = 0;
+      return r;
+    }
 
+    const t = this.tuning;
     const nearest = this.nearestDistance(px, pz);
-    const seen = nearest < SIGHT;
+    const seen = nearest < t.sight;
 
-    if (wheelieing && riding) {
-      this.heat = Math.min(3.999, this.heat + (seen ? HEAT_PER_SECOND : HEAT_PER_SECOND_UNSEEN) * dt);
-    } else if (!seen || nearest > GIVE_UP) {
-      this.heat = Math.max(0, this.heat - COOL_PER_SECOND * dt);
+    // ICE does not need a reason. Everyone else is only interested while the
+    // front wheel is up, which is what makes a wheelie down a main road a
+    // choice rather than a tax.
+    const wanted = riding && (wheelieing || t.alwaysHunting);
+
+    if (wanted) {
+      this.cleanFor = 0;
+      this.heat = Math.min(3.999, this.heat + (seen ? t.heatSeen : t.heatUnseen) * dt);
     } else {
-      // In sight but behaving: cools, slowly.
-      this.heat = Math.max(0, this.heat - COOL_PER_SECOND * 0.35 * dt);
+      this.cleanFor += dt;
+      // Their interest lingers. Only once you have been clean for a while does
+      // it start to fade - and slower still while a patrol has eyes on you.
+      if (this.cleanFor > t.coolDelay) {
+        const rate = seen && nearest < GIVE_UP ? t.coolPerSecond * 0.4 : t.coolPerSecond;
+        this.heat = Math.max(0, this.heat - rate * dt);
+      }
     }
 
     const level = this.heatLevel;
@@ -129,9 +246,9 @@ export class Police {
     this.drive(dt, px, pz, level);
 
     // Getting caught: a patrol on top of you, for long enough to stop.
-    if (level > 0 && riding && this.nearestDistance(px, pz) < BUST_RANGE) {
+    if (level > 0 && riding && this.nearestDistance(px, pz) < t.bustRange) {
       this.bustTimer += dt;
-      if (this.bustTimer >= BUST_SECONDS) {
+      if (this.bustTimer >= t.bustSeconds) {
         r.busted = true;
         this.reset();
       }
@@ -180,7 +297,7 @@ export class Police {
   }
 
   private drive(dt: number, px: number, pz: number, level: number): void {
-    const speed = SPEED_BY_HEAT[level] ?? 0;
+    const speed = this.tuning.speed[level] ?? 0;
     for (const p of this.patrols) {
       if (!p.active) continue;
 
