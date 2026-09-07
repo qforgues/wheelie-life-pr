@@ -7,7 +7,7 @@ import { standard } from '../view/materials';
 import {
   CAR_COLORS, makeAwning, makeBillboard, makeDominoTable, makeFort, makeGarita,
   makeParkedCar, makePalm, makePerson, makePlanter,
-  makeRailing, makeShopSign, makeStreetLamp, PROP_MATERIALS,
+  makeChicken, makeHorse, makeRailing, makeShopSign, makeStreetLamp, PROP_MATERIALS,
 } from './Props';
 import {
   makeAbiertoBillboard, makeChainLinkTexture, makeCobbleTexture, SAN_JUAN_FACADES, makeFacadeTexture, makeGrassTexture, makePiratasBillboard, makeFlagMuralTexture, makeHazardTexture, makeSidewalkTexture,
@@ -1089,6 +1089,8 @@ export class City implements GroundProvider {
     this.fenceRun(true, -gap, z1, LAYOUT.seaWallZ, [], mesh);
     this.fenceRun(true, gap, z1, LAYOUT.seaWallZ, [], mesh);
 
+    this.buildAnimals();
+
     // Scrub and palms on the far side, so what you see through the wire is
     // land rather than a green plane running into the fog.
     let seed = 771;
@@ -1105,6 +1107,58 @@ export class City implements GroundProvider {
       const palm = makePalm(6.5 + rnd() * 4, i);
       palm.position.set(x, 0, z);
       this.blockAdd(palm);
+    }
+  }
+
+  /**
+   * Horses and chickens, in the fields and in the road.
+   *
+   * Justin asked for both, and on this island neither is a joke - a paso fino
+   * tied up on the verge is an ordinary sight and so is having to go round one,
+   * and there are more chickens here than there are people.
+   *
+   * They stand in the block interiors and on the verges rather than being
+   * scattered anywhere, so a horse is always somewhere a horse could plausibly
+   * be. The ones on the road are the point: a chicken on the centreline at
+   * forty miles an hour is a decision you have to make.
+   */
+  private buildAnimals(): void {
+    let seed = 9931;
+    const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    const setback = LAYOUT.roadHalf + LAYOUT.sidewalk + LAYOUT.blockDepth / 2;
+
+    // Horses: on the grass behind the building rows, and a few on the verge.
+    for (let i = 0; i < (this.lite ? 7 : 14); i++) {
+      const ax = LAYOUT.avenueX[Math.floor(rnd() * LAYOUT.avenueX.length)];
+      const sz = LAYOUT.streetZ[Math.floor(rnd() * LAYOUT.streetZ.length)];
+      // Out past the frontage, in the open middle of a block.
+      const side = rnd() < 0.5 ? -1 : 1;
+      const x = ax + side * (setback + LAYOUT.blockDepth * 0.5 + 6 + rnd() * 22);
+      const z = sz + (rnd() - 0.5) * 90;
+      if (Math.abs(x) > MAP.xMax + EDGE - 8) continue;
+      if (distanceOffRoad(x, z) < 3) continue;
+      const horse = makeHorse(i);
+      horse.position.set(x, KERB_HEIGHT, z);
+      horse.rotation.y = rnd() * Math.PI * 2;
+      this.blockAdd(horse);
+    }
+
+    // Chickens: on the pavement, on the verge, and some of them in the road.
+    for (let i = 0; i < (this.lite ? 16 : 34); i++) {
+      const onRoad = rnd() < 0.35;
+      const ax = LAYOUT.avenueX[Math.floor(rnd() * LAYOUT.avenueX.length)];
+      const sz = LAYOUT.streetZ[Math.floor(rnd() * LAYOUT.streetZ.length)];
+      const across = onRoad
+        ? (rnd() - 0.5) * LAYOUT.roadHalf * 1.5
+        : (rnd() < 0.5 ? -1 : 1) * (LAYOUT.roadHalf + 1.2 + rnd() * 6);
+      const along = (rnd() - 0.5) * 120;
+      const alongZ = rnd() < 0.5;
+      const x = alongZ ? ax + across : ax + along;
+      const z = alongZ ? sz + along : sz + across;
+      const bird = makeChicken(i);
+      bird.position.set(x, distanceOffRoad(x, z) > 0 ? KERB_HEIGHT : 0, z);
+      bird.rotation.y = rnd() * Math.PI * 2;
+      this.blockAdd(bird);
     }
   }
 

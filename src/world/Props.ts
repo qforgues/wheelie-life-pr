@@ -1415,3 +1415,121 @@ function rivalWheel(radius: number, width: number, mat: THREE.Material): THREE.M
   wheel.castShadow = true;
   return wheel;
 }
+
+/**
+ * A horse, standing in a field or on the road like it owns it.
+ *
+ * Justin asked for horses and chickens, and on this island that is not a joke -
+ * a paso fino tied up on the verge is an ordinary sight, and so is having to go
+ * round one. Built the way the rivals are: lots of small parts, then baked flat,
+ * so it is four draw calls whatever the leg count.
+ */
+export function makeHorse(seed = 0): THREE.Group {
+  const coat = [0x5a3a24, 0x2a2320, 0x8a6440, 0xd8cdbc][Math.abs(Math.round(seed)) % 4];
+  return cached(`horse:${coat}`, () => bakeVehicle(buildHorse(coat)));
+}
+
+function buildHorse(coat: number): THREE.Group {
+  const g = new THREE.Group();
+  const hide = standard({ color: coat, roughness: 0.88 });
+  const mane = standard({ color: 0x241a12, roughness: 0.95 });
+  const hoof = standard({ color: 0x1a1714, roughness: 0.7 });
+
+  // Barrel, chest and quarters. A horse from the side is one long body with the
+  // shoulder higher than the hip, and that shape is most of the read.
+  const body = new THREE.Mesh(roundedBox(0.52, 0.74, 1.62, 0.24, 3), hide);
+  body.position.set(0, 1.16, 0);
+  body.castShadow = true;
+  g.add(body);
+  const chest = new THREE.Mesh(roundedBox(0.50, 0.62, 0.46, 0.22, 3), hide);
+  chest.position.set(0, 1.22, 0.72);
+  g.add(chest);
+
+  // Neck up to the head, which is what says horse and not cow.
+  const neck = new THREE.Mesh(roundedBox(0.30, 0.72, 0.34, 0.14, 3), hide);
+  neck.position.set(0, 1.62, 0.86);
+  neck.rotation.x = 0.52;
+  neck.castShadow = true;
+  g.add(neck);
+  const head = new THREE.Mesh(roundedBox(0.24, 0.26, 0.56, 0.10, 3), hide);
+  head.position.set(0, 1.92, 1.20);
+  head.rotation.x = 1.05;
+  head.castShadow = true;
+  g.add(head);
+  for (const dx of [-0.07, 0.07]) {
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.14, 5), hide);
+    ear.position.set(dx, 2.06, 1.06);
+    g.add(ear);
+  }
+  // Mane down the neck and a tail off the back.
+  const crest = new THREE.Mesh(roundedBox(0.10, 0.14, 0.70, 0.05, 2), mane);
+  crest.position.set(0, 1.76, 0.84);
+  crest.rotation.x = 0.52;
+  g.add(crest);
+  const tail = new THREE.Mesh(roundedBox(0.13, 0.60, 0.13, 0.06, 2), mane);
+  tail.position.set(0, 1.10, -0.86);
+  tail.rotation.x = -0.30;
+  g.add(tail);
+
+  // Four legs. Forelegs under the shoulder, hinds under the quarters, and both
+  // pairs a little apart so it stands rather than balances.
+  for (const [dx, dz] of [[-0.19, 0.56], [0.19, 0.56], [-0.21, -0.58], [0.21, -0.58]] as const) {
+    const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, 0.44, 2, 6), hide);
+    upper.position.set(dx, 0.94, dz);
+    upper.castShadow = true;
+    g.add(upper);
+    const lower = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.42, 2, 6), hide);
+    lower.position.set(dx, 0.44, dz + (dz > 0 ? 0.02 : -0.02));
+    g.add(lower);
+    const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.08, 0.13, 6), hoof);
+    foot.position.set(dx, 0.07, dz + (dz > 0 ? 0.03 : -0.03));
+    g.add(foot);
+  }
+  return g;
+}
+
+/**
+ * A chicken. There are more of these on this island than there are people.
+ *
+ * Tiny, so it is deliberately crude - a body, a head, a comb, a tail and two
+ * legs. What makes it read is the silhouette and the fact that it is somewhere
+ * a chicken has no business being.
+ */
+export function makeChicken(seed = 0): THREE.Group {
+  const body = [0xe8e2d6, 0x8a5a32, 0x2a2622, 0xc8912e][Math.abs(Math.round(seed)) % 4];
+  return cached(`chicken:${body}`, () => bakeVehicle(buildChicken(body)));
+}
+
+function buildChicken(color: number): THREE.Group {
+  const g = new THREE.Group();
+  const feather = standard({ color, roughness: 0.92 });
+  const comb = standard({ color: 0xc4241c, roughness: 0.75 });
+  const beak = standard({ color: 0xe0a13a, roughness: 0.7 });
+
+  const barrel = new THREE.Mesh(new THREE.SphereGeometry(0.115, 8, 6), feather);
+  barrel.scale.set(0.85, 0.92, 1.25);
+  barrel.position.set(0, 0.20, 0);
+  barrel.castShadow = true;
+  g.add(barrel);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.058, 7, 5), feather);
+  head.position.set(0, 0.34, 0.10);
+  head.castShadow = true;
+  g.add(head);
+  const crest = new THREE.Mesh(roundedBox(0.02, 0.05, 0.07, 0.01, 1), comb);
+  crest.position.set(0, 0.39, 0.10);
+  g.add(crest);
+  const bill = new THREE.Mesh(new THREE.ConeGeometry(0.022, 0.06, 5), beak);
+  bill.rotation.x = Math.PI / 2;
+  bill.position.set(0, 0.33, 0.16);
+  g.add(bill);
+  const tail = new THREE.Mesh(roundedBox(0.05, 0.13, 0.10, 0.02, 1), feather);
+  tail.position.set(0, 0.28, -0.13);
+  tail.rotation.x = -0.7;
+  g.add(tail);
+  for (const dx of [-0.045, 0.045]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.12, 4), beak);
+    leg.position.set(dx, 0.07, 0.01);
+    g.add(leg);
+  }
+  return g;
+}

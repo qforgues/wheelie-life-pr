@@ -880,3 +880,60 @@ export function makeChainLinkTexture(): THREE.CanvasTexture {
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
+
+/**
+ * A crew plate for the back of a helmet: letters over a striped flag.
+ *
+ * Justin's idea, near enough his words - VQS with a white and light-blue
+ * striped flag behind the letters. Cached by what it says, because a texture
+ * per rider is a GPU upload per rider and that is the mistake this file has
+ * already made twice.
+ *
+ * Deliberately a flag rather than a logo: at helmet size from a chase camera
+ * the stripes are what you actually read, and the letters sit on top of them.
+ */
+const CREW_DECALS = new Map<string, THREE.CanvasTexture>();
+
+export function makeCrewDecal(text: string, a: string, b: string, ink: string): THREE.CanvasTexture {
+  const key = `${text}|${a}|${b}|${ink}`;
+  const had = CREW_DECALS.get(key);
+  if (had) return had;
+
+  const W = 256;
+  const H = 160;
+  const [c, ctx] = makeCanvas(W, H);
+
+  // The flag: stripes running across, with the edge frayed off so it reads as
+  // cloth behind the letters rather than a snooker table.
+  const bands = 7;
+  for (let i = 0; i < bands; i++) {
+    ctx.fillStyle = i % 2 === 0 ? a : b;
+    ctx.fillRect(0, (i * H) / bands, W, H / bands + 1);
+  }
+  // A soft darkening at the edges so the plate has a shape.
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, 'rgba(0,0,0,0.30)');
+  grad.addColorStop(0.5, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.30)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // The letters, with a heavy outline so they hold together at distance.
+  ctx.font = `900 ${Math.round(H * 0.62)}px Impact, "Arial Black", system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = H * 0.11;
+  ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+  ctx.strokeText(text, W / 2, H * 0.54);
+  ctx.fillStyle = ink;
+  ctx.fillText(text, W / 2, H * 0.54);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.anisotropy = ANISOTROPY;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  CREW_DECALS.set(key, tex);
+  return tex;
+}

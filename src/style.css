@@ -936,3 +936,168 @@ body.is-console .debug-gui { display: none !important; }
 }
 .scope-pill.bike { background: rgba(94, 219, 233, 0.16); color: var(--pr-cyan); }
 .scope-pill.rider { background: rgba(224, 161, 58, 0.18); color: #e0a13a; }
+
+/* ---- garage / closet tabs ------------------------------------------------
+   Justin's split: two buttons where the GARAGE heading used to be. Press one
+   and the other list goes away, so the card never shows bikes and clothes at
+   the same time. */
+.garage-tabs {
+  display: flex;
+  gap: 6px;
+}
+.garage-tabs .tab {
+  font: 700 13px/1 var(--ui-font, system-ui), sans-serif;
+  letter-spacing: 0.14em;
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(240, 244, 250, 0.55);
+  cursor: pointer;
+}
+.garage-tabs .tab:hover { color: rgba(240, 244, 250, 0.85); }
+.garage-tabs .tab.is-on {
+  color: #0d1117;
+  background: #53c9d6;
+  border-color: #53c9d6;
+}
+.garage-cash .aura {
+  margin-left: 10px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.62em;
+  letter-spacing: 0.12em;
+  color: #ffd76a;
+  background: rgba(255, 215, 106, 0.13);
+  border: 1px solid rgba(255, 215, 106, 0.35);
+  vertical-align: middle;
+}
+/* An outfit swatch is two colours - the jersey, and the lid over it. */
+.kit-swatch {
+  background: linear-gradient(160deg, var(--trim) 0 42%, var(--paint) 42% 100%);
+}
+.bike-price.is-locked-kit {
+  color: #ffd76a;
+  letter-spacing: 0.08em;
+}
+
+/* ---- wheelie battles -----------------------------------------------------
+   The offer sits over the middle of the screen because you have stopped to
+   have this conversation; the scoreboard sits at the top out of the way,
+   because you are riding while you read it. */
+.battle { position: fixed; inset: 0; pointer-events: none; z-index: 40; }
+
+.battle-offer {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(520px, calc(100vw - 40px));
+  pointer-events: auto;
+  padding: 20px 22px 18px;
+  border-radius: 14px;
+  background: rgba(10, 14, 20, 0.94);
+  border: 1px solid rgba(83, 201, 214, 0.45);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  color: #eef3f8;
+  font: 13px/1.45 var(--ui-font, system-ui), sans-serif;
+}
+.battle-head { display: flex; align-items: baseline; gap: 12px; }
+.battle-who { font: 800 24px/1 var(--ui-font, system-ui), sans-serif; letter-spacing: 0.04em; }
+.battle-what {
+  font-weight: 800; font-size: 12px; letter-spacing: 0.18em;
+  color: #53c9d6; margin-left: auto;
+}
+.battle-brief { margin: 6px 0 14px; color: rgba(238, 243, 248, 0.72); }
+
+.battle-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+.battle-label {
+  flex: 0 0 78px; padding-top: 6px;
+  font-weight: 700; font-size: 10px; letter-spacing: 0.15em;
+  color: rgba(238, 243, 248, 0.45);
+}
+.battle-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.battle .chip {
+  font: 700 12px/1 var(--ui-font, system-ui), sans-serif;
+  letter-spacing: 0.06em;
+  padding: 7px 11px; border-radius: 6px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(238, 243, 248, 0.72);
+}
+.battle .chip:hover { color: #fff; border-color: rgba(255, 255, 255, 0.34); }
+.battle .chip.is-on { background: #53c9d6; border-color: #53c9d6; color: #08121a; }
+.battle .chip-aura.is-on { background: #ffd76a; border-color: #ffd76a; }
+.battle .chip-kit { color: #ffd76a; border-color: rgba(255, 215, 106, 0.4); }
+.battle .chip-kit.is-on { background: #ffd76a; border-color: #ffd76a; color: #1a1206; }
+
+.battle-terms {
+  margin: 14px 0 16px; padding: 13px 14px; border-radius: 10px;
+  background: rgba(83, 201, 214, 0.08);
+  border: 1px solid rgba(83, 201, 214, 0.22);
+}
+.battle-terms.is-bad {
+  background: rgba(255, 90, 90, 0.08);
+  border-color: rgba(255, 90, 90, 0.28);
+}
+.battle-deal { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.battle-deal span { display: flex; flex-direction: column; gap: 2px; }
+.battle-deal em {
+  font: 800 19px/1 var(--ui-font, system-ui), sans-serif;
+  font-style: normal; letter-spacing: 0.02em;
+}
+.battle-deal small {
+  font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: rgba(238, 243, 248, 0.42);
+}
+.battle-vs { font-size: 11px; color: rgba(238, 243, 248, 0.35); letter-spacing: 0.2em; }
+.battle-odds { display: flex; align-items: center; gap: 10px; margin-top: 11px; }
+.battle-bar {
+  flex: 1; height: 5px; border-radius: 3px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.12);
+}
+.battle-bar i { display: block; height: 100%; background: #53c9d6; }
+.battle-odds span {
+  font: 700 10px/1 var(--ui-font, system-ui), sans-serif;
+  letter-spacing: 0.12em; color: rgba(238, 243, 248, 0.6);
+}
+.battle-note { margin: 9px 0 0; font-size: 12px; color: rgba(238, 243, 248, 0.66); }
+
+.battle-buttons { display: flex; gap: 10px; }
+.battle-buttons button {
+  flex: 1; padding: 12px; border-radius: 8px; cursor: pointer;
+  font: 800 14px/1 var(--ui-font, system-ui), sans-serif; letter-spacing: 0.12em;
+  border: 1px solid transparent;
+}
+.battle-no { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.18) !important; color: rgba(238, 243, 248, 0.7); }
+.battle-yes { background: #53c9d6; color: #08121a; }
+.battle-yes[disabled] { background: rgba(255, 255, 255, 0.08); color: rgba(238, 243, 248, 0.3); cursor: not-allowed; }
+
+.battle-live {
+  position: absolute; left: 50%; top: 18px; transform: translateX(-50%);
+  text-align: center; color: #eef3f8; text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85);
+  font: 13px/1.4 var(--ui-font, system-ui), sans-serif;
+}
+.battle-count { font: 900 88px/1 var(--ui-font, system-ui), sans-serif; color: #53c9d6; }
+.battle-sub { font-size: 12px; letter-spacing: 0.08em; color: rgba(238, 243, 248, 0.8); }
+.battle-score {
+  display: flex; align-items: center; gap: 22px;
+  padding: 10px 20px; border-radius: 999px;
+  background: rgba(10, 14, 20, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.battle-score.is-ahead { border-color: rgba(63, 208, 122, 0.7); }
+.battle-score.is-behind { border-color: rgba(255, 90, 90, 0.7); }
+.battle-clock { font: 800 24px/1 var(--ui-font, system-ui), sans-serif; color: #53c9d6; }
+.battle-side { display: flex; flex-direction: column; gap: 2px; }
+.battle-side small { font-size: 9px; letter-spacing: 0.16em; color: rgba(238, 243, 248, 0.5); }
+.battle-side em { font: 800 17px/1 var(--ui-font, system-ui), sans-serif; font-style: normal; }
+.battle-result { padding: 16px 26px; border-radius: 12px; background: rgba(10, 14, 20, 0.9); border: 1px solid rgba(255,255,255,0.16); }
+.battle-result.is-won { border-color: rgba(63, 208, 122, 0.8); }
+.battle-result.is-lost { border-color: rgba(255, 90, 90, 0.7); }
+.battle-verdict { font: 900 34px/1 var(--ui-font, system-ui), sans-serif; letter-spacing: 0.04em; }
+.battle-result.is-won .battle-verdict { color: #3fd07a; }
+.battle-result.is-lost .battle-verdict { color: #ff5a5a; }
+.battle-final { display: flex; gap: 26px; justify-content: center; margin: 10px 0 6px; }
+.battle-final em { font-style: normal; font-weight: 800; margin-left: 7px; }
+.battle-prize { font-weight: 700; letter-spacing: 0.08em; color: #ffd76a; }

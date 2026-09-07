@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { makeRivalBike, type RivalLook, type RivalModel } from './Props';
 import { junctionByIndex, stepToward, wanderFrom } from './grid';
+import type { OutfitId } from '../game/Outfits';
 
 /**
  * Other people out riding.
@@ -82,6 +83,14 @@ interface RivalSpec {
   name: string;
   temper: Temper;
   look: RivalLook;
+  /**
+   * How good they are, 0..1. This is what the wager broker prices the bet on,
+   * so it has to line up with how they actually ride - a hooligan who holds one
+   * for nine seconds is not a soft touch and should not be priced like one.
+   */
+  skill: number;
+  /** What they have in the closet, and could lose to you. */
+  wearing: OutfitId | null;
 }
 
 const DIRT = { style: 'dirt' as const, frontRadius: 0.347, rearRadius: 0.331, hipHeight: 1.02, seatZ: 0.60 };
@@ -89,13 +98,13 @@ const MINI = { style: 'mini' as const, frontRadius: 0.24, rearRadius: 0.24, hipH
 const SPORT = { style: 'sport' as const, frontRadius: 0.300, rearRadius: 0.336, hipHeight: 0.90, seatZ: 0.56 };
 
 const CREW: RivalSpec[] = [
-  { name: 'PIRAÑA', temper: 'hooligan', look: { ...DIRT, bodyColor: 0x1b45b4, kitColor: 0xe23c2c } },
-  { name: 'LA SOMBRA', temper: 'racer', look: { ...SPORT, bodyColor: 0x16171b, kitColor: 0xd8dce4 } },
-  { name: 'TITO', temper: 'learner', look: { ...MINI, bodyColor: 0xe0a13a, kitColor: 0x2f6f4f } },
-  { name: 'CHUCHÍN', temper: 'hooligan', look: { ...DIRT, bodyColor: 0xf2f4f7, kitColor: 0x1f8f5a } },
-  { name: 'MELO', temper: 'learner', look: { ...MINI, bodyColor: 0xc4161c, kitColor: 0x2a3a6a } },
-  { name: 'NENA', temper: 'racer', look: { ...SPORT, bodyColor: 0x8a3fc0, kitColor: 0xf2c14e } },
-  { name: 'EL FLACO', temper: 'hooligan', look: { ...DIRT, bodyColor: 0x1f8f5a, kitColor: 0x16171b } },
+  { name: 'PIRAÑA', skill: 0.72, wearing: 'piratas', temper: 'hooligan', look: { ...DIRT, bodyColor: 0x1b45b4, kitColor: 0xe23c2c } },
+  { name: 'LA SOMBRA', skill: 0.66, wearing: 'piratas', temper: 'racer', look: { ...SPORT, bodyColor: 0x16171b, kitColor: 0xd8dce4 } },
+  { name: 'TITO', skill: 0.22, wearing: null, temper: 'learner', look: { ...MINI, bodyColor: 0xe0a13a, kitColor: 0x2f6f4f } },
+  { name: 'CHUCHÍN', skill: 0.70, wearing: 'piratas', temper: 'hooligan', look: { ...DIRT, bodyColor: 0xf2f4f7, kitColor: 0x1f8f5a } },
+  { name: 'MELO', skill: 0.26, wearing: null, temper: 'learner', look: { ...MINI, bodyColor: 0xc4161c, kitColor: 0x2a3a6a } },
+  { name: 'NENA', skill: 0.61, wearing: 'piratas', temper: 'racer', look: { ...SPORT, bodyColor: 0x8a3fc0, kitColor: 0xf2c14e } },
+  { name: 'EL FLACO', skill: 0.68, wearing: 'piratas', temper: 'hooligan', look: { ...DIRT, bodyColor: 0x1f8f5a, kitColor: 0x16171b } },
 ];
 
 /** What they shout when you come alongside. */
@@ -134,6 +143,8 @@ interface Rider {
   frontSpin: number;
   /** Slow clock, only for the wobble. */
   phase: number;
+  /** In a battle with the player, and trying. */
+  racing: boolean;
   /** Stops them greeting you every frame you ride alongside. */
   greeted: number;
 }
@@ -146,9 +157,24 @@ export interface RivalHail {
   wheelie: number;
 }
 
+/** Somebody you have just made contact with, which is what starts a battle. */
+export interface RivalContact {
+  index: number;
+  name: string;
+  skill: number;
+  wearing: OutfitId | null;
+}
+
 export interface RivalReport {
   hail: RivalHail | null;
   blips: Array<{ x: number; z: number }>;
+  /**
+   * Justin's trigger: a battle starts when you and a crew **make contact**.
+   * Set for the one frame the bike touches somebody, and then not again until
+   * you have separated - otherwise leaning on a rival at a set of lights opens
+   * the prompt sixty times a second.
+   */
+  contact: RivalContact | null;
 }
 
 /**
@@ -167,6 +193,8 @@ const LANE = 4.3;
 const DRAW_RADIUS = 220;
 /** Come this close and they will say something. */
 const HAIL_RANGE = 22;
+/** And this close counts as making contact, which is what starts a battle. */
+const CONTACT_RANGE = 2.6;
 /** And not again for this long. */
 const HAIL_COOL = 14;
 /**
@@ -188,7 +216,11 @@ export class Rivals {
   private riders: Rider[] = [];
   private setting: RivalCount = 'few';
   private seed = 4471;
-  private report: RivalReport = { hail: null, blips: [] };
+  private report: RivalReport = { hail: null, blips: [], contact: null };
+  /** Index of whoever we are currently leaning on, so contact fires once. */
+  private touching = -1;
+  /** Set while a battle is on, so the crew stop being solid mid-race. */
+  battling = false;
 
   constructor() {
     this.rebuild();
@@ -244,6 +276,7 @@ export class Rivals {
         spin: 0,
         frontSpin: 0,
         phase: 0,
+        racing: false,
         greeted: 0,
       };
       const next = wanderFrom(rider.x, rider.z, this.rnd());
@@ -261,6 +294,7 @@ export class Rivals {
       r.loft = 0;
       r.up = false;
       r.run = 0;
+      r.racing = false;
       r.greeted = 0;
       r.timer = this.between(TEMPERS[r.spec.temper].rest);
     }
@@ -291,6 +325,36 @@ export class Rivals {
     }
   }
 
+  /** Who a rider is, for pricing a wager against them. */
+  specFor(i: number): { name: string; skill: number; wearing: OutfitId | null } | null {
+    const r = this.riders[i];
+    return r ? { name: r.spec.name, skill: r.spec.skill, wearing: r.spec.wearing } : null;
+  }
+
+  /**
+   * Puts one rider into race mode, or takes them out of it.
+   *
+   * They already wheelie on their own schedule; racing shortens the rest
+   * between goes and stretches the holds, so they are visibly trying. Without
+   * it a battle against a learner is sixty seconds of watching somebody potter.
+   */
+  race(i: number, on: boolean): void {
+    const r = this.riders[i];
+    if (!r) return;
+    r.racing = on;
+    if (on) {
+      r.timer = 0.4;
+      r.up = false;
+    }
+  }
+
+  /** Live state of one rider, for a battle to score against. */
+  riderState(i: number): { up: boolean; run: number; x: number; z: number } | null {
+    const r = this.riders[i];
+    if (!r) return null;
+    return { up: r.up, run: r.run, x: r.drawX, z: r.drawZ };
+  }
+
   /** Their best runs this session, longest first - for a leaderboard later. */
   get standings(): Array<{ name: string; best: number }> {
     return this.riders
@@ -300,10 +364,12 @@ export class Rivals {
 
   update(dt: number, px: number, pz: number): RivalReport {
     this.report.hail = null;
+    this.report.contact = null;
     this.report.blips.length = 0;
     if (this.setting === 'off') return this.report;
 
-    for (const r of this.riders) {
+    for (let i = 0; i < this.riders.length; i++) {
+      const r = this.riders[i];
       const t = TEMPERS[r.spec.temper];
       this.think(r, t, dt);
 
@@ -396,6 +462,20 @@ export class Rivals {
       g.visible = range < DRAW_RADIUS;
       this.report.blips.push({ x: r.drawX, z: r.drawZ });
 
+      // Contact. CONTACT_RANGE is a shade wider than the collision box so
+      // brushing past counts - you should not have to actually crash into
+      // somebody to get their attention.
+      if (range < CONTACT_RANGE) {
+        if (this.touching !== i) {
+          this.touching = i;
+          this.report.contact = {
+            index: i, name: r.spec.name, skill: r.spec.skill, wearing: r.spec.wearing,
+          };
+        }
+      } else if (this.touching === i) {
+        this.touching = -1;
+      }
+
       r.greeted = Math.max(0, r.greeted - dt);
       if (range < HAIL_RANGE && r.greeted <= 0 && !this.report.hail) {
         r.greeted = HAIL_COOL;
@@ -419,18 +499,24 @@ export class Rivals {
   private think(r: Rider, t: TemperTuning, dt: number): void {
     const roomAhead = Math.hypot(r.tx - r.x, r.tz - r.z);
     r.timer -= dt;
+    // Racing: a third of the rest and half again on the hold. They are not a
+    // different rider, they are the same rider going for it.
+    const rest: [number, number] = r.racing
+      ? [t.rest[0] * 0.3, t.rest[1] * 0.3] : t.rest;
+    const hold: [number, number] = r.racing
+      ? [t.hold[0] * 1.5, t.hold[1] * 1.5] : t.hold;
 
     if (r.up) {
       // Down before the corner, whatever the timer says.
       if (r.timer <= 0 || roomAhead < 22) {
         r.up = false;
-        r.timer = this.between(t.rest);
+        r.timer = this.between(rest);
         if (r.run > r.best) r.best = r.run;
       }
-    } else if (r.timer <= 0 && roomAhead > 70) {
+    } else if (r.timer <= 0 && roomAhead > (r.racing ? 45 : 70)) {
       r.up = true;
       r.run = 0;
-      r.timer = this.between(t.hold);
+      r.timer = this.between(hold);
     }
 
     // Up in about a third of a second, down a little quicker - the same shape
@@ -441,7 +527,9 @@ export class Rivals {
 
   /** True if a bike of radius `r` at (x, z) is on top of a rival. */
   hits(x: number, z: number, radius: number): boolean {
-    if (this.setting === 'off') return false;
+    // Nobody is an obstacle during a battle. You are riding alongside them for
+    // a minute; being solid would turn the race into a demolition derby.
+    if (this.setting === 'off' || this.battling) return false;
     for (const rider of this.riders) {
       const fx = Math.sin(rider.yaw);
       const fz = Math.cos(rider.yaw);

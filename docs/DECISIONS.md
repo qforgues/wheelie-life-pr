@@ -1098,3 +1098,71 @@ what Justin sees without sitting in front of the Xbox. It has to be read in
 `npm run scene` now budgets the console build at 13 MB of geometry and fails
 over it. The Xbox white-screened at about 32 MB and there is no reason to walk
 back toward it.
+
+## 55. Wheelie battles, and what "fair" has to mean
+
+Justin's rules, near enough his words: a battle starts when you and a crew make
+contact, a prompt comes up with the details and a yes/no, you each choose what
+to bet, and **the AI suggests terms that are fair to both of you, taking your
+request into consideration. Always fairly, no benefit to either party.**
+
+That last line is the whole design, and the obvious reading of it is wrong.
+"Fair" is not "you both put up the same money" - that is only fair between
+equals, and Piraña has been doing this a great deal longer than you have. Fair
+is **equal expected value**:
+
+    yourStake x P(you win) === theirStake x P(they win)
+
+so the favourite stakes more, in exact proportion to how much of a favourite
+they are. Which gives the mechanic its shape for free: **beating somebody better
+than you is how you get things cheaply.** Asking Piraña for the club kit when
+you are 90% to win costs you $54,000 on the line. Asking for it when you are
+10% to win costs $650. The odds are shown on the prompt, because the odds are
+WHY the stakes are not equal and hiding them would make an honest bet look
+rigged.
+
+I had the formula upside down on the first pass - the underdog was staking more
+- and it read completely plausibly. `npm run battles` caught it in a second by
+checking the expected values rather than the algebra, and it now sweeps the
+whole range of matchups and stakes and fails if the house ever leans either way.
+
+Four challenges, because a wheelie is not one skill: longest single run in
+metres, longest held in seconds, most runs over ten metres, and total ground
+covered on the back wheel. The rival's score is **not rolled for them** - they
+are out there riding and the battle watches what they actually do with the back
+wheel, so you can see them earning it and the number at the end is true. They go
+into race mode for the duration: a third of the rest between goes and half again
+on the hold. Same rider, going for it.
+
+## 56. Gear you cannot buy
+
+Justin: "getting gear can only be done by winning in the wheelie races."
+
+So the closet has three things in it and only one of them has a price. The
+Piratas kit says **WIN IT — NOT FOR SALE**, and no amount of money moves it;
+somebody has to lose it to you. La Monoestrellada is $100,000 as a placeholder
+until we work out what it should really cost, because we agreed it should be his
+and we have not decided how yet.
+
+GARAGE and CLOSET are two buttons where the heading used to be - press one and
+the other list goes away, which is exactly what he asked for.
+
+The kit had to be visible from behind, or winning it means nothing: the chase
+camera looks at the back of the rider's head for the entire ride, so that is
+where the crew colours went. VQS over a white and light-blue striped flag, on
+the back of the lid, which was his suggestion and is the right one.
+
+Aura comes off the same odds: taking down a heavy favourite is worth five times
+beating somebody you were always going to beat. It floors at nothing rather than
+going negative - a reputation is something you have or have not got, and there
+is no such thing as owing one.
+
+## 57. Horses and chickens
+
+Asked for, and not a joke: a paso fino tied up on the verge is an ordinary sight
+here and so is having to go round one, and there are more chickens on this
+island than there are people. The horses stand in the open middle of the blocks
+and on the verges; a third of the chickens are in the road, which is the point -
+a chicken on the centreline at forty miles an hour is a decision you have to
+make. Both are baked the way the vehicles are: a horse is 1,508 triangles and
+three draw calls, a chicken is 202 and three.

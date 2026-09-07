@@ -7,6 +7,8 @@ import { damp } from '../sim/Engine';
 import { buildWheel } from './Wheel';
 import { BIKE_VISUALS, type BikeVisual } from './bikeVisuals';
 import { TRICKS } from '../sim/tuning';
+import { OUTFITS, STARTER_OUTFIT, type Outfit } from '../game/Outfits';
+import { makeCrewDecal } from '../world/textures';
 
 /**
  * Procedural Grom + rider. Built with its REAR CONTACT PATCH at the local
@@ -178,6 +180,7 @@ export class BikeView {
   private rearWheel = new THREE.Group();
   private frontWheel = new THREE.Group();
   private forkGroup = new THREE.Group();
+  private outfit: Outfit;
   private riderRoot = new THREE.Group();
   /**
    * Where the thrown rider lives during a crash. This has to sit in the SCENE,
@@ -227,8 +230,13 @@ export class BikeView {
     grounded: false,
   };
 
-  constructor(tuning: BikeTuning, visual: BikeVisual = BIKE_VISUALS.yz250f) {
+  constructor(
+    tuning: BikeTuning,
+    visual: BikeVisual = BIKE_VISUALS.yz250f,
+    outfit: Outfit = OUTFITS[STARTER_OUTFIT],
+  ) {
     this.visual = visual;
+    this.outfit = outfit;
     this.R = tuning.chassis.wheelRadius;
     this.frontR = visual.frontWheelRadius;
     this.WB = tuning.chassis.wheelbase;
@@ -294,7 +302,7 @@ export class BikeView {
     this.forkOrigin.set(0, this.frontR, WB);
     const [gx, gy, gz] = visual.gripLocal;
     this.gripLocal = [new THREE.Vector3(-gx, gy, gz), new THREE.Vector3(gx, gy, gz)];
-    this.buildRider(visual.shirt);
+    this.buildRider();
     this.riderRoot.position.set(0, 0, this.seatZ);
     this.riderRoot.add(this.riderHips);
     this.riderHips.position.set(0, this.hipY, 0);
@@ -318,7 +326,16 @@ export class BikeView {
     this.root.add(this.sparks);
   }
 
-  private buildRider(shirt: [string, string, string, string]): void {
+  /**
+   * The rider, dressed in whatever is currently out of the closet.
+   *
+   * Every colour here used to be either fixed or taken off the bike. It is the
+   * outfit's job now, because gear is a thing you win and it has to be visible
+   * from behind at thirty miles an hour or winning it means nothing. An outfit
+   * with `helmet: 0` keeps the old behaviour of matching the machine, which is
+   * what the starter kit does.
+   */
+  private buildRider(): void {
     // Everything below is positioned relative to the HIPS, not the road, so a
     // lean rotates the body about the rider's waist the way a body actually
     // hinges. y = 0 here is hip height.
@@ -328,15 +345,16 @@ export class BikeView {
     // rider is the same person on every bike, only their hips move.
     const V = (x: number, y: number, z: number) =>
       new THREE.Vector3(x, y - RIDER_NOMINAL_HIP, z);
+    const kit = this.outfit;
     const skin = new THREE.MeshStandardMaterial({ color: 0xa9713f, roughness: 0.8 });
-    const denim = new THREE.MeshStandardMaterial({ color: 0x3a4a68, roughness: 0.9 });
+    const denim = new THREE.MeshStandardMaterial({ color: kit.trousers, roughness: 0.9 });
     // Gloves and boots, so the hands and feet are not bare skin and off-white
     // pebbles. Both pick up the bike's accent for the strap, which is how real
     // kit is sold - matched to the machine.
-    const glove = new THREE.MeshStandardMaterial({ color: 0x22242b, roughness: 0.65 });
-    const boot = new THREE.MeshStandardMaterial({ color: 0x1a1b20, roughness: 0.5 });
+    const glove = new THREE.MeshStandardMaterial({ color: kit.gloves, roughness: 0.65 });
+    const boot = new THREE.MeshStandardMaterial({ color: kit.boots, roughness: 0.5 });
     const bootTrim = new THREE.MeshStandardMaterial({
-      color: this.visual.accentColor, roughness: 0.45, metalness: 0.3,
+      color: kit.bootTrim || this.visual.accentColor, roughness: 0.45, metalness: 0.3,
     });
     // The helmet already had a chin bar, a visor and a peak - and read as a
     // black blob anyway, because all of it was the same near-black. A helmet is
@@ -344,10 +362,10 @@ export class BikeView {
     // visor over the top of it. Shell picks up the bike's colour, so the rider
     // matches whatever they are on.
     const helmetMat = new THREE.MeshStandardMaterial({
-      color: this.visual.bodyColor, roughness: 0.22, metalness: 0.35,
+      color: kit.helmet || this.visual.bodyColor, roughness: 0.22, metalness: 0.35,
     });
     const helmetTrim = new THREE.MeshStandardMaterial({
-      color: 0xf2f2ee, roughness: 0.3, metalness: 0.2,
+      color: kit.helmetTrim, roughness: 0.3, metalness: 0.2,
     });
     // The opening itself: matt black, so the visor has something to sit over.
     const eyePort = new THREE.MeshStandardMaterial({ color: 0x0a0b0e, roughness: 0.9 });
@@ -355,7 +373,8 @@ export class BikeView {
       color: 0x3d5a7a, roughness: 0.06, metalness: 0.95,
       transparent: true, opacity: 0.82,
     });
-    const shirtMat = new THREE.MeshStandardMaterial({ color: shirt[0], roughness: 0.92 });
+    const shirtMat = new THREE.MeshStandardMaterial({ color: kit.jersey, roughness: 0.92 });
+    const sleeveMat = new THREE.MeshStandardMaterial({ color: kit.sleeve, roughness: 0.92 });
     const torso = new THREE.Mesh(roundedBox(0.32, 0.46, 0.215, 0.075, 16), shirtMat);
     torso.position.copy(V(0, 1.14, 0));
     torso.castShadow = true;
@@ -364,7 +383,6 @@ export class BikeView {
     // No back print. It was a flat square floating off the jacket and read as a
     // parachute rather than a graphic - a decal only works on a surface that
     // curves with it, and this one sat proud of a filleted box.
-    void shirt;
 
     // Jacket detail. The torso was one smooth slab, which is what made the
     // rider read as a mannequin: a real jacket has a collar standing off the
@@ -410,7 +428,7 @@ export class BikeView {
       this.riderTorso.add(cuff);
     }
 
-    const shoulders = new THREE.Mesh(new THREE.CapsuleGeometry(0.078, 0.22, 10, 24), shirtMat);
+    const shoulders = new THREE.Mesh(new THREE.CapsuleGeometry(0.078, 0.22, 10, 24), sleeveMat);
     shoulders.rotation.z = Math.PI / 2;
     shoulders.position.copy(V(0, 1.335, 0.012));
     shoulders.castShadow = true;
@@ -438,6 +456,25 @@ export class BikeView {
     helmet.position.copy(V(0, 1.53, 0.02));
     helmet.castShadow = true;
     this.riderTorso.add(helmet);
+
+    // Crew colours on the back of the lid. This is the one part of an outfit
+    // the chase camera looks straight at for the whole ride, so it is where the
+    // thing you won has to live - a jersey you can only see in a mirror is not
+    // a reward.
+    if (kit.decal) {
+      const plate = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.175, 0.108),
+        new THREE.MeshStandardMaterial({
+          map: makeCrewDecal(kit.decal.text, kit.decal.flag[0], kit.decal.flag[1], kit.decal.ink),
+          roughness: 0.4,
+          metalness: 0.1,
+        }),
+      );
+      // Just proud of the shell, facing back down the road behind the rider.
+      plate.position.copy(V(0, 1.545, 0.02 - 0.139));
+      plate.rotation.set(0.16, Math.PI, 0);
+      this.riderTorso.add(plate);
+    }
     const chinbar = new THREE.Mesh(roundedBox(0.19, 0.115, 0.125, 0.055, 14), helmetMat);
     chinbar.position.copy(V(0, 1.472, 0.108));
     this.riderTorso.add(chinbar);

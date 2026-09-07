@@ -9,7 +9,11 @@ import { BIKES, TRICKS, cloneTuning, type BikeId } from '../sim/tuning';
 import { BIKE_VISUALS } from '../view/bikeVisuals';
 import { City } from '../world/City';
 import { Police } from '../world/Police';
-import { Rivals } from '../world/Rivals';
+import { Rivals, type RivalReport } from '../world/Rivals';
+import { Battle, challengeFor, offerFrom } from './Battle';
+import { stakeValue, type Stake } from './Battles';
+import { OUTFITS, type OutfitId } from './Outfits';
+import { BattleCard } from '../ui/BattleCard';
 import {
   Minimap, ORIENTATION_LABELS, ORIENTATION_ORDER, type MapBlip,
 } from '../ui/Minimap';
@@ -102,6 +106,11 @@ export class Game {
   private blobShadow: THREE.Mesh;
   private police = new Police();
   private rivals = new Rivals();
+  private battleCard = new BattleCard();
+  /** The battle on the table or on the road. Null the rest of the time. */
+  private battle: Battle | null = null;
+  /** Stops the same rider re-opening the prompt the instant you decline. */
+  private declined = new Map<number, number>();
   private minimap = new Minimap();
   private blips: MapBlip[] = [];
   private heat = 0;
@@ -159,7 +168,7 @@ export class Game {
       cloneTuning(BIKES[this.bikeId]), this.progress.levelsFor(this.bikeId),
     );
     this.sim = new BikeSim(tuning, this.city, this.city.spawn);
-    this.bikeView = new BikeView(tuning, BIKE_VISUALS[this.bikeId]);
+    this.bikeView = new BikeView(tuning, BIKE_VISUALS[this.bikeId], OUTFITS[this.progress.wearing]);
     this.scene.add(this.bikeView.root, this.bikeView.detached);
 
     // Sits just above the road, always flat, never rotating with the bike.
@@ -185,6 +194,9 @@ export class Game {
     // ---- ui --------------------------------------------------------------
     container.appendChild(this.hud.root);
     container.appendChild(this.minimap.root);
+    container.appendChild(this.battleCard.root);
+    this.battleCard.onDecided((yes) => this.decideBattle(yes));
+    this.battleCard.onTermsChanged((stake, want) => this.reprice(stake, want));
     // Quality is picked from the device, then stepped down on its own if the
     // frame rate can't hold - the Xbox browser has a fraction of a desktop's
     // budget and it is better to lose shadows than to lose the frame rate.
@@ -220,6 +232,7 @@ export class Game {
     });
 
     this.applyPlates();
+    this.overlay.onOutfitPicked(() => this.rebuildRider());
     this.rivals.setCount(this.progress.rivals);
     this.overlay.setRivalsValue(this.progress.rivals);
     this.overlay.onRivalsPicked((r) => {
@@ -326,7 +339,7 @@ export class Game {
 
     this.scene.remove(this.bikeView.root, this.bikeView.detached);
     this.bikeView.dispose();
-    this.bikeView = new BikeView(tuning, BIKE_VISUALS[id]);
+    this.bikeView = new BikeView(tuning, BIKE_VISUALS[id], OUTFITS[this.progress.wearing]);
     this.scene.add(this.bikeView.root, this.bikeView.detached);
 
     const at = this.city.respawnFor(this.sim.state.x, this.sim.state.z);
@@ -339,6 +352,164 @@ export class Game {
     this.bikeView.update(this.sim.state, 0, 0, 0);
     this.chase.snapTo(this.sim.state, this.bikeView.getFocusWorld(this.focusVec));
     this.hud.showToast(BIKES[id].name.toUpperCase(), 2.2);
+  }
+
+  /** Puts the current outfit back on the rider without touching the bike. */
+  private rebuildRider(): void {
+    const tuning = applyUpgrades(cloneTuning(BIKES[this.bikeId]), this.progress.levelsFor(this.bikeId));
+    this.scene.remove(this.bikeView.root, this.bikeView.detached);
+    this.bikeView.dispose();
+    this.bikeView = new BikeView(
+      tuning, BIKE_VISUALS[this.bikeId], OUTFITS[this.progress.wearing],
+    );
+    this.scene.add(this.bikeView.root, this.bikeView.detached);
+    this.debug.rebind(this.sim, BIKES[this.bikeId], this.bikeView);
+    this.snapPose();
+    this.bikeView.update(this.sim.state, 0, 0, 0);
+    this.chase.snapTo(this.sim.state, this.bikeView.getFocusWorld(this.focusVec));
+  }
+
+  /**
+   * How good the player is at this, 0..1, for pricing a wager.
+   *
+   * Their best run this session against a hundred metres, nudged by the bike
+   * they are on and the aura they are carrying. It has to be an honest estimate
+   * or the broker's fairness is fair about the wrong thing - and it has to move
+   * as the player improves, or every bet is priced off their first week.
+   */
+  private playerSkill(): number {
+    const form = Math.min(1, this.progress.bestScore / 140);
+    const machine = this.bikeId === 'streetfighter' ? 0.16 : this.bikeId === 'yz250f' ? 0.10 : 0;
+    const rep = Math.min(0.12, this.progress.aura * 0.012);
+    return Math.max(0.05, Math.min(0.95, 0.22 + form * 0.5 + machine + rep));
+  }
+
+  /** What a rival could be made to put up. */
+  private rivalOutfits(kit: OutfitId | null): OutfitId[] {
+    return kit ? [kit] : [];
+  }
+
+  /** Somebody rode into you. Put the offer on the table. */
+  private openBattle(contact: { index: number; name: string; skill: number; wearing: OutfitId | null }): void {
+    const until = this.declined.get(contact.index) ?? 0;
+    if (performance.now() < until) return;
+    this.battleCard.open(this.progress.money, this.progress.aura);
+    const id = challengeFor(contact.index, Math.floor(performance.now() / 1000));
+    this.battle = offerFrom(
+      contact.index, contact.name, id,
+      this.playerSkill(), contact.skill,
+      this.battleCard.currentStake, null,
+      this.rivalOutfits(contact.wearing), 40000,
+    );
+    this.battleCard.showOffer(
+      this.battle, this.progress.money, this.progress.aura,
+      this.rivalOutfits(contact.wearing),
+    );
+    this.audio.siren(40, 0.2);
+  }
+
+  /** The player moved a chip. Ask the broker again. */
+  private reprice(stake: Stake, want: Stake | null): void {
+    const b = this.battle;
+    if (!b || b.phase !== 'offer') return;
+    const rider = this.rivals.specFor(b.rival);
+    if (!rider) return;
+    const kits = this.rivalOutfits(rider.wearing);
+    this.battle = offerFrom(
+      b.rival, b.rivalName, b.terms.challenge.id,
+      this.playerSkill(), rider.skill,
+      stake, want, kits, 40000,
+    );
+    this.battleCard.showOffer(this.battle, this.progress.money, this.progress.aura, kits);
+  }
+
+  private decideBattle(yes: boolean): void {
+    const b = this.battle;
+    if (!b) return;
+    if (!yes) {
+      // Give them a minute before they ask again, or riding away past somebody
+      // reopens the prompt every time you touch a bar end.
+      this.declined.set(b.rival, performance.now() + 60000);
+      this.battle = null;
+      this.battleCard.hide();
+      return;
+    }
+    b.accept();
+    this.rivals.battling = true;
+    this.rivals.race(b.rival, true);
+    this.battleCard.showLive(b);
+    this.voice.say('¡Vamo\' a ver!', 'es');
+  }
+
+  /**
+   * Drives a battle that is on the table or on the road.
+   *
+   * The player's live wheelie comes off the tracker, which is the same number
+   * the HUD shows - so the scoreboard and the distance counter can never
+   * disagree, and neither can the payout.
+   */
+  private stepBattle(dt: number, st: BikeState, rivals: RivalReport): void {
+    const b = this.battle;
+    if (!b) return;
+    if (b.phase === 'offer') return;
+
+    const them = this.rivals.riderState(b.rival);
+    b.update(
+      dt,
+      this.tracker.active ? this.tracker.current.distance : 0,
+      !st.wheelieing,
+      them?.up ?? false,
+      them?.run ?? 0,
+    );
+    // Binning it ends it. You cannot lie on the road for forty seconds and
+    // still be in a wheelie contest.
+    if (b.running && st.mode === 'crashed') b.finish();
+    if (b.phase === 'result' && !b.settled) {
+      b.settled = true;
+      this.rivals.battling = false;
+      this.rivals.race(b.rival, false);
+      this.settleBattle(b);
+    }
+    this.battleCard.showLive(b);
+    if (b.spent) {
+      this.battle = null;
+      this.battleCard.hide();
+      this.declined.set(b.rival, performance.now() + 45000);
+    }
+    void rivals;
+  }
+
+  /** Pays out, moves the gear, and books the aura. */
+  private settleBattle(b: Battle): void {
+    const o = b.outcome;
+    if (!o) return;
+    const mine = b.terms.yours;
+    const theirs = b.terms.theirs;
+
+    if (o.won) {
+      if (theirs.kind === 'cash') { o.cash = Math.round(theirs.amount); }
+      else if (theirs.kind === 'outfit') {
+        o.gained = theirs.outfit;
+        this.progress.winOutfit(theirs.outfit);
+      } else o.cash = Math.round(stakeValue(theirs));
+    } else {
+      if (mine.kind === 'cash') { o.cash = -Math.round(mine.amount); }
+      else if (mine.kind === 'outfit') {
+        o.lost = mine.outfit;
+        this.progress.loseOutfit(mine.outfit);
+      }
+      // An aura stake is settled by the aura delta below, not by cash.
+    }
+    if (o.cash) this.progress.settleCash(o.cash);
+    let aura = o.aura;
+    if (!o.won && mine.kind === 'aura') aura -= mine.amount;
+    if (o.won && theirs.kind === 'aura') aura += theirs.amount;
+    this.progress.settleBattle(o.won, aura);
+    o.aura = aura;
+    this.hud.cash = this.progress.money;
+    this.overlay.renderGarage();
+    if (o.gained) this.hud.showToast(`${OUTFITS[o.gained].name.toUpperCase()} — WON, NOT BOUGHT`, 4);
+    this.voice.say(o.won ? '¡Eso es!' : 'Otra vez será.', 'es');
   }
 
   /**
@@ -441,7 +612,16 @@ export class Game {
     // Los Piratas. They ride the same grid, they are up on the back wheel most
     // of the time, and coming alongside one gets you a shout.
     const rivals = this.rivals.update(dt, st.x, st.z);
-    if (rivals.hail) {
+
+    // A battle starts on contact - Justin's rule. The prompt only comes up when
+    // there isn't one already on the table, you're actually riding, and you
+    // haven't just told this rider no.
+    if (rivals.contact && !this.battle && st.mode === 'riding' && !this.overlay.isVisible) {
+      this.openBattle(rivals.contact);
+    }
+    if (this.battle) this.stepBattle(dt, st, rivals);
+
+    if (rivals.hail && !this.battle) {
       this.hud.showToast(
         rivals.hail.wheelie > 5
           ? `${rivals.hail.name} — ${rivals.hail.wheelie.toFixed(0)} m AND COUNTING`

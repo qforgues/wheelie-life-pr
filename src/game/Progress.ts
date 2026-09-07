@@ -5,6 +5,7 @@ import { isRivalCount, type RivalCount } from '../world/Rivals';
 import { isOrientation, type MapOrientation } from '../ui/Minimap';
 import { DEFAULT_AIM, isMirrorMount, type MirrorAim, type MirrorMount } from '../view/Mirrors';
 import { UPGRADES, UPGRADE_IDS, nextLevel, type UpgradeId, type UpgradeLevels } from './Upgrades';
+import { OUTFITS, STARTER_OUTFIT, WIN_ONLY, isOutfitId, type OutfitId } from './Outfits';
 
 /**
  * Money and what you own.
@@ -31,6 +32,13 @@ export interface SaveData {
   mirrorAim: MirrorAim;
   /** Upgrade levels owned, per bike. */
   upgrades: Partial<Record<BikeId, UpgradeLevels>>;
+  /** The closet: what you have won, bought, or turned up in. */
+  outfits: OutfitId[];
+  wearing: OutfitId;
+  /** Reputation. Earned by taking wheelie battles off people. */
+  aura: number;
+  battlesWon: number;
+  battlesLost: number;
 }
 
 /** Rider-scope upgrades live here rather than on a bike. */
@@ -62,6 +70,19 @@ export class Progress {
   mirrorAim: MirrorAim = { ...DEFAULT_AIM };
   /** What is bolted to each bike. Money's second job. */
   upgrades: Partial<Record<BikeId, UpgradeLevels>> = {};
+  /**
+   * The closet.
+   *
+   * Gear is not bought, it is taken - see Outfits.ts. The only exception is the
+   * monoestrellada, which has a price on it because we have not decided what it
+   * should really cost yet.
+   */
+  outfits = new Set<OutfitId>([STARTER_OUTFIT]);
+  wearing: OutfitId = STARTER_OUTFIT;
+  /** Reputation, and eventually how big a crew you can hold together. */
+  aura = 0;
+  battlesWon = 0;
+  battlesLost = 0;
 
   /** Set for one frame after a payout, for the HUD toast. */
   lastPayout = 0;
@@ -91,6 +112,60 @@ export class Progress {
 
   has(id: BikeId): boolean {
     return this.owned.has(id);
+  }
+
+  hasOutfit(id: OutfitId): boolean {
+    return this.outfits.has(id);
+  }
+
+  /** Buys an outfit. Refuses win-only gear at any price, which is the point. */
+  buyOutfit(id: OutfitId): boolean {
+    const kit = OUTFITS[id];
+    if (this.outfits.has(id) || kit.price === WIN_ONLY) return false;
+    if (!this.canAfford(kit.price)) return false;
+    this.money -= kit.price;
+    this.outfits.add(id);
+    this.save();
+    return true;
+  }
+
+  /** Won off somebody, or lost to them. The only way gear moves. */
+  winOutfit(id: OutfitId): void {
+    this.outfits.add(id);
+    this.save();
+  }
+
+  loseOutfit(id: OutfitId): void {
+    if (id === STARTER_OUTFIT) return;
+    this.outfits.delete(id);
+    if (this.wearing === id) this.wearing = STARTER_OUTFIT;
+    this.save();
+  }
+
+  wear(id: OutfitId): boolean {
+    if (!this.outfits.has(id)) return false;
+    this.wearing = id;
+    this.save();
+    return true;
+  }
+
+  /**
+   * Books the result of a wheelie battle.
+   *
+   * Aura floors at nothing rather than going negative: a reputation is
+   * something you have or have not got, and there is no such thing as owing one.
+   */
+  settleBattle(won: boolean, auraDelta: number): void {
+    if (won) this.battlesWon++;
+    else this.battlesLost++;
+    this.aura = Math.max(0, this.aura + auraDelta);
+    this.save();
+  }
+
+  /** Cash in or out of a wager. Never takes you below nothing. */
+  settleCash(delta: number): void {
+    this.money = Math.max(0, this.money + delta);
+    this.save();
   }
 
   canAfford(price: number): boolean {
@@ -212,6 +287,11 @@ export class Progress {
     this.traffic = 'regular';
     this.police = 'professional';
     this.rivals = 'few';
+    this.outfits = new Set<OutfitId>([STARTER_OUTFIT]);
+    this.wearing = STARTER_OUTFIT;
+    this.aura = 0;
+    this.battlesWon = 0;
+    this.battlesLost = 0;
     this.mapOrientation = 'north';
     this.mirrors = 'corners';
     this.mirrorAim = { ...DEFAULT_AIM };
@@ -241,6 +321,14 @@ export class Progress {
       const legacyScanner = d.scanner === true;
       if (isPoliceStyle(d.police)) this.police = d.police;
       if (isRivalCount(d.rivals)) this.rivals = d.rivals;
+      if (Array.isArray(d.outfits)) {
+        const kept = d.outfits.filter(isOutfitId);
+        this.outfits = new Set<OutfitId>([STARTER_OUTFIT, ...kept]);
+      }
+      if (isOutfitId(d.wearing) && this.outfits.has(d.wearing)) this.wearing = d.wearing;
+      if (typeof d.aura === 'number') this.aura = Math.max(0, d.aura);
+      if (typeof d.battlesWon === 'number') this.battlesWon = d.battlesWon;
+      if (typeof d.battlesLost === 'number') this.battlesLost = d.battlesLost;
       if (isOrientation(d.mapOrientation)) this.mapOrientation = d.mapOrientation;
       if (isMirrorMount(d.mirrors)) this.mirrors = d.mirrors;
       if (d.upgrades && typeof d.upgrades === 'object') {
@@ -283,6 +371,11 @@ export class Progress {
         traffic: this.traffic,
         police: this.police,
         rivals: this.rivals,
+        outfits: [...this.outfits],
+        wearing: this.wearing,
+        aura: this.aura,
+        battlesWon: this.battlesWon,
+        battlesLost: this.battlesLost,
         mapOrientation: this.mapOrientation,
         mirrors: this.mirrors,
         mirrorAim: this.mirrorAim,

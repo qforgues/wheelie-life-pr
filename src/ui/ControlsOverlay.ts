@@ -7,6 +7,7 @@ import { UPGRADES, UPGRADE_IDS, nextLevel, type UpgradeId } from '../game/Upgrad
 import { TRAFFIC_LABELS, TRAFFIC_ORDER, type TrafficSpeed } from '../world/Traffic';
 import { POLICE_BLURBS, POLICE_LABELS, POLICE_ORDER, type PoliceStyle } from '../world/Police';
 import { RIVAL_BLURBS, RIVAL_LABELS, RIVAL_ORDER, type RivalCount } from '../world/Rivals';
+import { OUTFITS, OUTFIT_IDS, STARTER_OUTFIT, WIN_ONLY, type OutfitId } from '../game/Outfits';
 import {
   ORIENTATION_BLURBS, ORIENTATION_LABELS, ORIENTATION_ORDER, type MapOrientation,
 } from './Minimap';
@@ -79,6 +80,12 @@ export class ControlsOverlay {
   private onPick: ((id: BikeId) => void) | null = null;
   private progress: Progress | null = null;
   private bikePick!: HTMLElement;
+  private outfitPick!: HTMLElement;
+  private tabsEl!: HTMLElement;
+  /** Which half of the wardrobe is showing. Justin's two buttons. */
+  private tab: 'garage' | 'closet' = 'garage';
+  private selectedOutfit: OutfitId = STARTER_OUTFIT;
+  private onOutfit: ((id: OutfitId) => void) | null = null;
   private cashEl!: HTMLElement;
   private hintEl!: HTMLElement;
 
@@ -123,10 +130,14 @@ export class ControlsOverlay {
         <button class="overlay-go" data-el="go">RIDE</button>
 
         <div class="garage-head">
-          <span class="garage-title">GARAGE</span>
+          <div class="garage-tabs" data-el="tabs">
+            <button type="button" data-tab="garage" class="tab is-on">GARAGE</button>
+            <button type="button" data-tab="closet" class="tab">CLOSET</button>
+          </div>
           <span class="garage-cash" data-el="cash">$0</span>
         </div>
         <div class="bike-pick" data-el="bikePick"></div>
+        <div class="bike-pick" data-el="outfitPick" hidden></div>
         <p class="garage-hint" data-el="garageHint"></p>
 
         <div class="opt">
@@ -200,6 +211,30 @@ export class ControlsOverlay {
       .map((b) => `<tr><td>${b.action}</td><td class="pad">${b.pad}</td><td class="key">${b.key}</td></tr>`)
       .join('');
     this.bikePick = this.root.querySelector('[data-el="bikePick"]')!;
+    this.outfitPick = this.root.querySelector('[data-el="outfitPick"]')!;
+    this.tabsEl = this.root.querySelector('[data-el="tabs"]')!;
+    this.tabsEl.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]');
+      if (!b) return;
+      this.tab = b.dataset.tab as 'garage' | 'closet';
+      this.renderGarage();
+    });
+    this.outfitPick.addEventListener('click', (e) => {
+      const card = (e.target as HTMLElement).closest<HTMLElement>('[data-outfit]');
+      if (!card) return;
+      const id = card.dataset.outfit as OutfitId;
+      const p = this.progress;
+      if (!p) return;
+      if ((e.target as HTMLElement).closest('[data-buy-kit]')) {
+        p.buyOutfit(id);
+      }
+      this.selectedOutfit = id;
+      if (p.hasOutfit(id)) {
+        p.wear(id);
+        this.onOutfit?.(id);
+      }
+      this.renderGarage();
+    });
     this.cashEl = this.root.querySelector('[data-el="cash"]')!;
     this.hintEl = this.root.querySelector('[data-el="garageHint"]')!;
     this.bikePick.addEventListener('click', (e) => {
@@ -598,11 +633,33 @@ export class ControlsOverlay {
   }
 
   /** Redraws the cards from what's owned and what's affordable. */
+  /** Called when the player puts a different outfit on. */
+  onOutfitPicked(fn: (id: OutfitId) => void): void {
+    this.onOutfit = fn;
+  }
+
   renderGarage(): void {
     const p = this.progress;
     if (!p || !this.bikePick) return;
-    this.cashEl.textContent = money(p.money);
+    // innerHTML, because aura rides alongside the money as its own chip.
+    this.cashEl.innerHTML = p.aura > 0
+      ? `${money(p.money)}<span class="aura">${p.aura} AURA</span>`
+      : money(p.money);
     this.renderTuneshop();
+
+    // One set of cards at a time. Justin's spec: two buttons that split the
+    // difference, and whichever you press the other list goes away.
+    const closet = this.tab === 'closet';
+    for (const b of this.tabsEl.querySelectorAll<HTMLElement>('[data-tab]')) {
+      b.classList.toggle('is-on', b.dataset.tab === this.tab);
+    }
+    this.bikePick.hidden = closet;
+    this.outfitPick.hidden = !closet;
+    if (closet) {
+      this.selectedOutfit = p.wearing;
+      this.renderCloset();
+      return;
+    }
 
     this.bikePick.innerHTML = (Object.keys(BIKES) as BikeId[]).map((id) => {
       const v = BIKE_VISUALS[id];
@@ -640,6 +697,51 @@ export class ControlsOverlay {
         ? `Press BUY to unlock the ${sel.displayName}.`
         : `${money(short)} more to unlock the ${sel.displayName}. Land wheelies to earn it — tricks pay more.`;
     }
+  }
+
+  /**
+   * The closet.
+   *
+   * The important line here is the one on gear you have not got: **won, never
+   * bought**. Somebody has to lose it to you across a wheelie battle, and that
+   * is the whole reason the battles exist - so the card has to say so rather
+   * than showing a price that does not exist.
+   */
+  private renderCloset(): void {
+    const p = this.progress;
+    if (!p) return;
+    this.outfitPick.innerHTML = OUTFIT_IDS.map((id) => {
+      const kit = OUTFITS[id];
+      const owned = p.hasOutfit(id);
+      const worn = p.wearing === id;
+      const jersey = kit.jersey.toString(16).padStart(6, '0');
+      const helmet = (kit.helmet || kit.sleeve).toString(16).padStart(6, '0');
+      const status = worn
+        ? '<span class="bike-owned">WEARING</span>'
+        : owned
+          ? '<span class="bike-owned">IN THE CLOSET</span>'
+          : kit.price === WIN_ONLY
+            ? '<span class="bike-price is-locked-kit">WIN IT — NOT FOR SALE</span>'
+            : p.canAfford(kit.price)
+              ? `<button class="bike-buy" data-buy-kit type="button">BUY · ${money(kit.price)}</button>`
+              : `<span class="bike-price">${money(kit.price)}</span>`;
+      return `
+        <div class="bike${worn ? ' is-on' : ''}${owned ? '' : ' is-locked'}"
+             data-outfit="${id}" role="button" tabindex="0" aria-pressed="${worn}">
+          <span class="bike-swatch kit-swatch" style="--paint:#${jersey};--trim:#${helmet}"></span>
+          <span class="bike-name">${kit.name}</span>
+          <span class="bike-tag">${kit.tagline}</span>
+          <span class="bike-char">${kit.character}</span>
+          <span class="bike-foot">${status}</span>
+        </div>`;
+    }).join('');
+
+    const kit = OUTFITS[this.selectedOutfit];
+    this.hintEl.textContent = p.hasOutfit(this.selectedOutfit)
+      ? ''
+      : kit.price === WIN_ONLY
+        ? `The ${kit.name} kit cannot be bought. Ride into one of Los Piratas, put something up, and take it off them.`
+        : `${money(Math.max(0, kit.price - p.money))} more for the ${kit.name}.`;
   }
 
   setDevice(connected: boolean, name: string): void {
