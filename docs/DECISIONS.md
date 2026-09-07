@@ -1058,3 +1058,43 @@ headland was built, and nobody had ridden up there to look.
 Moved west and north of the sea wall. What is there now: the flag mural, la
 monoestrellada on its pole, the road sign, the garitas, the domino tables, the
 plaza opening out to the water, and El Morro on its own headland across it.
+
+## 54. The console gets its own build
+
+The tiers only ever changed how the scene was *drawn* - pixel ratio, shadows,
+fog. The Xbox was building exactly the same city as a desktop and holding all of
+it, on a machine with a hard memory ceiling it has already been over once.
+
+    desktop   15.2 MB geometry + 22.9 MB textures = 38.1 MB
+    xbox      10.6 MB geometry +  5.7 MB textures = 16.4 MB
+
+**Textures were the bigger half and cost nothing to fix.** Every texture here is
+512-ish square, and together they came to more than every vertex in the city.
+`setTextureScale` halves them on the console: a texture is an area, so half the
+size is a quarter of the memory, and at a pixel ratio of 1 on a television with
+anisotropy already down at 2 there is nothing in that detail to see. `makeCanvas`
+scales the canvas and pre-scales the context, so every generator keeps drawing in
+its own coordinates and does not know it happened.
+
+Geometry had to come out of the scenery: about half the balconies, awnings,
+lamps, planters, people and parked cars, a third of the palms, one domino table
+instead of three, and building shells without the filleted corners - three
+segments puts a chamfer on every edge of every building, which is 96 triangles
+apiece for something nobody gets near.
+
+**The console must get the same city, not a different one.** The first cut
+didn't: decoration drew from the same random sequence as the building sizes and
+facade colours, so skipping a planter shifted every building after it and Justin
+got a completely different street from the one on the desktop - same seed,
+different city. `decorate` now runs on a generator seeded from where the building
+stands, so what is ON a facade can never change WHICH buildings exist, and the
+console cull is drawn from a third sequence that touches neither. Side by side
+the two builds are the same street with fewer things on it.
+
+`?tier=low` forces the console build on a desktop, which is the only way to see
+what Justin sees without sitting in front of the Xbox. It has to be read in
+`initialTier` because it changes what gets built, not just how it is drawn.
+
+`npm run scene` now budgets the console build at 13 MB of geometry and fails
+over it. The Xbox white-screened at about 32 MB and there is no reason to walk
+back toward it.

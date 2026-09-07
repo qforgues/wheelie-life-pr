@@ -39,6 +39,14 @@ const ORDER: QualityTier[] = ['high', 'medium', 'low'];
 /** Best guess before a single frame has been drawn. */
 export function initialTier(): QualityTier {
   if (typeof navigator === 'undefined') return 'high';
+  // ?tier=low forces the console build on a desktop, which is the only way to
+  // see what Justin sees without sitting in front of the Xbox. It changes what
+  // gets BUILT, not just how it is drawn, so it has to be read here - before
+  // the city exists.
+  if (typeof location !== 'undefined') {
+    const want = new URLSearchParams(location.search).get('tier');
+    if (want === 'low' || want === 'medium' || want === 'high') return want;
+  }
   const ua = navigator.userAgent;
   // The Xbox browser starts at the bottom. It ran out of GPU memory at medium
   // and dropped the WebGL context, and the governor only ever steps *down* - so

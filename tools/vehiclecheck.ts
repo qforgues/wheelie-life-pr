@@ -140,6 +140,39 @@ if (mats.size > seen.size + MATERIAL_SLACK) {
   problems.push(`${mats.size} materials for ${seen.size} recipes — ${mats.size - seen.size} duplicates. Route them through view/materials.ts.`);
 }
 
+// ---- the console build ----------------------------------------------------
+// The Xbox browser has a hard memory ceiling and has been over it once. This is
+// the number that matters there: distance culling hides geometry but does not
+// free it, so everything built is everything held.
+function held(c: City): { mb: number; tris: number } {
+  const geos = new Set<THREE.BufferGeometry>();
+  let bytes = 0;
+  let t = 0;
+  c.root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || !m.geometry || geos.has(m.geometry)) return;
+    geos.add(m.geometry);
+    for (const n of Object.keys(m.geometry.attributes)) {
+      bytes += (m.geometry.attributes[n] as THREE.BufferAttribute).array.byteLength;
+    }
+    bytes += m.geometry.index?.array.byteLength ?? 0;
+    t += m.geometry.index ? m.geometry.index.count / 3 : m.geometry.attributes.position.count / 3;
+  });
+  return { mb: bytes / 1048576, tris: Math.round(t) };
+}
+const full = held(city);
+const lite = held(new City(true));
+console.log('CONSOLE BUILD (npm run beta, then ?tier=low, to see it)');
+console.log(`  desktop  ${full.mb.toFixed(1).padStart(5)} MB of geometry, ${full.tris.toLocaleString()} triangles`);
+console.log(`  xbox     ${lite.mb.toFixed(1).padStart(5)} MB of geometry, ${lite.tris.toLocaleString()} triangles  (textures are halved on top of this)`);
+console.log('');
+
+/** The Xbox showed a white screen at roughly 32 MB of geometry. */
+const CONSOLE_BUDGET = 13;
+if (lite.mb > CONSOLE_BUDGET) {
+  problems.push(`the console build holds ${lite.mb.toFixed(1)} MB of geometry, over the ${CONSOLE_BUDGET} MB budget — the Xbox white-screened at about 32 MB and there is no reason to walk back toward it`);
+}
+
 if (problems.length) {
   console.log('  PROBLEMS');
   for (const p of problems) console.log(`    - ${p}`);

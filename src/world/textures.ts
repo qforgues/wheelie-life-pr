@@ -61,11 +61,36 @@ function mulberry(seed: number): () => number {
   };
 }
 
+/**
+ * How big the textures are actually drawn, as a fraction of their design size.
+ *
+ * Every texture here is 512 square or thereabouts, which on the console adds up
+ * to more memory than all the geometry put together - 22.9 MB against 15.3.
+ * Halving it quarters that, because a texture is an area, and at a pixel ratio
+ * of 1 on a TV with anisotropy already down at 2 there is nothing there to see.
+ *
+ * Set once at startup, before anything is generated.
+ */
+export let TEXTURE_SCALE = 1;
+export function setTextureScale(s: number): void {
+  TEXTURE_SCALE = s;
+}
+
+/**
+ * A canvas at the current texture scale, with the context pre-scaled to match.
+ *
+ * Everything downstream keeps drawing in its own design coordinates - a 512-wide
+ * facade is still laid out across 512 - and lands on whatever surface this hands
+ * back. Line widths scale with it, which is what you want: a 5 px cornice on a
+ * half-size canvas should be 2.5 px, not 5.
+ */
 function makeCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
+  const s = TEXTURE_SCALE;
+  c.width = Math.max(1, Math.round(w * s));
+  c.height = Math.max(1, Math.round(h * s));
   const ctx = c.getContext('2d')!;
+  if (s !== 1) ctx.scale(s, s);
   return [c, ctx];
 }
 

@@ -15,7 +15,7 @@ import {
 } from '../ui/Minimap';
 import { Mirrors } from '../view/Mirrors';
 import { buildSky, buildEnvironment, type SkyRig } from '../world/Sky';
-import { makeBlobShadowTexture, setAnisotropy } from '../world/textures';
+import { makeBlobShadowTexture, setAnisotropy, setTextureScale } from '../world/textures';
 import { BikeView } from '../view/BikeView';
 import { CAMERA_LABELS } from '../view/ChaseCamera';
 import { ChaseCamera } from '../view/ChaseCamera';
@@ -122,6 +122,10 @@ export class Game {
     // Textures are generated on first use below, so the filtering budget has to
     // be set before the city is built.
     setAnisotropy(tier === 'low' ? 2 : tier === 'medium' ? 4 : 16);
+    // On the console the textures cost more than every vertex in the city put
+    // together. Half size is a quarter of the memory and there is nothing to
+    // see at a pixel ratio of 1 on a television.
+    setTextureScale(tier === 'low' ? 0.5 : tier === 'medium' ? 0.75 : 1);
     this.renderer = createRenderer(tier !== 'low');
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -132,7 +136,7 @@ export class Game {
     container.appendChild(this.renderer.domElement);
 
     // ---- world -----------------------------------------------------------
-    this.city = new City();
+    this.city = new City(tier === 'low');
     this.scene.add(this.city.root);
     this.scene.add(this.police.root);
     this.scene.add(this.rivals.root);

@@ -123,6 +123,21 @@ interface Bump { x: number; z: number; half: number; height: number; }
 
 export class City implements GroundProvider {
   readonly root = new THREE.Group();
+
+  /**
+   * The console build.
+   *
+   * The Xbox browser has a hard memory ceiling and has already been over it
+   * once. Halving the textures is free - a quarter of the memory and nothing to
+   * see at a pixel ratio of 1 on a television - but the geometry has to come out
+   * of the scenery, so the console gets a thinner street: about half the
+   * balconies, awnings, lamps, planters, people and parked cars, and building
+   * shells without the filleted corners.
+   *
+   * Decided once at startup from the user agent, because the city is built once.
+   * The quality governor can drop shadows mid-ride; it cannot rebuild a city.
+   */
+  private lite = false;
   readonly spawn: SpawnPoint = { x: 0, z: MAP.zMin + 30, yaw: 0 };
 
   private colliders: Box2[] = [];
@@ -145,11 +160,33 @@ export class City implements GroundProvider {
    */
   private shells = new Map<string, THREE.BufferGeometry>();
 
+  /**
+   * Raises a "keep this one" threshold for the console build.
+   *
+   * `by` is how much of what is left to give up: 0.5 halves the survivors.
+   */
+  private liteSeed = 5381;
+
+  /**
+   * Does this prop survive on the console build?
+   *
+   * Drawn from its own sequence and consulted only after the prop has already
+   * been decided on, so the console gets the SAME city with fewer things on it
+   * rather than a different one.
+   */
+  private keep(share = 0.5): boolean {
+    if (!this.lite) return true;
+    this.liteSeed = (this.liteSeed * 1664525 + 1013904223) >>> 0;
+    return this.liteSeed / 4294967296 < share;
+  }
+
   private shell(sizeX: number, height: number, sizeZ: number): THREE.BufferGeometry {
     const key = `${sizeX}|${height}|${sizeZ}`;
     let geo = this.shells.get(key);
     if (!geo) {
-      geo = roundedBox(sizeX, height, sizeZ, 0.09, 3);
+      // Three segments puts a chamfer on every corner of every building. On the
+      // console that is 96 triangles apiece for an edge nobody gets close to.
+      geo = roundedBox(sizeX, height, sizeZ, 0.09, this.lite ? 1 : 3);
       const rows = Math.max(1, Math.round(height / 9));
       const xBays = Math.max(1, Math.round(sizeZ / 10));
       const zBays = Math.max(1, Math.round(sizeX / 10));
@@ -223,7 +260,8 @@ export class City implements GroundProvider {
    */
   extraCollider: ((x: number, z: number, r: number) => boolean) | null = null;
 
-  constructor() {
+  constructor(lite = false) {
+    this.lite = lite;
     this.buildRoads();
     this.buildBlocks();
     this.buildPlaza();
@@ -642,7 +680,10 @@ export class City implements GroundProvider {
       const faceIndex = alongZ ? (facing > 0 ? 0 : 1) : (facing > 0 ? 4 : 5);
 
       this.addBoxBuilding(x, z, sizeX, sizeZ, height, facade, faceIndex, rnd);
-      this.decorate(alongZ, offset, facing, centre, width, height, index++, rnd);
+      this.decorate(
+        alongZ, offset, facing, centre, width, height, index++,
+        seededAt(offset, centre),
+      );
 
       // Every few buildings, leave a callejón wide enough for three bikes
       // abreast. It opens into the empty middle of the block, which makes the
@@ -664,7 +705,7 @@ export class City implements GroundProvider {
     // quarter turn from one facing +Z.
     const faceYaw = alongZ ? (facing > 0 ? Math.PI / 2 : -Math.PI / 2) : (facing > 0 ? 0 : Math.PI);
 
-    if (rnd() > 0.45) {
+    if (rnd() > 0.45 && this.keep(0.5)) {
       const wallFace = offset - facing * (LAYOUT.blockDepth / 2 - 0.35);
       const railLen = Math.round(Math.min(3.4, width * 0.45) * 2) / 2;
       const slab = new THREE.Mesh(
@@ -704,16 +745,16 @@ export class City implements GroundProvider {
     // everything here faces the road by construction. Palms are the expensive
     // one: each cell holding a palm pays for its trunk and leaf materials, so
     // the count is kept deliberately lean.
-    if (roll > 0.86) {
+    if (roll > 0.86 && this.keep(0.65)) {
       const lamp = makeStreetLamp();
       lamp.rotation.y = faceYaw + Math.PI / 2;
       lamp.position.set(...at(kerbOffset, KERB_HEIGHT, centre));
       this.blockAdd(lamp);
-    } else if (roll > 0.72) {
+    } else if (roll > 0.72 && this.keep(0.65)) {
       const palm = makePalm(6 + rnd() * 3.5, index * 7 + centre);
       palm.position.set(...at(kerbOffset, KERB_HEIGHT, centre));
       this.blockAdd(palm);
-    } else if (roll > 0.38) {
+    } else if (roll > 0.38 && this.keep(0.65)) {
       const planter = makePlanter(index);
       planter.position.set(...at(kerbOffset, KERB_HEIGHT, centre));
       this.blockAdd(planter);
@@ -721,7 +762,7 @@ export class City implements GroundProvider {
 
     // Somebody on the pavement. Not many - a handful down a street reads as
     // lived-in, a crowd reads as a parade and costs a fortune to draw.
-    if (rnd() > 0.72) {
+    if (rnd() > 0.72 && this.keep(0.5)) {
       // Two shirts and one pair of trousers. Every extra colour is another
       // material, and after the cell bake a material is a draw call in every
       // block it appears in - five shirts cost 350 draw calls across the city.
@@ -738,7 +779,7 @@ export class City implements GroundProvider {
     }
 
     // Cars against the kerb - obstacles, not traffic.
-    if (rnd() > 0.86 && width > 18) {
+    if (rnd() > 0.86 && width > 18 && this.keep(0.5)) {
       const carAcross = offset - facing * (LAYOUT.blockDepth / 2 + LAYOUT.sidewalk + 1.05);
       const car = makeParkedCar(CAR_COLORS[Math.floor(rnd() * CAR_COLORS.length)]);
       car.rotation.y = alongZ ? 0 : Math.PI / 2;
@@ -898,7 +939,8 @@ export class City implements GroundProvider {
 
     // Dominoes under the palms. Four viejos to a table, and this is the most
     // Puerto Rican thing that could possibly be in a plaza.
-    for (const [dx, dz, seed] of [[-14, -18, 3], [13, -22, 9], [-4, -30, 17]] as const) {
+    const tables = [[-14, -18, 3], [13, -22, 9], [-4, -30, 17]] as const;
+    for (const [dx, dz, seed] of this.lite ? tables.slice(0, 1) : tables) {
       const table = makeDominoTable(seed);
       table.position.set(dx, KERB_HEIGHT, p.zMax + dz);
       table.rotation.y = seed * 0.7;
@@ -1051,7 +1093,7 @@ export class City implements GroundProvider {
     // land rather than a green plane running into the fog.
     let seed = 771;
     const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < (this.lite ? 12 : 30); i++) {
       // Kept near the fence, where they actually screen the view through it.
       // Scattered over a hundred metres they were just more empty ground with
       // trees in it.
@@ -1317,6 +1359,24 @@ export class City implements GroundProvider {
  * Shared by the collision heightfield and the mesh generator so they can never
  * disagree about where the road is.
  */
+/**
+ * A generator seeded from where something stands.
+ *
+ * Decoration used to draw from the same sequence as the building sizes and
+ * facade colours, so anything that changed how many numbers a prop consumed
+ * reshuffled the whole city after it. The console build skipping a planter gave
+ * Justin a completely different street from the one on the desktop - same seed,
+ * different city. Now what is ON a facade can never change WHICH buildings
+ * exist.
+ */
+function seededAt(a: number, b: number): () => number {
+  let n = ((Math.round(a * 8) * 73856093) ^ (Math.round(b * 8) * 19349663)) >>> 0;
+  return () => {
+    n = (n * 1664525 + 1013904223) >>> 0;
+    return n / 4294967296;
+  };
+}
+
 /** Rounds to a step, so sizes repeat and their geometry can be shared. */
 function quantise(v: number, step: number): number {
   return Math.round(v / step) * step;
