@@ -38,12 +38,21 @@ function makeCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingCo
   return [c, ctx];
 }
 
+/**
+ * Anisotropic filtering costs sampling bandwidth on every pixel of road, which
+ * the Xbox has far less of than the dev machine. Set once at startup.
+ */
+export let ANISOTROPY = 16;
+export function setAnisotropy(n: number): void {
+  ANISOTROPY = n;
+}
+
 function finish(canvas: HTMLCanvasElement, repeatX = 1, repeatY = 1): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(repeatX, repeatY);
-  tex.anisotropy = 16;
+  tex.anisotropy = ANISOTROPY;
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }

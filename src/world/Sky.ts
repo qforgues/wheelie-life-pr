@@ -12,6 +12,27 @@ export interface SkyRig {
   update(dt: number): void;
 }
 
+/**
+ * Pre-filters a tiny equirect of sky-over-ground into the scene's environment
+ * map. Split out and callable again because it lives in a render target: a lost
+ * WebGL context takes the contents with it, and the bike goes flat matte until
+ * this is re-run. Failure here costs reflections, not the game, so it is caught.
+ */
+export function buildEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRenderer): void {
+  try {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    pmrem.compileEquirectangularShader();
+    const envSource = makeEnvironmentTexture();
+    scene.environment?.dispose();
+    scene.environment = pmrem.fromEquirectangular(envSource).texture;
+    envSource.dispose();
+    pmrem.dispose();
+  } catch (err) {
+    console.warn('environment map unavailable', err);
+    scene.environment = null;
+  }
+}
+
 export function buildSky(scene: THREE.Scene, renderer: THREE.WebGLRenderer): SkyRig {
   const group = new THREE.Group();
 
@@ -69,12 +90,7 @@ export function buildSky(scene: THREE.Scene, renderer: THREE.WebGLRenderer): Sky
   // Painted and chromed surfaces have nothing to reflect without this, so they
   // read as flat plastic however round the geometry is. A tiny equirect of sky
   // over ground, pre-filtered, is enough to give the bike a finish.
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  pmrem.compileEquirectangularShader();
-  const envSource = makeEnvironmentTexture();
-  scene.environment = pmrem.fromEquirectangular(envSource).texture;
-  envSource.dispose();
-  pmrem.dispose();
+  buildEnvironment(scene, renderer);
 
   // --- light --------------------------------------------------------------
   const sun = new THREE.DirectionalLight(0xfff4de, 2.9);

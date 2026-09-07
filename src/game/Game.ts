@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import { Loop } from '../core/Loop';
+import { createRenderer, guardContext } from '../core/RenderGuard';
 import { QualityGovernor, applyQuality, initialTier } from '../core/Quality';
 import { InputManager } from '../input/InputManager';
 import { BikeSim } from '../sim/BikeSim';
 import { BIKES, TRICKS, cloneTuning, type BikeId } from '../sim/tuning';
 import { BIKE_VISUALS } from '../view/bikeVisuals';
 import { City } from '../world/City';
-import { buildSky, type SkyRig } from '../world/Sky';
+import { buildSky, buildEnvironment, type SkyRig } from '../world/Sky';
+import { setAnisotropy } from '../world/textures';
 import { BikeView } from '../view/BikeView';
 import { CAMERA_LABELS } from '../view/ChaseCamera';
 import { ChaseCamera } from '../view/ChaseCamera';
@@ -83,14 +85,18 @@ export class Game {
   private padWasConnected: boolean | null = null;
   private bikeId: BikeId = 'yz250f';
   private headVec = new THREE.Vector3();
+  /** True between `webglcontextlost` and `webglcontextrestored`. */
+  private contextLost = false;
 
   constructor(container: HTMLElement) {
     // ---- renderer --------------------------------------------------------
     const tier = initialTier();
-    this.renderer = new THREE.WebGLRenderer({
-      antialias: tier !== 'low',
-      powerPreference: 'high-performance',
-    });
+    // Throws rather than handing back a renderer that draws nothing; main.ts
+    // turns that into a readable screen.
+    // Textures are generated on first use below, so the filtering budget has to
+    // be set before the city is built.
+    setAnisotropy(tier === 'low' ? 2 : tier === 'medium' ? 4 : 16);
+    this.renderer = createRenderer(tier !== 'low');
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -168,6 +174,26 @@ export class Game {
   }
 
   start(): void {
+    // A lost context leaves a live HUD over a blank canvas, which is exactly
+    // how this failed on the Xbox. Stop the clock, say so on screen, and pick
+    // back up if the browser gives the GPU back.
+    guardContext(this.renderer, {
+      onLost: () => {
+        // The loop keeps running deliberately. Stopping it also stops the
+        // diagnostics panel and the toast - the two things actually explaining
+        // the failure - which is how this turned into a silent white screen in
+        // the first place. Freeze the bike, skip the draw, keep the UI alive.
+        this.contextLost = true;
+        this.hud.showToast('GRAPHICS LOST - RECOVERING', 6);
+      },
+      onRestored: () => {
+        buildEnvironment(this.scene, this.renderer);
+        applyQuality(this.quality.settings, this.renderer, this.sky.sun, this.scene.fog as THREE.Fog);
+        this.contextLost = false;
+        this.hud.showToast('GRAPHICS RESTORED', 2);
+      },
+      note: (msg) => this.diagnostics.note(msg),
+    });
     this.loop.start();
   }
 
@@ -366,6 +392,13 @@ export class Game {
   // ------------------------------------------------------------------ render
 
   private render(dt: number, alpha: number): void {
+    // No context, no draw - but the HUD and diagnostics are DOM and keep
+    // updating below, so the screen still says what is wrong.
+    if (this.contextLost) {
+      this.diagnostics.update(dt, this.renderer);
+      this.hud.update(this.sim.state, this.tracker, this.sim.getTuning(), dt);
+      return;
+    }
     const simState = this.sim.state;
 
     // Draw between the last two physics steps rather than on top of the most

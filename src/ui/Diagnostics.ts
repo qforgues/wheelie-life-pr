@@ -41,11 +41,22 @@ export class Diagnostics {
     addEventListener('unhandledrejection', (e) => this.note(`unhandled: ${String(e.reason).slice(0, 120)}`));
   }
 
-  private note(msg: string): void {
+  /** Record a breadcrumb and force the panel open. Public so the render guard
+   *  can report a lost GPU context, which throws no error of its own. */
+  note(msg: string): void {
     this.errors.unshift(msg);
     this.errors.length = Math.min(this.errors.length, 4);
     // An error is exactly when you want this on screen.
     this.show();
+    // Paint the messages right now. `update` may never run again - it is driven
+    // by the render loop, and the reason for the note may be that the loop is
+    // gone - so the panel must not depend on it to say anything at all.
+    this.timer = 0;
+    if (!this.body.innerHTML) this.body.innerHTML = row(this.errorRows());
+  }
+
+  private errorRows(): Array<[string, string]> {
+    return this.errors.map((e, n) => [n === 0 ? 'errors' : '', e] as [string, string]);
   }
 
   toggle(): void {
@@ -72,10 +83,17 @@ export class Diagnostics {
     const pad = this.input.rawPad();
     const i = this.info();
     const gl = renderer.getContext();
-    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-    const gpu = dbg
-      ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)).slice(0, 46)
-      : 'hidden';
+    // Every one of these returns null once the context is lost, which is
+    // exactly when this panel matters most.
+    const lost = gl.isContextLost();
+    let gpu = 'hidden';
+    try {
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      if (dbg) gpu = String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)).slice(0, 46);
+    } catch {
+      gpu = 'unavailable';
+    }
+    if (lost) gpu = 'CONTEXT LOST';
 
     const trig = (n: number) => (pad?.buttons[n]?.value ?? 0).toFixed(2);
     const ax = (n: number) => (pad?.axes[n] ?? 0).toFixed(2);
@@ -86,6 +104,7 @@ export class Diagnostics {
     this.body.innerHTML = row([
       ['device', isXboxDevice() ? 'Xbox console browser' : 'desktop / other'],
       ['renderer', `${gl instanceof WebGL2RenderingContext ? 'WebGL2' : 'WebGL1'} · ${gpu}`],
+      ...(lost ? [['GPU', 'context lost - waiting for the browser to give it back'] as [string, string]] : []),
       ['screen', `${innerWidth}×${innerHeight} @ ${devicePixelRatio.toFixed(2)}x`],
       ['fps', `${i.fps.toFixed(0)}  ·  quality ${i.quality}`],
       ['scene', `${i.drawCalls} calls · ${(i.triangles / 1000).toFixed(0)}k tris`],
@@ -98,9 +117,7 @@ export class Diagnostics {
       ['left stick', `${ax(0)}, ${ax(1)}`],
       ['right stick', `${ax(2)}, ${ax(3)}`],
       ['buttons down', pressed],
-      ...(this.errors.length
-        ? this.errors.map((e, n) => [n === 0 ? 'errors' : '', e] as [string, string])
-        : []),
+      ...this.errorRows(),
     ]);
   }
 }

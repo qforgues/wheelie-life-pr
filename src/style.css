@@ -452,3 +452,37 @@ body.is-console {
 }
 body.is-console .overlay-card { width: min(760px, 86vw); }
 body.is-console .debug-gui { display: none !important; }
+
+/* ---------------------------------------------------------------- fatal ----
+   Shown when the game cannot start or the GPU context is gone for good. Sized
+   to be read across a living room, because that is where it will be seen. */
+.fatal {
+  position: absolute;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: calc(40px + var(--safe));
+  text-align: center;
+  background: #0d1017;
+  color: var(--paper);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.fatal h1 {
+  margin: 0;
+  font-size: calc(30px * var(--hud-scale));
+  letter-spacing: 0.04em;
+  color: var(--pr-cyan);
+  text-wrap: balance;
+}
+.fatal p {
+  margin: 0;
+  max-width: 46ch;
+  font-size: calc(15px * var(--hud-scale));
+  line-height: 1.5;
+}
+.fatal-gpu { opacity: 0.65; font-size: calc(12px * var(--hud-scale)) !important; }
+.fatal-hint { opacity: 0.8; }

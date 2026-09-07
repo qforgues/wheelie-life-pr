@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { CrashReason, GroundProvider } from '../sim/types';
 import type { SpawnPoint } from '../sim/BikeSim';
-import { roundedBox } from '../view/geometry';
+import { roundedBox, scaleUV } from '../view/geometry';
 import {
   makeAwning, makeFort, makeGarita, makeParkedCar, makePalm, makePlanter,
   makeRailing, makeShopSign, makeStreetLamp, PROP_MATERIALS,
@@ -43,6 +43,12 @@ export class City implements GroundProvider {
   readonly spawn: SpawnPoint = { x: 0, z: LAYOUT.avenueStart + 25, yaw: 0 };
 
   private colliders: Box2[] = [];
+
+  /** The one sidewalk texture, shared by the streets and the plaza floor. */
+  private sidewalkTex!: THREE.CanvasTexture;
+  /** Wall materials keyed `facadeUuid:brightness`, shared across every block. */
+  private wallMats = new Map<string, THREE.MeshStandardMaterial>();
+  private roofMat = new THREE.MeshStandardMaterial({ color: 0x8f7358, roughness: 0.98 });
   private bumps: Bump[] = [];
 
   constructor() {
@@ -62,24 +68,23 @@ export class City implements GroundProvider {
     const avenueLen = LAYOUT.avenueEnd - LAYOUT.avenueStart;
     const avenueMid = (LAYOUT.avenueEnd + LAYOUT.avenueStart) / 2;
 
+    // One cobble material for every stretch of road. The tile rate that used to
+    // live on a cloned texture per street is baked into each mesh's UVs.
     const roadMat = new THREE.MeshStandardMaterial({ map: cobble, roughness: 0.96 });
-    cobble.repeat.set((LAYOUT.roadHalf * 2) / 3.5, avenueLen / 3.5);
 
-    const avenue = new THREE.Mesh(new THREE.PlaneGeometry(LAYOUT.roadHalf * 2, avenueLen), roadMat);
+    const avenueGeo = new THREE.PlaneGeometry(LAYOUT.roadHalf * 2, avenueLen);
+    scaleUV(avenueGeo, (LAYOUT.roadHalf * 2) / 3.5, avenueLen / 3.5);
+    const avenue = new THREE.Mesh(avenueGeo, roadMat);
     avenue.rotation.x = -Math.PI / 2;
     avenue.position.set(0, 0, avenueMid);
     avenue.receiveShadow = true;
     this.root.add(avenue);
 
-    // Cross streets, sharing the same cobble but with their own repeat.
+    // Cross streets, sharing that one material at their own tile rate.
     for (const cs of LAYOUT.crossStreets) {
-      const tex = cobble.clone();
-      tex.needsUpdate = true;
-      tex.repeat.set((cs.xMax - cs.xMin) / 3.5, (cs.half * 2) / 3.5);
-      const m = new THREE.Mesh(
-        new THREE.PlaneGeometry(cs.xMax - cs.xMin, cs.half * 2),
-        new THREE.MeshStandardMaterial({ map: tex, roughness: 0.92 }),
-      );
+      const geo = new THREE.PlaneGeometry(cs.xMax - cs.xMin, cs.half * 2);
+      scaleUV(geo, (cs.xMax - cs.xMin) / 3.5, (cs.half * 2) / 3.5);
+      const m = new THREE.Mesh(geo, roadMat);
       m.rotation.x = -Math.PI / 2;
       m.position.set((cs.xMin + cs.xMax) / 2, 0.001, cs.z);
       m.receiveShadow = true;
@@ -87,13 +92,12 @@ export class City implements GroundProvider {
     }
 
     // Sidewalks + kerbs down both sides of the avenue.
+    this.sidewalkTex = walk;
     const walkMat = new THREE.MeshStandardMaterial({ map: walk, roughness: 0.95 });
-    walk.repeat.set(LAYOUT.sidewalk / 1.5, avenueLen / 1.5);
     for (const side of [-1, 1]) {
-      const sw = new THREE.Mesh(
-        roundedBox(LAYOUT.sidewalk, 0.16, avenueLen, 0.04, 2),
-        walkMat,
-      );
+      const swGeo = roundedBox(LAYOUT.sidewalk, 0.16, avenueLen, 0.04, 2);
+      scaleUV(swGeo, LAYOUT.sidewalk / 1.5, avenueLen / 1.5);
+      const sw = new THREE.Mesh(swGeo, walkMat);
       sw.position.set(side * (LAYOUT.roadHalf + LAYOUT.sidewalk / 2), 0.08, avenueMid);
       sw.receiveShadow = true;
       this.root.add(sw);
@@ -284,22 +288,27 @@ export class City implements GroundProvider {
     // Every wall gets a facade, not just the one facing the street: the ends of
     // the blocks are fully visible from the cross streets and the plaza, and
     // blank slabs there were killing the whole look.
-    const wall = (faceWidth: number, bright: number) => {
-      const tex = facade.clone();
-      tex.needsUpdate = true;
-      tex.repeat.set(Math.max(1, Math.round(faceWidth / 10)), Math.max(1, Math.round(height / 9)));
-      return new THREE.MeshStandardMaterial({
-        map: tex,
-        roughness: 0.94,
-        color: new THREE.Color(bright, bright, bright),
-      });
+    // One material per facade-and-brightness pair for the whole city, instead
+    // of a fresh cloned texture per wall. The tile rate moves onto the mesh.
+    const wall = (bright: number) => {
+      const key = `${facade.uuid}:${bright}`;
+      let mat = this.wallMats.get(key);
+      if (!mat) {
+        mat = new THREE.MeshStandardMaterial({
+          map: facade,
+          roughness: 0.94,
+          color: new THREE.Color(bright, bright, bright),
+        });
+        this.wallMats.set(key, mat);
+      }
+      return mat;
     };
 
     // Side walls are very slightly knocked back so the frontage still reads as
     // the "face" of the building.
-    const xFaces = wall(sizeZ, faceIndex <= 1 ? 1 : 0.88);
-    const zFaces = wall(sizeX, faceIndex >= 4 ? 1 : 0.88);
-    const roof = new THREE.MeshStandardMaterial({ color: 0x8f7358, roughness: 0.98 });
+    const xFaces = wall(faceIndex <= 1 ? 1 : 0.88);
+    const zFaces = wall(faceIndex >= 4 ? 1 : 0.88);
+    const roof = this.roofMat;
 
     const mats: THREE.Material[] = [xFaces, xFaces, roof, roof, zFaces, zFaces];
     void rnd;
@@ -307,7 +316,18 @@ export class City implements GroundProvider {
     // 3 segments is enough: with a 9 cm radius on a 12 m wall the fillet is a
     // single chamfer facet per corner, which is all a building needs - it
     // catches a highlight and stops the edge aliasing.
-    const mesh = new THREE.Mesh(roundedBox(sizeX, height, sizeZ, 0.09, 3), mats);
+    const boxGeo = roundedBox(sizeX, height, sizeZ, 0.09, 3);
+    // Groups 0/1 are the +X/-X walls (spanning sizeZ), 4/5 the +Z/-Z walls
+    // (spanning sizeX); 2/3 are the roof and floor, which use a flat material.
+    const rows = Math.max(1, Math.round(height / 9));
+    const xBays = Math.max(1, Math.round(sizeZ / 10));
+    const zBays = Math.max(1, Math.round(sizeX / 10));
+    scaleUV(boxGeo, xBays, rows, 0);
+    scaleUV(boxGeo, xBays, rows, 1);
+    scaleUV(boxGeo, zBays, rows, 4);
+    scaleUV(boxGeo, zBays, rows, 5);
+
+    const mesh = new THREE.Mesh(boxGeo, mats);
     mesh.position.set(x, height / 2, z);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -352,11 +372,15 @@ export class City implements GroundProvider {
 
   private buildPlaza(): void {
     const p = LAYOUT.plaza;
-    const walk = makeSidewalkTexture();
-    walk.repeat.set((p.xMax - p.xMin) / 2.5, (p.zMax - p.zMin) / 2.5);
+    // Reuses the sidewalk texture the streets already uploaded - a second
+    // identical canvas would be a second GPU texture for no visible gain.
+    const floorGeo = new THREE.PlaneGeometry(p.xMax - p.xMin, p.zMax - p.zMin);
+    scaleUV(floorGeo, (p.xMax - p.xMin) / 2.5, (p.zMax - p.zMin) / 2.5);
     const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(p.xMax - p.xMin, p.zMax - p.zMin),
-      new THREE.MeshStandardMaterial({ map: walk, roughness: 0.96, color: 0xcfc6b4 }),
+      floorGeo,
+      new THREE.MeshStandardMaterial({
+        map: this.sidewalkTex, roughness: 0.96, color: 0xcfc6b4,
+      }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.set((p.xMin + p.xMax) / 2, 0.002, (p.zMin + p.zMax) / 2);

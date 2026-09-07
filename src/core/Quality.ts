@@ -40,8 +40,12 @@ const ORDER: QualityTier[] = ['high', 'medium', 'low'];
 export function initialTier(): QualityTier {
   if (typeof navigator === 'undefined') return 'high';
   const ua = navigator.userAgent;
-  // Console browsers and phones start conservative and can climb back later.
-  if (/xbox|playstation|nintendo/i.test(ua)) return 'medium';
+  // The Xbox browser starts at the bottom. It ran out of GPU memory at medium
+  // and dropped the WebGL context, and the governor only ever steps *down* - so
+  // by the time it reacted the damage was done. Shadows are worth less than a
+  // picture. Everything else console-ish still gets a middle tier.
+  if (/xbox/i.test(ua)) return 'low';
+  if (/playstation|nintendo/i.test(ua)) return 'medium';
   if (/android|iphone|ipad|mobile/i.test(ua)) return 'medium';
   const cores = navigator.hardwareConcurrency ?? 4;
   return cores <= 4 ? 'medium' : 'high';

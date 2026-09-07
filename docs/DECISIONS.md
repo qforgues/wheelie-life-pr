@@ -180,3 +180,35 @@ it to zero along with a wider save window.
 25 mph in 2nd, ~24 m back up the street, 1.5 s after the wipeout. Resetting to a
 standstill turned every attempt into a six-second run-up, which wrecked the
 practice loop. Second gear at 25 mph is exactly wheelie-ready.
+
+## 13. Tiling lives on the geometry, not on the texture
+
+The first real Xbox test came back as a photo of a blank white viewport with a
+live HUD over it: DOM, sim and save all working, canvas drawing nothing.
+
+The cause was texture memory. `texture.repeat` is a property of the *texture*,
+so every surface wanting a different tile rate had been given its own
+`clone()` - and three.js uploads every distinct `Texture` object to the GPU
+separately even when they all share one canvas. The city was holding **232
+textures backed by 54 images**, roughly 309 MB, which the console browser's
+memory ceiling would not take. It dropped the WebGL context, and with no
+listener attached the canvas simply stopped updating.
+
+Tiling now goes into the mesh's UVs (`scaleUV` in `view/geometry.ts`) and one
+texture serves every wall, road and sidewalk: **53 textures, 53 images, ~70 MB**,
+with no visible change to the city.
+
+Three supporting choices, all "never show a white screen again":
+
+- **`preventDefault()` on `webglcontextlost`.** Without it the browser never
+  fires `webglcontextrestored` and the canvas is dead for the life of the page.
+- **The loop keeps running while the context is gone.** Stopping it also stops
+  the diagnostics panel and the toast - the two things that explain the failure.
+  The bike freezes and the draw is skipped; the UI stays live.
+- **The Xbox starts at the `low` tier.** The quality governor only ever steps
+  *down*, so by the time it reacts to a memory problem the context is already
+  gone. Shadows are worth less than a picture. Justin can raise it from the
+  debug panel now that the diagnostics panel reports real fps.
+
+Anything that still escapes - no WebGL2 at all, for instance, which three.js has
+required since r163 - now paints a readable message instead of nothing.

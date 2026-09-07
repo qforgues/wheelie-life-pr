@@ -66,6 +66,43 @@ export function roundedBox(
   return geo;
 }
 
+/**
+ * Multiplies a geometry's UVs in place, optionally over just one material group.
+ *
+ * This is how tiling is set here, instead of `texture.repeat`. Repeat lives on
+ * the texture, so every surface that wanted a different tile rate needed its own
+ * `clone()` - and three.js uploads every distinct Texture object to the GPU
+ * separately even when they all share one image. The city was holding 232
+ * textures backed by 54 canvases, which is what ran the Xbox browser out of
+ * memory. Baking the rate into the mesh lets one texture serve the whole street.
+ */
+export function scaleUV(
+  geo: THREE.BufferGeometry, sx: number, sy: number, group?: number,
+): void {
+  const uv = geo.attributes.uv as THREE.BufferAttribute | undefined;
+  if (!uv) return;
+  const g = group === undefined ? undefined : geo.groups[group];
+
+  if (!g) {
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * sx, uv.getY(i) * sy);
+  } else {
+    // Walk the group's indices rather than a vertex range: the range only
+    // happens to be contiguous for BoxGeometry, and this stays correct if the
+    // geometry underneath ever changes. Box faces never share vertices, so
+    // scaling one group can't drag a neighbour's UVs with it.
+    const index = geo.index;
+    if (!index) return;
+    const seen = new Set<number>();
+    for (let i = g.start; i < g.start + g.count; i++) {
+      const v = index.getX(i);
+      if (seen.has(v)) continue;
+      seen.add(v);
+      uv.setXY(v, uv.getX(v) * sx, uv.getY(v) * sy);
+    }
+  }
+  uv.needsUpdate = true;
+}
+
 /** Capsule with enough segments to read as round at chase-camera distance. */
 export function limbCapsule(radius: number, length: number): THREE.BufferGeometry {
   return new THREE.CapsuleGeometry(radius, Math.max(0.01, length - radius * 2), 10, 24);
