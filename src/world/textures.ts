@@ -206,6 +206,49 @@ export function makeFacadeTexture(seed: number, floors = 3, bays = 3): THREE.Can
   return finish(canvas);
 }
 
+/**
+ * A race number on a plate.
+ *
+ * The single most recognisable thing about a motocross bike is the number
+ * hanging off the side of it, and a blank white rectangle reads as an unpainted
+ * panel rather than a bike someone races. Cached by what it says, because every
+ * distinct Texture is its own GPU upload.
+ */
+const NUMBER_TEXTURES = new Map<string, THREE.CanvasTexture>();
+
+export function makeNumberTexture(
+  text: string, bg = '#f2f2ee', fg = '#15161a',
+): THREE.CanvasTexture {
+  const key = `${text}|${bg}|${fg}`;
+  const cached = NUMBER_TEXTURES.get(key);
+  if (cached) return cached;
+
+  const W = 256, H = 192;
+  const [canvas, ctx] = makeCanvas(W, H);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // A thin border, the way a real plate backing is trimmed.
+  ctx.strokeStyle = 'rgba(0,0,0,0.16)';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(9, 9, W - 18, H - 18);
+
+  ctx.fillStyle = fg;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  // Condensed and heavy - number plates are always a tight, fat face.
+  ctx.font = `900 ${Math.round(H * 0.78)}px "Arial Narrow", Impact, sans-serif`;
+  ctx.setTransform(1.12, 0, 0, 1, -W * 0.06, 0);
+  ctx.fillText(text, W / 2, H / 2 + H * 0.04);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = ANISOTROPY;
+  NUMBER_TEXTURES.set(key, tex);
+  return tex;
+}
+
 /** Blue adoquines - the ballast-stone cobbles Old San Juan is paved with. */
 export function makeCobbleTexture(): THREE.CanvasTexture {
   const rnd = mulberry(7);

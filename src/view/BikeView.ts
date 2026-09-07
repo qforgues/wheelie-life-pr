@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { makeNumberTexture } from '../world/textures';
 import type { BikeState } from '../sim/types';
 import type { BikeTuning } from '../sim/tuning';
 import { fender, limbCapsule, roundedBox } from './geometry';
@@ -173,6 +174,9 @@ interface BodyMaterials {
   metal: THREE.MeshStandardMaterial;
   engine: THREE.MeshStandardMaterial;
 }
+
+/** Justin's number. It goes on the plates. */
+const RACE_NUMBER = '24';
 
 export class BikeView {
   readonly root = new THREE.Group();
@@ -519,19 +523,19 @@ export class BikeView {
     this.bike.add(subframe);
 
     // Tank sits proud of the backbone, clearly ahead of and above the seat.
-    const tank = new THREE.Mesh(roundedBox(0.27, 0.23, 0.34, 0.10, 16), m.body);
+    const tank = new THREE.Mesh(roundedBox(0.27, 0.23, 0.34, 0.0322, 16), m.body);
     tank.position.set(0, 0.86, 0.76);
     tank.rotation.x = -0.06;
     tank.castShadow = true;
     this.bike.add(tank);
 
-    const seat = new THREE.Mesh(roundedBox(0.23, 0.09, 0.42, 0.042, 10), m.black);
+    const seat = new THREE.Mesh(roundedBox(0.23, 0.09, 0.42, 0.0144, 10), m.black);
     seat.position.set(0, 0.79, 0.35);
     seat.rotation.x = -0.04;
     seat.castShadow = true;
     this.bike.add(seat);
 
-    const tail = new THREE.Mesh(roundedBox(0.19, 0.13, 0.24, 0.055, 10), m.body);
+    const tail = new THREE.Mesh(roundedBox(0.19, 0.13, 0.24, 0.0182, 10), m.body);
     tail.position.set(0, 0.76, 0.06);
     tail.rotation.x = -0.18;
     tail.castShadow = true;
@@ -539,7 +543,7 @@ export class BikeView {
 
     // Tail light + plate: this is what drags when you go too far.
     const plate = new THREE.Mesh(
-      roundedBox(0.17, 0.12, 0.025, 0.012, 5),
+      roundedBox(0.17, 0.12, 0.025, 0.0025, 5),
       new THREE.MeshStandardMaterial({ color: 0xf0efe6, roughness: 0.8 }),
     );
     plate.position.set(0, 0.60, -0.05);
@@ -597,7 +601,7 @@ export class BikeView {
       this.forkGroup.add(upper);
     }
 
-    const triple = new THREE.Mesh(roundedBox(0.23, 0.055, 0.13, 0.024, 6), m.black);
+    const triple = new THREE.Mesh(roundedBox(0.23, 0.055, 0.13, 0.0088, 6), m.black);
     triple.position.set(0, CLAMP_Y, CLAMP_Z);
     triple.rotation.x = rake;
     this.forkGroup.add(triple);
@@ -623,12 +627,12 @@ export class BikeView {
       this.forkGroup.add(lever);
     }
 
-    const headlight = new THREE.Mesh(roundedBox(0.19, 0.16, 0.11, 0.052, 12), m.black);
+    const headlight = new THREE.Mesh(roundedBox(0.19, 0.16, 0.11, 0.0176, 12), m.black);
     headlight.position.set(0, 0.60, -0.10);
     headlight.rotation.x = rake;
     this.forkGroup.add(headlight);
     const lens = new THREE.Mesh(
-      roundedBox(0.145, 0.115, 0.04, 0.018, 6),
+      roundedBox(0.145, 0.115, 0.04, 0.0048, 6),
       new THREE.MeshStandardMaterial({
         color: 0xfff3d0, emissive: 0xfff0c0, emissiveIntensity: 0.5, roughness: 0.2,
       }),
@@ -701,20 +705,26 @@ export class BikeView {
     head.position.set(0, 0.94, 0.57);
     head.rotation.x = 0.30;
     this.bike.add(head);
-    const skid = new THREE.Mesh(roundedBox(0.28, 0.05, 0.42, 0.03, 5), m.accent);
+    const skid = new THREE.Mesh(roundedBox(0.28, 0.05, 0.42, 0.008, 5), m.black);
     skid.position.set(0, 0.365, 0.68);
     skid.castShadow = true;
     this.bike.add(skid);
 
     // ---- frame -------------------------------------------------------------
     // Twin spars sweeping from the steering head down and back to the swingarm.
+    // Slimmer and darker than the bright tubes this used to have, which read as
+    // scaffolding. A real 250F beam is a narrow anodised extrusion that mostly
+    // disappears behind the shrouds.
+    const beam = new THREE.MeshStandardMaterial({
+      color: 0x4c5058, roughness: 0.38, metalness: 0.85,
+    });
     for (const dx of [-0.10, 0.10]) {
-      const spar = new THREE.Mesh(roundedBox(0.055, 0.075, 0.68, 0.026, 6), m.metal);
+      const spar = new THREE.Mesh(roundedBox(0.035, 0.058, 0.68, 0.014, 6), beam);
       spar.position.set(dx, 0.86, 0.90);
       spar.rotation.x = 0.34;
       spar.castShadow = true;
       this.bike.add(spar);
-      const down = new THREE.Mesh(roundedBox(0.05, 0.05, 0.52, 0.023, 6), m.metal);
+      const down = new THREE.Mesh(roundedBox(0.032, 0.038, 0.52, 0.013, 6), beam);
       down.position.set(dx * 0.62, 0.66, 0.94);
       down.rotation.x = 0.95;
       this.bike.add(down);
@@ -731,36 +741,48 @@ export class BikeView {
       radiator.position.set(dx * 0.15, 0.86, 1.02);
       this.bike.add(radiator);
       // The shrouds are the bike's face: big, flared, carrying the numbers.
-      const shroud = new THREE.Mesh(roundedBox(0.055, 0.30, 0.46, 0.026, 12), m.body);
+      const shroud = new THREE.Mesh(roundedBox(0.055, 0.3, 0.46, 0.0055, 12), m.body);
       shroud.position.set(dx * 0.185, 0.88, 0.98);
       shroud.rotation.set(0.08, dx * -0.13, dx * 0.05);
       shroud.castShadow = true;
       this.bike.add(shroud);
-      const plate = new THREE.Mesh(roundedBox(0.02, 0.19, 0.26, 0.045, 6), m.accent);
+      // The number is the most recognisable thing on a motocross bike; a blank
+      // white rectangle reads as an unpainted panel. A decal plane rather than a
+      // face of the box, so the UVs cannot get dragged round the fillet.
+      const plate = new THREE.Mesh(roundedBox(0.02, 0.19, 0.26, 0.002, 6), m.accent);
       plate.position.set(dx * 0.215, 0.88, 0.95);
       plate.rotation.set(0.08, dx * -0.13, dx * 0.05);
       this.bike.add(plate);
+      const number = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.235, 0.17),
+        new THREE.MeshStandardMaterial({
+          map: makeNumberTexture(RACE_NUMBER), roughness: 0.55,
+        }),
+      );
+      number.position.set(dx * 0.228, 0.88, 0.95);
+      number.rotation.set(0.08, dx * (Math.PI / 2 - 0.13), dx * 0.05);
+      this.bike.add(number);
     }
 
     // ---- tank + seat + tail -----------------------------------------------
     // Tank is narrow and hides between the shrouds; the visual bulk is bodywork.
-    const tank = new THREE.Mesh(roundedBox(0.20, 0.20, 0.34, 0.075, 10), m.body);
+    const tank = new THREE.Mesh(roundedBox(0.2, 0.2, 0.34, 0.028, 10), m.body);
     tank.position.set(0, 0.94, 0.90);
     this.bike.add(tank);
 
-    const seat = new THREE.Mesh(roundedBox(0.20, 0.09, 0.66, 0.044, 14), m.black);
+    const seat = new THREE.Mesh(roundedBox(0.2, 0.09, 0.66, 0.0144, 14), m.black);
     seat.position.set(0, 0.955, 0.56);
     seat.rotation.x = -0.06;
     seat.castShadow = true;
     this.bike.add(seat);
     // Seat kicks up towards the tank the way an MX seat does.
-    const seatFront = new THREE.Mesh(roundedBox(0.17, 0.09, 0.22, 0.04, 8), m.black);
+    const seatFront = new THREE.Mesh(roundedBox(0.17, 0.09, 0.22, 0.0144, 8), m.black);
     seatFront.position.set(0, 1.00, 0.88);
     seatFront.rotation.x = -0.30;
     this.bike.add(seatFront);
 
     // High flat rear fender, carrying the tail light and plate.
-    const rearFender = new THREE.Mesh(roundedBox(0.24, 0.05, 0.50, 0.024, 12), m.body);
+    const rearFender = new THREE.Mesh(roundedBox(0.24, 0.05, 0.5, 0.006, 12), m.body);
     rearFender.position.set(0, 0.94, 0.10);
     rearFender.rotation.x = -0.16;
     rearFender.castShadow = true;
@@ -775,16 +797,25 @@ export class BikeView {
     this.bike.add(tailLight);
 
     // ---- exhaust -----------------------------------------------------------
-    const header = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.028, 0.60, 16), m.metal);
+    // Heat-stained steel, not chrome. Bright silver read as scaffolding running
+    // down the side of the bike; a real header is dark and goes browner the
+    // closer it gets to the head.
+    const pipe = new THREE.MeshStandardMaterial({
+      color: 0x6b6259, roughness: 0.46, metalness: 0.85,
+    });
+    const canMat = new THREE.MeshStandardMaterial({
+      color: 0x2a2c31, roughness: 0.5, metalness: 0.6,
+    });
+    const header = new THREE.Mesh(new THREE.CylinderGeometry(0.021, 0.024, 0.60, 16), pipe);
     header.position.set(0.10, 0.72, 0.82);
     header.rotation.set(Math.PI / 2 - 0.55, 0.30, 0);
     header.castShadow = true;
     this.bike.add(header);
-    const midpipe = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.034, 0.46, 16), m.metal);
+    const midpipe = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.029, 0.46, 16), pipe);
     midpipe.position.set(0.15, 0.74, 0.48);
     midpipe.rotation.set(Math.PI / 2 - 0.16, 0.12, 0);
     this.bike.add(midpipe);
-    const silencer = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.045, 0.40, 20), m.metal);
+    const silencer = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.042, 0.40, 20), canMat);
     silencer.position.set(0.17, 0.80, 0.14);
     silencer.rotation.set(Math.PI / 2 - 0.10, 0.05, 0);
     silencer.castShadow = true;
@@ -830,7 +861,7 @@ export class BikeView {
     bar.rotation.z = Math.PI / 2;
     bar.position.set(0, gy, gz);
     this.forkGroup.add(bar);
-    const pad = new THREE.Mesh(roundedBox(0.20, 0.07, 0.07, 0.03, 6), m.body);
+    const pad = new THREE.Mesh(roundedBox(0.2, 0.07, 0.07, 0.0112, 6), m.body);
     pad.position.set(0, gy + 0.01, gz + 0.005);
     this.forkGroup.add(pad);
     for (const dx of [-gx, gx]) {
@@ -845,7 +876,11 @@ export class BikeView {
     }
 
     // Front number plate rather than a headlight - it's a motocrosser.
-    const numberPlate = new THREE.Mesh(roundedBox(0.26, 0.24, 0.035, 0.017, 12), m.accent);
+    const numberPlate = new THREE.Mesh(roundedBox(0.26, 0.24, 0.035, 0.0035, 12), m.accent);
+    const frontNumber = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.22, 0.185),
+      new THREE.MeshStandardMaterial({ map: makeNumberTexture(RACE_NUMBER), roughness: 0.55 }),
+    );
     numberPlate.position.set(0, CLAMP_Y - 0.02, CLAMP_Z + 0.16);
     numberPlate.rotation.x = rake + 0.15;
     numberPlate.castShadow = true;
@@ -853,7 +888,13 @@ export class BikeView {
 
     // MX front fender: mounted high on the clamps and sweeping forward, nowhere
     // near the tyre - very different from a road bike's hugger.
-    const frontFender = new THREE.Mesh(roundedBox(0.26, 0.045, 0.60, 0.022, 12), m.body);
+    frontNumber.position.copy(numberPlate.position);
+    frontNumber.rotation.copy(numberPlate.rotation);
+    frontNumber.translateZ(-0.021);
+    frontNumber.rotateY(Math.PI);
+    this.forkGroup.add(frontNumber);
+
+    const frontFender = new THREE.Mesh(roundedBox(0.26, 0.045, 0.6, 0.0054, 12), m.body);
     frontFender.position.set(0, CLAMP_Y - 0.30, CLAMP_Z + 0.34);
     frontFender.rotation.x = -0.20;
     frontFender.castShadow = true;
@@ -921,26 +962,26 @@ export class BikeView {
 
     // ---- tank + tail --------------------------------------------------------
     // Long slab tank the rider lies on top of, sweeping down to the seat.
-    const tank = new THREE.Mesh(roundedBox(0.36, 0.23, 0.46, 0.105, 18), m.body);
+    const tank = new THREE.Mesh(roundedBox(0.36, 0.23, 0.46, 0.0322, 18), m.body);
     tank.position.set(0, 0.78, 0.94);
     tank.rotation.x = -0.07;
     tank.castShadow = true;
     this.bike.add(tank);
     // Spine over the top, sloping down to the seat.
-    const tankTop = new THREE.Mesh(roundedBox(0.26, 0.10, 0.40, 0.05, 14), m.body);
+    const tankTop = new THREE.Mesh(roundedBox(0.26, 0.1, 0.4, 0.014, 14), m.body);
     tankTop.position.set(0, 0.875, 0.86);
     tankTop.rotation.x = 0.16;
     tankTop.castShadow = true;
     this.bike.add(tankTop);
 
-    const seat = new THREE.Mesh(roundedBox(0.25, 0.10, 0.36, 0.046, 14), dark);
+    const seat = new THREE.Mesh(roundedBox(0.25, 0.1, 0.36, 0.016, 14), dark);
     seat.position.set(0, 0.845, 0.58);
     seat.rotation.x = -0.05;
     seat.castShadow = true;
     this.bike.add(seat);
 
     // Stubby high tail unit, hanging off nothing.
-    const tail = new THREE.Mesh(roundedBox(0.20, 0.095, 0.30, 0.038, 14), m.body);
+    const tail = new THREE.Mesh(roundedBox(0.2, 0.095, 0.3, 0.0133, 14), m.body);
     tail.position.set(0, 0.895, 0.30);
     tail.rotation.x = -0.30;
     tail.castShadow = true;
@@ -956,7 +997,7 @@ export class BikeView {
 
     // Winglets - the detail that says Streetfighter rather than Monster.
     for (const dx of [-1, 1]) {
-      const wing = new THREE.Mesh(roundedBox(0.13, 0.035, 0.20, 0.016, 6), dark);
+      const wing = new THREE.Mesh(roundedBox(0.13, 0.035, 0.2, 0.0032, 6), dark);
       wing.position.set(dx * 0.24, 0.80, 1.24);
       wing.rotation.set(0, dx * 0.18, dx * -0.22);
       wing.castShadow = true;
@@ -992,12 +1033,12 @@ export class BikeView {
       slider.castShadow = true;
       this.forkGroup.add(slider);
       // Radial brake caliper.
-      const caliper = new THREE.Mesh(roundedBox(0.05, 0.13, 0.11, 0.025, 5), dark);
+      const caliper = new THREE.Mesh(roundedBox(0.05, 0.13, 0.11, 0.008, 5), dark);
       caliper.position.set(dx * 1.3, 0.14, -0.09);
       this.forkGroup.add(caliper);
     }
     for (const y of [CLAMP_Y, CLAMP_Y - 0.12]) {
-      const clamp = new THREE.Mesh(roundedBox(0.28, 0.05, 0.13, 0.022, 6), dark);
+      const clamp = new THREE.Mesh(roundedBox(0.28, 0.05, 0.13, 0.008, 6), dark);
       clamp.position.set(0, y, CLAMP_Z * (y / CLAMP_Y));
       clamp.rotation.x = rake;
       this.forkGroup.add(clamp);
@@ -1014,7 +1055,7 @@ export class BikeView {
       grip.rotation.z = Math.PI / 2;
       grip.position.set(dx, gy, gz);
       this.forkGroup.add(grip);
-      const mirror = new THREE.Mesh(roundedBox(0.10, 0.05, 0.02, 0.012, 4), dark);
+      const mirror = new THREE.Mesh(roundedBox(0.1, 0.05, 0.02, 0.0028, 4), dark);
       mirror.position.set(dx * 1.12, gy + 0.11, gz + 0.02);
       this.forkGroup.add(mirror);
       const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.11, 8), dark);
@@ -1023,7 +1064,7 @@ export class BikeView {
     }
 
     // Headlight nacelle with the V-shaped running light.
-    const nose = new THREE.Mesh(roundedBox(0.27, 0.165, 0.13, 0.05, 14), m.body);
+    const nose = new THREE.Mesh(roundedBox(0.27, 0.165, 0.13, 0.0169, 14), m.body);
     nose.position.set(0, CLAMP_Y + 0.085, CLAMP_Z + 0.075);
     nose.rotation.x = rake + 0.08;
     // Bracket back to the clamps, so it isn't hanging in space.
@@ -1036,12 +1077,51 @@ export class BikeView {
     const drlMat = new THREE.MeshStandardMaterial({
       color: 0xf4f8ff, emissive: 0xbcd8ff, emissiveIntensity: 0.9, roughness: 0.15,
     });
+    // The face. A Streetfighter is recognised by its headlight before anything
+    // else on it: two LED bars swept down to meet in the middle as a V, with the
+    // projectors tucked underneath. Without this it is just a red naked bike.
     for (const dx of [-1, 1]) {
-      const drl = new THREE.Mesh(roundedBox(0.10, 0.028, 0.03, 0.012, 4), drlMat);
-      drl.position.set(dx * 0.062, CLAMP_Y + 0.07, CLAMP_Z + 0.185);
-      drl.rotation.z = dx * 0.55;
+      const drl = new THREE.Mesh(roundedBox(0.115, 0.024, 0.028, 0.0035, 4), drlMat);
+      drl.position.set(dx * 0.055, CLAMP_Y + 0.088, CLAMP_Z + 0.186);
+      drl.rotation.z = dx * 0.62;
       this.forkGroup.add(drl);
+
+      // Projector: a dark cup with a lit lens in it.
+      const cup = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.035, 0.035, 0.03, 14),
+        new THREE.MeshStandardMaterial({ color: 0x0b0c10, roughness: 0.4 }),
+      );
+      cup.rotation.set(Math.PI / 2 + rake, 0, 0);
+      cup.position.set(dx * 0.058, CLAMP_Y + 0.028, CLAMP_Z + 0.176);
+      this.forkGroup.add(cup);
+      const lens = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.026, 0.026, 0.012, 14),
+        new THREE.MeshStandardMaterial({
+          color: 0xdfe9ff, emissive: 0x7fa8dd, emissiveIntensity: 0.7, roughness: 0.12,
+        }),
+      );
+      lens.rotation.set(Math.PI / 2 + rake, 0, 0);
+      lens.position.set(dx * 0.058, CLAMP_Y + 0.028, CLAMP_Z + 0.190);
+      this.forkGroup.add(lens);
     }
+
+    // Chin spoiler under the nose, closing the face off.
+    const chin = new THREE.Mesh(roundedBox(0.20, 0.045, 0.10, 0.012, 6), dark);
+    chin.position.set(0, CLAMP_Y - 0.035, CLAMP_Z + 0.145);
+    chin.rotation.x = rake + 0.2;
+    this.forkGroup.add(chin);
+
+    // Belly pan and the exhaust it wraps, low on the right.
+    const belly = new THREE.Mesh(roundedBox(0.34, 0.10, 0.52, 0.026, 8), m.body);
+    belly.position.set(0, 0.30, 0.72);
+    belly.rotation.x = -0.06;
+    belly.castShadow = true;
+    this.bike.add(belly);
+    const can = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.05, 0.30, 16), m.metal);
+    can.rotation.set(Math.PI / 2 - 0.10, 0, 0);
+    can.position.set(0.14, 0.33, 0.34);
+    can.castShadow = true;
+    this.bike.add(can);
 
     // Front hugger, tight to the tyre.
     const guardMat = m.body.clone();
