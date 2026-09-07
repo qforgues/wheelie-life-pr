@@ -535,3 +535,22 @@ arrive at the same rectangles. Every tile shares one material and they merge
 into a single mesh, so the entire ground is one draw call - and the scene got
 *smaller*, from 9.6 MB of geometry to 5.7 MB, because the same pass tightened
 the building rows.
+
+## 30. The mirrors had their halves the wrong way round
+
+Reported from riding: "the blue car in my right mirror is behind me on my left."
+
+The mirror camera looks backward, which is a three.js camera's *default*
+orientation, so its screen-right is world **+X**. The rider's right is **-X**.
+Everything to the rider's rear-left therefore lands in the **right** half of
+that render - so the left mirror has to take the right half, and vice versa.
+Splitting them the obvious way round put traffic on the wrong side of you.
+
+Proved rather than reasoned: two markers 14 m behind the rider, one on each
+side, rendered into the mirror target and read back. The rider's-left marker
+landed at x=287 of 512, the rider's-right at x=193 - the halves are swapped,
+exactly as the report said.
+
+The horizontal flip on top is separate and was already right: it is what turns
+a rear-facing camera into a mirror, so the outer edge of the glass looks wide
+and the inner edge looks back along your own bike.

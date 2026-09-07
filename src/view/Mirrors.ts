@@ -223,8 +223,22 @@ export class Mirrors {
     g.add(bezel);
 
     const glassGeo = roundedPlane(w, h, h * 0.4);
-    // Each mirror sees its own half of the shared rear view.
-    mapUV(glassGeo, side < 0 ? 0 : 0.5, side < 0 ? 0.5 : 1, true);
+
+    // Which half of the shared rear view each mirror shows.
+    //
+    // The camera looks backward, which is a three.js camera's default
+    // orientation, so its screen-right is world +X. The rider's right is -X.
+    // Everything to the rider's rear-LEFT therefore lands in the RIGHT half of
+    // that render - so the left mirror takes the right half, and vice versa.
+    // Getting this the obvious way round put cars that were behind you on the
+    // left into your right mirror.
+    //
+    // The horizontal flip on top is what turns a rear-facing camera into a
+    // mirror: outer edge of the glass looks wide, inner edge looks back along
+    // your own bike, which is how a wing mirror reads.
+    const u0 = side < 0 ? 0.5 : 0;
+    const u1 = side < 0 ? 1 : 0.5;
+    mapUV(glassGeo, u0, u1, true);
     const glass = new THREE.Mesh(glassGeo, this.glassMat);
     glass.position.set(x + w / 2, y + h / 2, 0);
     g.add(glass);
