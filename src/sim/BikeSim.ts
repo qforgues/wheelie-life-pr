@@ -52,6 +52,18 @@ const RESPAWN_RPM_FRACTION = 0.68;
  * out of a dead end or off a wall without resetting the whole run. Slow and
  * capped on purpose - it is a manoeuvre, not a gear.
  */
+/**
+ * Speed at which a bump stops throwing the bike as hard as its profile says.
+ *
+ * Under 25 m/s (56 mph) a muerto behaves exactly as it always has - timing a
+ * pull over one is the best free lift in the game and that had to survive
+ * untouched. Past it the kick tapers hard, because a tyre cannot follow the
+ * ground at that rate.
+ */
+const BUMP_FULL_SPEED = 25;
+const BUMP_FADE_SPAN = 14;
+const BUMP_MIN_FADE = 0.15;
+
 const REVERSE_PUSH = 1.1;      // m/s^2 of push at full brake
 const REVERSE_MAX_SPEED = 2.2; // m/s, about walking pace
 
@@ -481,7 +493,23 @@ export class BikeSim {
       // taken back out, and the whole thing is capped so no piece of terrain
       // can ever launch the bike outright.
       if (floorRate > 0) {
-        const kick = Math.min(floorRate * (1 - ch.bumpAbsorption), ch.maxBumpKick);
+        // The kick fades out with speed.
+        //
+        // `floorRate` is dh/dt, so it grows with how fast you cross the bump -
+        // and taken literally that means a Ducati at 100 mph gets thrown to 79
+        // degrees off an 11 cm muerto without touching the bars, which is what
+        // was reported as "it wheelies on its own in fifth".
+        //
+        // Physically the tyre stops following the profile long before that: at
+        // speed the contact patch cannot track a half-metre feature, the bike
+        // unloads and goes light at BOTH ends, and the front-to-rear difference
+        // that actually pitches it is far smaller than the raw profile implies.
+        // Below BUMP_FULL_SPEED nothing changes; above it the kick tapers.
+        const fade = s.speed <= BUMP_FULL_SPEED
+          ? 1
+          : Math.max(BUMP_MIN_FADE,
+            1 - (s.speed - BUMP_FULL_SPEED) / (BUMP_FADE_SPAN));
+        const kick = Math.min(floorRate * (1 - ch.bumpAbsorption), ch.maxBumpKick) * fade;
         s.pitchRate = Math.max(s.pitchRate, kick);
       }
     }

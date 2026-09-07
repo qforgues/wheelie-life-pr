@@ -815,3 +815,45 @@ body.is-console .debug-gui { display: none !important; }
 /* A dev build says so, in a colour you cannot read as "shipped". */
 .overlay-version b.is-dev { color: #ffb020; }
 .overlay-version b.is-dev::after { content: ' · DEV SERVER'; opacity: 0.75; font-size: 0.85em; }
+
+/* Handling numbers on a garage card, so the bikes' differences are visible
+   before you spend money on one. */
+.bike-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.bike-stats .stat {
+  display: grid;
+  grid-template-columns: 3.6em 1fr auto;
+  align-items: center;
+  gap: 6px;
+}
+.bike-stats b {
+  font-size: calc(9px * var(--hud-scale));
+  letter-spacing: 0.12em;
+  opacity: 0.6;
+  font-weight: 700;
+}
+.bike-stats i {
+  display: block;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.bike-stats u {
+  display: block;
+  height: 100%;
+  background: var(--pr-cyan);
+  border-radius: 3px;
+}
+.bike-stats em {
+  font-style: normal;
+  font-size: calc(9px * var(--hud-scale));
+  opacity: 0.65;
+  min-width: 3.4em;
+  text-align: right;
+}
+.bike.is-locked .bike-stats u { background: rgba(255, 255, 255, 0.4); }

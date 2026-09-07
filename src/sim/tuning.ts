@@ -292,15 +292,18 @@ export const GROM: BikeTuning = {
   },
 
   steering: {
-    maxYawRateLow: 1.5,
+    maxYawRateLow: 1.9,
     yawSpeedFalloff: 9.0,
     wheelieSteerScale: 0.35,
-    yawResponse: 7.0,
+    yawResponse: 8.2,
   },
 
   balance: {
     rollInstability: 0.35,
-    rollAuthority: 2.6,
+    // Steady-state lean is roughly rollAuthority / rollResponse. A twelve-inch
+    // minibike changes direction faster than anything else here but does not
+    // hang off as far as a sportbike, so: quickest steering, middling lean.
+    rollAuthority: 4.5,
     rollResponse: 8.0,
     rollDivergence: 9.0,
     rollCrashAngle: 45 * DEG,
@@ -401,20 +404,22 @@ export const YZ250F: BikeTuning = {
   },
 
   steering: {
-    maxYawRateLow: 1.7,
+    maxYawRateLow: 2.05,
     yawSpeedFalloff: 10,
     wheelieSteerScale: 0.4,
-    yawResponse: 7.5,
+    yawResponse: 8.6,
   },
 
   balance: {
     rollInstability: 0.35,
-    rollAuthority: 2.8,
+    // Tall, narrow and light on knobblies: it falls into a turn faster than
+    // either of the others and will hang over a long way before it lets go.
+    rollAuthority: 5.2,
     // Taller and lighter than the Grom, so it moves around more underneath you -
     // but the restoring term still has to win, or a held lean walks all the way
     // to the lowside angle. At 7.5 full stick parked at 37.7 deg against a 45
     // deg limit, which is no margin at all.
-    rollResponse: 9.5,
+    rollResponse: 9.0,
     rollDivergence: 10,
     rollCrashAngle: 45 * DEG,
     rollDamping: 4.0,
@@ -514,17 +519,19 @@ export const STREETFIGHTER: BikeTuning = {
   },
 
   steering: {
-    maxYawRateLow: 1.25,
+    maxYawRateLow: 1.55,
     yawSpeedFalloff: 12,
     wheelieSteerScale: 0.25,
-    yawResponse: 6.0,
+    yawResponse: 6.9,
   },
 
   balance: {
     rollInstability: 0.35,
     // Heavy: less authority to move it, and slower to come back.
-    rollAuthority: 2.1,
-    rollResponse: 8.5,
+    // 200 kg takes real effort to tip in, and then goes further over than
+    // anything else here - which is exactly how a superbike feels.
+    rollAuthority: 5.6,
+    rollResponse: 8.2,
     rollDivergence: 9.0,
     rollCrashAngle: 42 * DEG,
     rollDamping: 4.6,

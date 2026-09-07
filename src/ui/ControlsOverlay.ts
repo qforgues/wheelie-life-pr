@@ -30,6 +30,34 @@ const PR_FLAG = `
       L3.1 14.8 L4.2 11.6 L1.5 9.6 L4.8 9.6 Z"/>
   </svg>`;
 
+/**
+ * The handling numbers, read straight off each bike's tuning.
+ *
+ * These used to be invisible - the bikes genuinely steer and lean differently
+ * and there was no way to know that before buying one. Derived rather than
+ * written down, so a bar can never disagree with how the bike actually rides.
+ */
+function statBars(id: BikeId): string {
+  const t = BIKES[id];
+  // Steady-state lean is authority over restoring force; turn-in is the
+  // low-speed yaw rate. Both normalised across the three bikes we have.
+  const leanDeg = (t.balance.rollAuthority / t.balance.rollResponse) * (180 / Math.PI);
+  const rows: Array<[string, number, string]> = [
+    ['LEAN', (leanDeg - 28) / 14, `${leanDeg.toFixed(0)}°`],
+    ['TURN', (t.steering.maxYawRateLow - 1.4) / 0.8, ''],
+    ['POWER', (t.engine.peakTorque - 15) / 115, `${t.engine.peakTorque} N·m`],
+    ['GEARS', (t.gearbox.gearRatios.length - 4) / 2, `${t.gearbox.gearRatios.length}-spd`],
+  ];
+  return `<span class="bike-stats">${rows.map(([label, v, note]) => {
+    const pct = Math.round(Math.max(0.08, Math.min(1, v)) * 100);
+    return `<span class="stat">
+        <b>${label}</b>
+        <i><u style="width:${pct}%"></u></i>
+        <em>${note}</em>
+      </span>`;
+  }).join('')}</span>`;
+}
+
 const clampAim = (v: number) => Math.max(-1, Math.min(1, Math.round(v * 100) / 100));
 import { BUILD_ID } from '../core/version';
 import { hardReload } from '../core/UpdateWatcher';
@@ -491,6 +519,7 @@ export class ControlsOverlay {
           <span class="bike-name">${v.displayName}</span>
           <span class="bike-tag">${v.tagline}</span>
           <span class="bike-char">${v.character}</span>
+          ${statBars(id)}
           <span class="bike-foot">${status}</span>
         </div>`;
     }).join('');
