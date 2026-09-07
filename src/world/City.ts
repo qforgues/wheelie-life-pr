@@ -7,7 +7,8 @@ import { standard } from '../view/materials';
 import {
   CAR_COLORS, makeAwning, makeBillboard, makeDominoTable, makeFort, makeGarita,
   makeParkedCar, makePalm, makePerson, makePlanter,
-  makeChicken, makeHorse, makeRailing, makeShopSign, makeStreetLamp, PROP_MATERIALS,
+  makeChicken, makeHorse, makeRailing, makeShopSign, makeSpeedSign, makeStreetLamp,
+  makeTrafficLight, PROP_MATERIALS,
 } from './Props';
 import {
   makeAbiertoBillboard, makeChainLinkTexture, makeCobbleTexture, SAN_JUAN_FACADES, makeFacadeTexture, makeGrassTexture, makePiratasBillboard, makeFlagMuralTexture, makeHazardTexture, makeSidewalkTexture,
@@ -232,6 +233,9 @@ export class City implements GroundProvider {
     return geo;
   }
   private bumps: Bump[] = [];
+  /** The few traffic lights, and the clock that runs them. */
+  private signals: Array<{ lamps: THREE.Mesh[]; phase: number }> = [];
+  private signalClock = 0;
   /** One shared fence post, cloned a few hundred times. */
   private posts: THREE.CylinderGeometry | null = null;
 
@@ -1090,6 +1094,7 @@ export class City implements GroundProvider {
     this.fenceRun(true, gap, z1, LAYOUT.seaWallZ, [], mesh);
 
     this.buildAnimals();
+    this.buildSignals();
 
     // Scrub and palms on the far side, so what you see through the wire is
     // land rather than a green plane running into the fog.
@@ -1107,6 +1112,59 @@ export class City implements GroundProvider {
       const palm = makePalm(6.5 + rnd() * 4, i);
       palm.position.set(x, 0, z);
       this.blockAdd(palm);
+    }
+  }
+
+  /**
+   * Lights and limits, and there are hardly any.
+   *
+   * Justin: "we can do lights and limits but make it super rare atm." He is
+   * right, and it is true of the real place: a light every few hundred metres
+   * is a landmark and something to time a run against; one on every corner is
+   * a chore, twenty-five more masts to draw, and a reason to stop wheelieing
+   * every hundred metres.
+   *
+   * So: three lights on the middle avenue's junctions and three limit signs.
+   * The lights cycle but nothing enforces them yet - they are scenery with a
+   * rhythm, and whether running one should raise heat is a decision for when
+   * there is a reason to make it.
+   */
+  private buildSignals(): void {
+    const corner = LAYOUT.roadHalf + LAYOUT.sidewalk * 0.6;
+    for (const [ax, sz] of [[0, 120], [0, 440], [120, 280]] as const) {
+      const { group, lamps } = makeTrafficLight();
+      group.position.set(ax - corner, KERB_HEIGHT, sz - corner);
+      group.rotation.y = Math.PI / 2;
+      this.signals.push({ lamps, phase: (ax + sz) % 3 });
+      // Not blockAdd: the lamps have to keep their own materials to cycle, and
+      // the cell bake would merge them into the ironwork.
+      this.root.add(group);
+    }
+    for (const [ax, sz, mph] of [[0, 40, 25], [-120, 360, 30], [240, 200, 25]] as const) {
+      const sign = makeSpeedSign(mph);
+      sign.position.set(ax + LAYOUT.roadHalf + 1.1, KERB_HEIGHT, sz);
+      sign.rotation.y = Math.PI;
+      this.blockAdd(sign);
+    }
+  }
+
+  /**
+   * Runs the lights. Green, amber, red, on a slow loop.
+   *
+   * They are not synchronised with each other on purpose - a city where every
+   * light changes together reads as a machine rather than a place.
+   */
+  tickSignals(dt: number): void {
+    if (!this.signals.length) return;
+    this.signalClock += dt;
+    for (const s of this.signals) {
+      const t = (this.signalClock + s.phase * 4.7) % 14;
+      const on = t < 8 ? 2 : t < 9.5 ? 1 : 0;
+      s.lamps.forEach((lamp, i) => {
+        const mat = lamp.material as THREE.MeshStandardMaterial;
+        const want = i === on ? 1.5 : 0.06;
+        if (mat.emissiveIntensity !== want) mat.emissiveIntensity = want;
+      });
     }
   }
 

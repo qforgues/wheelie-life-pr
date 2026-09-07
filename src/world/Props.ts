@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { makePalmFrondTexture, makeSignTexture } from './textures';
+import { makePalmFrondTexture, makeSignTexture, makeSpeedTexture } from './textures';
 import { bakeSubtree, mergeMeshes, roundedBox } from '../view/geometry';
 import { standard } from '../view/materials';
 
@@ -1532,4 +1532,64 @@ function buildChicken(color: number): THREE.Group {
     g.add(leg);
   }
   return g;
+}
+
+/**
+ * A traffic light on a mast over the junction, and a speed limit sign.
+ *
+ * Deliberately rare - Justin's call. Most junctions here have nothing on them,
+ * and that is true of the real place too: a light every four hundred metres is
+ * a landmark and something to time your run against, one on every corner is a
+ * chore. The lamp trio is returned so the state can be driven from outside.
+ */
+export function makeTrafficLight(): { group: THREE.Group; lamps: THREE.Mesh[] } {
+  const g = new THREE.Group();
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 5.4, 6, 1, true), SHARED.iron);
+  post.position.y = 2.7;
+  post.castShadow = true;
+  g.add(post);
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 3.1, 6, 1, true), SHARED.iron);
+  arm.rotation.z = Math.PI / 2;
+  arm.position.set(1.5, 5.2, 0);
+  g.add(arm);
+  const head = new THREE.Mesh(roundedBox(0.30, 0.86, 0.28, 0.05, 2), SHARED.iron);
+  head.position.set(2.9, 4.75, 0);
+  head.castShadow = true;
+  g.add(head);
+
+  // Red, amber, green. Dark until something lights them.
+  const lamps: THREE.Mesh[] = [];
+  const colours = [0xff2a3a, 0xffa422, 0x38d06a];
+  colours.forEach((c, i) => {
+    const lamp = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.085, 0.085, 0.06, 8),
+      new THREE.MeshStandardMaterial({
+        color: c, emissive: c, emissiveIntensity: 0.06, roughness: 0.3,
+      }),
+    );
+    lamp.rotation.x = Math.PI / 2;
+    lamp.position.set(2.9, 5.02 - i * 0.27, 0.16);
+    lamps.push(lamp);
+    g.add(lamp);
+  });
+  return { group: g, lamps };
+}
+
+/** A speed limit plate on a post. The number is baked into the texture. */
+export function makeSpeedSign(mph: number): THREE.Group {
+  return cached(`limit:${mph}`, () => {
+    const g = new THREE.Group();
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.5, 5, 1, true), SHARED.iron);
+    post.position.y = 1.25;
+    post.castShadow = true;
+    g.add(post);
+    const plate = new THREE.Mesh(
+      roundedBox(0.62, 0.80, 0.05, 0.05, 2),
+      standard({ map: makeSpeedTexture(mph), roughness: 0.6 }),
+    );
+    plate.position.set(0, 2.15, 0.04);
+    plate.castShadow = true;
+    g.add(plate);
+    return bakeVehicle(g);
+  });
 }

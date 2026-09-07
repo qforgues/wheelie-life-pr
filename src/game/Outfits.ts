@@ -63,6 +63,19 @@ export interface Outfit {
 /** A price that means "cannot be bought at any price". */
 export const WIN_ONLY = -1;
 
+/**
+ * How La Monoestrellada is actually unlocked.
+ *
+ * It sat at $100,000 as a placeholder because we had not decided. The answer we
+ * both liked is that money should have nothing to do with it: **you take a
+ * wheelie battle off every single one of Los Piratas.** Seven riders, every one
+ * of them beaten at least once, and the kit turns up in your closet.
+ *
+ * That makes it the only thing in the game you cannot shortcut. You can buy a
+ * Ducati; you cannot buy this.
+ */
+export const MONOESTRELLADA_NEEDS = 7;
+
 export const OUTFITS: Record<OutfitId, Outfit> = {
   calle: {
     id: 'calle',
@@ -102,18 +115,22 @@ export const OUTFITS: Record<OutfitId, Outfit> = {
   monoestrellada: {
     id: 'monoestrellada',
     name: 'La Monoestrellada',
-    tagline: 'One star. One of these.',
-    character: 'The flag, head to foot, in leather that costs more than the Grom. There is one of these and it is not for sale to anybody else.',
-    jersey: 0xd8232a,
-    sleeve: 0x1c3d8f,
-    trousers: 0x14161c,
-    helmet: 0xf2f2ee,
-    helmetTrim: 0x1c3d8f,
-    gloves: 0x14161c,
-    boots: 0x14161c,
-    bootTrim: 0xd8232a,
-    decal: { text: 'PR', flag: ['#d8232a', '#1c3d8f'], ink: '#ffffff' },
-    price: 100000,
+    tagline: 'Black and gold. Beat every one of them.',
+    character: 'Black leather with gold, and one gold star. There is no price on it and there never will be — you get it by taking a wheelie battle off every single one of Los Piratas.',
+    // Black head to foot with gold as the only other colour, so it reads as the
+    // one special thing in the game from across a junction rather than as
+    // another kit. Every other outfit has at least two colours fighting; this
+    // one has one, and that is what makes it look expensive.
+    jersey: 0x0b0c10,
+    sleeve: 0xd4a534,
+    trousers: 0x0b0c10,
+    helmet: 0x0b0c10,
+    helmetTrim: 0xd4a534,
+    gloves: 0x0b0c10,
+    boots: 0x0b0c10,
+    bootTrim: 0xd4a534,
+    decal: { text: '★', flag: ['#0b0c10', '#141721'], ink: '#d4a534' },
+    price: WIN_ONLY,
     value: 24000,
   },
 };

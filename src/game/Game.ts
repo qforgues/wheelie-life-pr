@@ -13,6 +13,7 @@ import { Rivals, type RivalReport } from '../world/Rivals';
 import { Battle, challengeFor, offerFrom } from './Battle';
 import { stakeValue, type Stake } from './Battles';
 import { OUTFITS, type OutfitId } from './Outfits';
+import { colorOf } from './Crew';
 import { BattleCard } from '../ui/BattleCard';
 import {
   Minimap, ORIENTATION_LABELS, ORIENTATION_ORDER, type MapBlip,
@@ -168,7 +169,7 @@ export class Game {
       cloneTuning(BIKES[this.bikeId]), this.progress.levelsFor(this.bikeId),
     );
     this.sim = new BikeSim(tuning, this.city, this.city.spawn);
-    this.bikeView = new BikeView(tuning, BIKE_VISUALS[this.bikeId], OUTFITS[this.progress.wearing]);
+    this.bikeView = new BikeView(tuning, BIKE_VISUALS[this.bikeId], OUTFITS[this.progress.wearing], this.crewPlate());
     this.scene.add(this.bikeView.root, this.bikeView.detached);
 
     // Sits just above the road, always flat, never rotating with the bike.
@@ -233,6 +234,7 @@ export class Game {
 
     this.applyPlates();
     this.overlay.onOutfitPicked(() => this.rebuildRider());
+    this.overlay.onCrewChanged(() => this.rebuildRider());
     this.rivals.setCount(this.progress.rivals);
     this.overlay.setRivalsValue(this.progress.rivals);
     this.overlay.onRivalsPicked((r) => {
@@ -339,7 +341,7 @@ export class Game {
 
     this.scene.remove(this.bikeView.root, this.bikeView.detached);
     this.bikeView.dispose();
-    this.bikeView = new BikeView(tuning, BIKE_VISUALS[id], OUTFITS[this.progress.wearing]);
+    this.bikeView = new BikeView(tuning, BIKE_VISUALS[id], OUTFITS[this.progress.wearing], this.crewPlate());
     this.scene.add(this.bikeView.root, this.bikeView.detached);
 
     const at = this.city.respawnFor(this.sim.state.x, this.sim.state.z);
@@ -354,13 +356,21 @@ export class Game {
     this.hud.showToast(BIKES[id].name.toUpperCase(), 2.2);
   }
 
+  /** Justin's crew as the renderer wants it, or null before he has named one. */
+  private crewPlate() {
+    const c = this.progress.crew;
+    if (!c.name) return null;
+    const col = colorOf(c.color);
+    return { name: c.name, hex: col.hex, ink: col.ink, shape: c.shape };
+  }
+
   /** Puts the current outfit back on the rider without touching the bike. */
   private rebuildRider(): void {
     const tuning = applyUpgrades(cloneTuning(BIKES[this.bikeId]), this.progress.levelsFor(this.bikeId));
     this.scene.remove(this.bikeView.root, this.bikeView.detached);
     this.bikeView.dispose();
     this.bikeView = new BikeView(
-      tuning, BIKE_VISUALS[this.bikeId], OUTFITS[this.progress.wearing],
+      tuning, BIKE_VISUALS[this.bikeId], OUTFITS[this.progress.wearing], this.crewPlate(),
     );
     this.scene.add(this.bikeView.root, this.bikeView.detached);
     this.debug.rebind(this.sim, BIKES[this.bikeId], this.bikeView);
@@ -504,7 +514,12 @@ export class Game {
     let aura = o.aura;
     if (!o.won && mine.kind === 'aura') aura -= mine.amount;
     if (o.won && theirs.kind === 'aura') aura += theirs.amount;
-    this.progress.settleBattle(o.won, aura);
+    const unlocked = this.progress.settleBattle(o.won, aura, b.rivalName);
+    if (unlocked === 'monoestrellada') {
+      o.gained = 'monoestrellada';
+      this.hud.showToast('LA MONOESTRELLADA — YOU BEAT ALL OF THEM', 6);
+      this.voice.say('¡La monoestrellada!', 'es');
+    }
     o.aura = aura;
     this.hud.cash = this.progress.money;
     this.overlay.renderGarage();
@@ -611,6 +626,7 @@ export class Game {
     }
     // Los Piratas. They ride the same grid, they are up on the back wheel most
     // of the time, and coming alongside one gets you a shout.
+    this.city.tickSignals(dt);
     const rivals = this.rivals.update(dt, st.x, st.z);
 
     // A battle starts on contact - Justin's rule. The prompt only comes up when

@@ -19,6 +19,8 @@ import {
 } from '../src/game/Battles';
 import { OUTFITS } from '../src/game/Outfits';
 import { offerFrom } from '../src/game/Battle';
+import { MAX_CREW, auraToNext, crewSize } from '../src/game/Crew';
+import { MONOESTRELLADA_NEEDS } from '../src/game/Outfits';
 
 const problems: string[] = [];
 const pad = (s: string, n: number) => s.padEnd(n);
@@ -201,6 +203,22 @@ if (bail.outcome) {
   bail.finish();
   if (bail.outcome !== first) problems.push('finishing twice produced a second result');
 }
+
+// ---- the crew, and the kit you cannot buy --------------------------------
+console.log('');
+console.log('  the crew (1 rider per 100 aura, 4 at the most)');
+for (const a of [0, 99, 100, 250, 399, 400, 900]) {
+  console.log(`    ${String(a).padStart(4)} aura -> level ${crewSize(a)}${auraToNext(a) ? `, ${auraToNext(a)} to the next` : ' (full)'}`);
+}
+if (crewSize(99) !== 0 || crewSize(100) !== 1 || crewSize(399) !== 3) {
+  problems.push('the crew does not grow one rider per 100 aura');
+}
+if (crewSize(900) !== MAX_CREW) problems.push(`the crew capped at ${crewSize(900)} rather than ${MAX_CREW}`);
+if (auraToNext(400) !== 0) problems.push('a full crew is still asking for more aura');
+if (OUTFITS.monoestrellada.price !== -1) {
+  problems.push('La Monoestrellada has a price on it — it is meant to be unbuyable');
+}
+console.log(`    ${pad('La Monoestrellada', 24)} ${OUTFITS.monoestrellada.price === -1 ? `no price — beat all ${MONOESTRELLADA_NEEDS} of them` : 'FOR SALE'}`);
 
 console.log('');
 if (problems.length) {

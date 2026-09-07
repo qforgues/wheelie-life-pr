@@ -7,7 +7,12 @@ import { UPGRADES, UPGRADE_IDS, nextLevel, type UpgradeId } from '../game/Upgrad
 import { TRAFFIC_LABELS, TRAFFIC_ORDER, type TrafficSpeed } from '../world/Traffic';
 import { POLICE_BLURBS, POLICE_LABELS, POLICE_ORDER, type PoliceStyle } from '../world/Police';
 import { RIVAL_BLURBS, RIVAL_LABELS, RIVAL_ORDER, type RivalCount } from '../world/Rivals';
-import { OUTFITS, OUTFIT_IDS, STARTER_OUTFIT, WIN_ONLY, type OutfitId } from '../game/Outfits';
+import { makeCrewPlate } from '../world/textures';
+import { MONOESTRELLADA_NEEDS, OUTFITS, OUTFIT_IDS, STARTER_OUTFIT, WIN_ONLY, type OutfitId } from '../game/Outfits';
+import {
+  AURA_PER_RIDER, CREW_COLORS, CREW_SHAPES, MAX_CREW, SHAPE_LABELS,
+  auraToNext, cleanCrewName, colorOf, crewSize, type CrewShape,
+} from '../game/Crew';
 import {
   ORIENTATION_BLURBS, ORIENTATION_LABELS, ORIENTATION_ORDER, type MapOrientation,
 } from './Minimap';
@@ -81,6 +86,8 @@ export class ControlsOverlay {
   private progress: Progress | null = null;
   private bikePick!: HTMLElement;
   private outfitPick!: HTMLElement;
+  private crewEl!: HTMLElement;
+  private onCrew: (() => void) | null = null;
   private tabsEl!: HTMLElement;
   /** Which half of the wardrobe is showing. Justin's two buttons. */
   private tab: 'garage' | 'closet' = 'garage';
@@ -144,6 +151,8 @@ export class ControlsOverlay {
           <span class="opt-label">TRAFFIC</span>
           <div class="opt-choices" data-el="traffic"></div>
         </div>
+        <section class="crew" data-el="crewEl"></section>
+
         <div class="opt">
           <span class="opt-label">RIVALS</span>
           <div class="opt-choices" data-el="rivals"></div>
@@ -211,6 +220,38 @@ export class ControlsOverlay {
       .map((b) => `<tr><td>${b.action}</td><td class="pad">${b.pad}</td><td class="key">${b.key}</td></tr>`)
       .join('');
     this.bikePick = this.root.querySelector('[data-el="bikePick"]')!;
+    this.crewEl = this.root.querySelector('[data-el="crewEl"]')!;
+    this.crewEl.addEventListener('click', (e) => {
+      const p = this.progress;
+      if (!p) return;
+      const t = e.target as HTMLElement;
+      const col = t.closest<HTMLElement>('[data-crew-color]');
+      if (col) {
+        p.setCrew(p.crew.name, col.dataset.crewColor!, p.crew.shape);
+        this.renderCrew();
+        this.onCrew?.();
+        return;
+      }
+      const shape = t.closest<HTMLElement>('[data-crew-shape]');
+      if (shape) {
+        p.setCrew(p.crew.name, p.crew.color, shape.dataset.crewShape as CrewShape);
+        this.renderCrew();
+        this.onCrew?.();
+      }
+    });
+    this.crewEl.addEventListener('input', (e) => {
+      const p = this.progress;
+      const field = (e.target as HTMLElement).closest<HTMLInputElement>('[data-crew-name]');
+      if (!p || !field) return;
+      const clean = cleanCrewName(field.value);
+      if (field.value !== clean) field.value = clean;
+      p.setCrew(clean, p.crew.color, p.crew.shape);
+      // Only the preview and the badge redraw on every keystroke; re-rendering
+      // the whole section would take the caret out of the box mid-word.
+      this.paintCrewPreview();
+      this.onCrew?.();
+    });
+
     this.outfitPick = this.root.querySelector('[data-el="outfitPick"]')!;
     this.tabsEl = this.root.querySelector('[data-el="tabs"]')!;
     this.tabsEl.addEventListener('click', (e) => {
@@ -633,6 +674,90 @@ export class ControlsOverlay {
   }
 
   /** Redraws the cards from what's owned and what's affordable. */
+  /** Called when the crew's name, colour or shape changes. */
+  onCrewChanged(fn: () => void): void {
+    this.onCrew = fn;
+  }
+
+  /**
+   * Justin's crew.
+   *
+   * His rules: he names it, picks a colour and a shape, and it grows on aura -
+   * one rider per 100, four at the most, and the number of riders IS the level.
+   * So the section shows the level as the thing it is rather than as a stat
+   * beside a separate rider count.
+   */
+  private renderCrew(): void {
+    const p = this.progress;
+    if (!p || !this.crewEl) return;
+    const c = p.crew;
+    const size = c.name ? crewSize(p.aura) : 0;
+    const next = auraToNext(p.aura);
+    const col = colorOf(c.color);
+
+    const pips = Array.from({ length: MAX_CREW }, (_, i) =>
+      `<i class="crew-pip${i < size ? ' is-on' : ''}"></i>`).join('');
+
+    this.crewEl.innerHTML = `
+      <div class="crew-head">
+        <span class="opt-label">YOUR CREW</span>
+        <span class="crew-level">${c.name ? `LEVEL ${size}` : 'NOT NAMED YET'}</span>
+      </div>
+      <div class="crew-body">
+        <div class="crew-badge" data-el="crewBadge"></div>
+        <div class="crew-fields">
+          <input class="crew-name" data-crew-name maxlength="14" spellcheck="false"
+                 placeholder="NAME YOUR CREW" value="${c.name.replace(/"/g, '&quot;')}"
+                 aria-label="Crew name">
+          <div class="crew-chips">
+            ${CREW_COLORS.map((k) => `<button type="button" class="crew-swatch${k.id === c.color ? ' is-on' : ''}"
+                 style="--c:${k.hex}" data-crew-color="${k.id}" title="${k.name}"
+                 aria-label="${k.name}"></button>`).join('')}
+          </div>
+          <div class="crew-chips">
+            ${CREW_SHAPES.map((sh) => `<button type="button" class="chip crew-shape${sh === c.shape ? ' is-on' : ''}"
+                 data-crew-shape="${sh}">${SHAPE_LABELS[sh]}</button>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div class="crew-riders">
+        <span class="crew-pips">${pips}</span>
+        <span class="crew-note">${!c.name
+          ? 'Name it and it is yours — it goes on the back of your helmet.'
+          : size >= MAX_CREW
+            ? 'Full crew. Nobody rides four deep but you.'
+            : `${size === 0 ? 'No one rides with you yet.' : `${size} riding with you.`} ${next} more aura for the next — ${AURA_PER_RIDER} aura a rider, won off wheelie battles.`}</span>
+      </div>`;
+    this.paintCrewPreview();
+    void col;
+  }
+
+  /**
+   * Redraws just the badge, so typing does not rebuild the section.
+   *
+   * It paints the ACTUAL helmet plate rather than an approximation of it - the
+   * same canvas the texture is made from, dropped in as an image. Otherwise the
+   * shape he picks is invisible until he has ridden off in it, which is a poor
+   * way to choose one.
+   */
+  private paintCrewPreview(): void {
+    const p = this.progress;
+    const badge = this.crewEl?.querySelector<HTMLElement>('[data-el="crewBadge"]');
+    if (!p || !badge) return;
+    const col = colorOf(p.crew.color);
+    if (!p.crew.name) {
+      badge.style.backgroundImage = 'none';
+      badge.style.setProperty('--c', col.hex);
+      badge.style.setProperty('--ink', col.ink);
+      badge.textContent = '—';
+      return;
+    }
+    badge.textContent = '';
+    const tex = makeCrewPlate(p.crew.name, col.hex, col.ink, p.crew.shape);
+    const canvas = tex.image as HTMLCanvasElement;
+    badge.style.backgroundImage = `url(${canvas.toDataURL()})`;
+  }
+
   /** Called when the player puts a different outfit on. */
   onOutfitPicked(fn: (id: OutfitId) => void): void {
     this.onOutfit = fn;
@@ -646,6 +771,7 @@ export class ControlsOverlay {
       ? `${money(p.money)}<span class="aura">${p.aura} AURA</span>`
       : money(p.money);
     this.renderTuneshop();
+    this.renderCrew();
 
     // One set of cards at a time. Justin's spec: two buttons that split the
     // difference, and whichever you press the other list goes away.
@@ -739,9 +865,11 @@ export class ControlsOverlay {
     const kit = OUTFITS[this.selectedOutfit];
     this.hintEl.textContent = p.hasOutfit(this.selectedOutfit)
       ? ''
-      : kit.price === WIN_ONLY
-        ? `The ${kit.name} kit cannot be bought. Ride into one of Los Piratas, put something up, and take it off them.`
-        : `${money(Math.max(0, kit.price - p.money))} more for the ${kit.name}.`;
+      : this.selectedOutfit === 'monoestrellada'
+        ? `Beat all ${MONOESTRELLADA_NEEDS} of Los Piratas in a wheelie battle and it is yours. ${p.beatenCount} down, ${MONOESTRELLADA_NEEDS - p.beatenCount} to go. There is no price on it.`
+        : kit.price === WIN_ONLY
+          ? `The ${kit.name} kit cannot be bought. Ride into one of Los Piratas, put something up, and take it off them.`
+          : `${money(Math.max(0, kit.price - p.money))} more for the ${kit.name}.`;
   }
 
   setDevice(connected: boolean, name: string): void {

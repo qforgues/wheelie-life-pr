@@ -1214,3 +1214,66 @@ This is the third time ports have cost an afternoon here - "how can it play on
 wrong page you have to happen to notice. `host: '0.0.0.0'` binds every interface
 rather than IPv6 loopback only, which is separately what stopped Safari loading
 localhost at all a while back - same root cause, different symptom.
+
+## 60. Reverse could not steer
+
+`smoothstep(0, 1.2, s.speed)` gated the steering authority on **forward** speed,
+so the moment the velocity went negative the whole term became zero. Paddling
+backwards was a straight line, and the only way out of a corner you had nosed
+into was to crash on purpose.
+
+Everything in that block works off the magnitude now, and the direction falls
+out of the sign of the velocity rather than being a special case - the same bars
+swing the tail the other way, exactly like backing a car. Reverse gets 45% of
+the normal yaw rate, which is about fifty degrees a second: enough to point the
+bike somewhere useful in a couple of seconds, not enough to pirouette at walking
+pace. Using the magnitude also removed a divide-by-zero in `speedFactor` that
+would have detonated at exactly `-yawSpeedFalloff`.
+
+`npm run sim:all` now backs each bike up for four seconds on full lock and fails
+if it does not turn, or if left and right turn the same way.
+
+## 61. The crew is Justin's
+
+His rules, and they are good ones because they need no explaining: **one rider
+per 100 aura, four at the most, and the number of riders is the crew's level.**
+A level three crew is three riders. There is nothing else to say about it.
+
+The size is derived from the aura rather than stored, because two numbers that
+must agree are one number waiting to disagree.
+
+He names it, picks one of eight colours and one of six shapes, and it goes on
+the back of his helmet - over the top of whatever kit he is wearing, because
+once he has a crew it is his lid. The badge in the menu paints the **actual
+plate**, the same canvas that textures the helmet, rather than an approximation:
+otherwise the shape he picks is invisible until he has ridden off in it, which
+is a poor way to choose one.
+
+The name shrinks to fit rather than being sized off the letter count. A guess is
+fine for LOS PIRATAS and runs off both ends of the plate for LOS TIBURONES, and
+the entire point is that he can call it whatever he likes.
+
+## 62. La Monoestrellada, and what it costs
+
+$100,000 was a placeholder because we had not decided. The answer: **money has
+nothing to do with it.** Take a wheelie battle off every single one of Los
+Piratas - all seven - and it turns up in the closet. It is the only thing in the
+game that cannot be shortcut. You can buy a Ducati; you cannot buy this.
+
+Black head to foot with gold as the only other colour, and one gold star. Every
+other outfit has at least two colours fighting each other; this one has one, and
+that is what makes it read as the special thing from across a junction rather
+than as another kit. The closet shows the count - "3/7 PIRATAS BEATEN" - because
+a locked thing with no visible progress is just a locked thing.
+
+## 63. Lights and limits, and hardly any of them
+
+"we can do lights and limits but make it super rare atm." Three lights and three
+signs in the whole city. A light every few hundred metres is a landmark and
+something to time a run against; one on every corner is a chore, twenty-five
+more masts to draw, and a reason to stop wheelieing every hundred metres.
+
+They cycle, and they are deliberately not synchronised with each other - a city
+where every light changes together reads as a machine rather than a place.
+Nothing enforces them yet. Whether running a red should raise heat is a decision
+for when there is a reason to make it.

@@ -467,4 +467,36 @@ function autopilot(sim: BikeSim, i: number, opts: { shift: boolean }): RiderInpu
   console.log('');
 }
 
+// ---- reverse -------------------------------------------------------------
+// You have to be able to steer while paddling backwards, or the only way out of
+// a corner is to crash on purpose. The authority used to be gated on
+// `smoothstep(0, 1.2, speed)`, which is zero the moment the speed goes
+// negative, so reverse was a straight line.
+{
+  console.log('REVERSE (paddling backwards off a wall)');
+  const back = (steer: number) => {
+    const sim = new BikeSim(cloneTuning(SPEC), flat, { x: 0, z: 0, yaw: 0 });
+    sim.reset({ x: 0, z: 0, yaw: 0, speed: 0, gear: 0 });
+    for (let t = 0; t < 4; t += DT) {
+      sim.step({
+        throttle: 0, brake: 1, steer, weight: 0,
+        shiftUp: false, shiftDown: false, trick: 'none',
+      }, DT);
+    }
+    return { yaw: sim.state.yaw * RAD, speed: sim.state.speed };
+  };
+  const straight = back(0);
+  const left = back(-1);
+  const right = back(1);
+  row('backs up at', `${(-straight.speed).toFixed(2)} m/s`);
+  row('holds a line with no steer', `${Math.abs(straight.yaw).toFixed(1)}° off`);
+  row('4 s of bars left', `${left.yaw.toFixed(0)}°`);
+  row('4 s of bars right', `${right.yaw.toFixed(0)}°`);
+  row('steers at all',
+    Math.abs(left.yaw) > 15 ? 'yes' : 'NO — reverse is stuck straight');
+  row('turns opposite ways, like backing a car',
+    Math.sign(left.yaw) !== Math.sign(right.yaw) ? 'yes' : 'NO');
+  console.log('');
+}
+
 console.log('=========================================================\n');

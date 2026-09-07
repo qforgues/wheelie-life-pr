@@ -66,6 +66,13 @@ const BUMP_MIN_FADE = 0.15;
 
 const REVERSE_PUSH = 1.1;      // m/s^2 of push at full brake
 const REVERSE_MAX_SPEED = 2.2; // m/s, about walking pace
+/**
+ * How much of the normal steering you get while rolling backwards.
+ *
+ * Enough to point the bike somewhere useful in a couple of seconds - about 50
+ * degrees a second - without letting you spin on the spot at walking pace.
+ */
+const REVERSE_STEER = 0.45;
 
 export class BikeSim {
   readonly state: BikeState;
@@ -520,11 +527,28 @@ export class BikeSim {
     s.balanceError = s.pitch - s.balancePoint;
 
     // --- steering ----------------------------------------------------------
+    //
+    // Everything here works off the SPEED, not the velocity. A bike rolling
+    // backwards steers - that is how you get it off a wall - and gating the
+    // authority on `smoothstep(0, 1.2, s.speed)` multiplied it by zero the
+    // moment the speed went negative, so reverse was a straight line and the
+    // only way out of a corner was to crash on purpose.
+    //
+    // The DIRECTION does flip, because that is what reversing is: the same
+    // handlebars swing the tail the other way, exactly like backing a car.
+    // That falls out of the sign of the velocity rather than being a special
+    // case. Using the magnitude also takes a divide-by-zero out of
+    // `speedFactor`, which would have detonated at exactly -yawSpeedFalloff.
     const wheelieFactor = smoothstep(limits.wheelieCountPitch, 0.5, clearanceNow);
     const steerAuth = lerp(1, steering.wheelieSteerScale, wheelieFactor);
-    const speedFactor = 1 / (1 + s.speed / steering.yawSpeedFalloff);
+    const pace = Math.abs(s.speed);
+    const speedFactor = 1 / (1 + pace / steering.yawSpeedFalloff);
+    // Paddling backwards is deliberate, not a handbrake turn. Full yaw rate at
+    // walking pace would let you pirouette on the spot.
+    const backwards = s.speed < 0;
     const targetYaw = -input.steer * steering.maxYawRateLow * speedFactor * steerAuth
-      * smoothstep(0, 1.2, s.speed);
+      * smoothstep(0, 1.2, pace)
+      * (backwards ? -REVERSE_STEER : 1);
     s.yawRate = damp(s.yawRate, targetYaw, steering.yawResponse, dt);
     s.yaw += s.yawRate * dt;
 

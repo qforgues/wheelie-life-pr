@@ -894,6 +894,143 @@ export function makeChainLinkTexture(): THREE.CanvasTexture {
  */
 const CREW_DECALS = new Map<string, THREE.CanvasTexture>();
 
+/**
+ * Draws one of Justin's crew shapes, centred in a box of `r` half-size.
+ *
+ * Kept to primitives on purpose: at helmet size behind a moving bike a shape
+ * has about forty pixels to make itself understood, so a silhouette that reads
+ * instantly beats detail that does not survive the trip.
+ */
+function crewShape(
+  ctx: CanvasRenderingContext2D, shape: string, cx: number, cy: number, r: number,
+): void {
+  ctx.beginPath();
+  if (shape === 'star') {
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+      const rad = i % 2 === 0 ? r : r * 0.44;
+      const x = cx + Math.cos(a) * rad;
+      const y = cy + Math.sin(a) * rad;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+  } else if (shape === 'bolt') {
+    const p: Array<[number, number]> = [
+      [0.18, -1], [-0.62, 0.08], [-0.10, 0.08], [-0.28, 1], [0.62, -0.14],
+      [0.08, -0.14],
+    ];
+    p.forEach(([x, y], i) => {
+      const px = cx + x * r;
+      const py = cy + y * r;
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    });
+    ctx.closePath();
+  } else if (shape === 'crown') {
+    const p: Array<[number, number]> = [
+      [-1, 0.62], [-1, -0.55], [-0.5, 0.02], [0, -0.72], [0.5, 0.02], [1, -0.55],
+      [1, 0.62],
+    ];
+    p.forEach(([x, y], i) => {
+      const px = cx + x * r;
+      const py = cy + y * r;
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    });
+    ctx.closePath();
+  } else if (shape === 'flag') {
+    ctx.rect(cx - r * 0.92, cy - r * 0.62, r * 1.84, r * 1.24);
+  } else if (shape === 'anchor') {
+    ctx.arc(cx, cy - r * 0.62, r * 0.26, 0, Math.PI * 2);
+    ctx.rect(cx - r * 0.12, cy - r * 0.5, r * 0.24, r * 1.4);
+    ctx.rect(cx - r * 0.62, cy - r * 0.16, r * 1.24, r * 0.22);
+    ctx.moveTo(cx - r * 0.86, cy + r * 0.34);
+    ctx.quadraticCurveTo(cx, cy + r * 1.15, cx + r * 0.86, cy + r * 0.34);
+    ctx.lineTo(cx + r * 0.6, cy + r * 0.30);
+    ctx.quadraticCurveTo(cx, cy + r * 0.82, cx - r * 0.6, cy + r * 0.30);
+    ctx.closePath();
+  } else {
+    // calavera: a dome, a jaw, and two sockets punched back out.
+    ctx.arc(cx, cy - r * 0.16, r * 0.78, Math.PI, 0);
+    ctx.rect(cx - r * 0.78, cy - r * 0.16, r * 1.56, r * 0.72);
+    ctx.rect(cx - r * 0.34, cy + r * 0.56, r * 0.68, r * 0.34);
+  }
+  ctx.fill();
+  if (shape === 'skull') {
+    // Sockets, in whatever is behind the ink.
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    for (const dx of [-0.34, 0.34]) {
+      ctx.beginPath();
+      ctx.arc(cx + dx * r, cy - r * 0.16, r * 0.23, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.rect(cx - r * 0.09, cy + r * 0.06, r * 0.18, r * 0.24);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/**
+ * A crew plate: Justin's shape and his letters over his colour.
+ *
+ * The shape sits behind the name rather than beside it, because at the size
+ * this is actually seen - the back of a helmet, from a chase camera - two
+ * things side by side become one smudge and one thing behind another still
+ * reads as two.
+ */
+export function makeCrewPlate(
+  name: string, hex: string, ink: string, shape: string,
+): THREE.CanvasTexture {
+  const key = `plate|${name}|${hex}|${ink}|${shape}`;
+  const had = CREW_DECALS.get(key);
+  if (had) return had;
+
+  const W = 256;
+  const H = 160;
+  const [c, ctx] = makeCanvas(W, H);
+  ctx.fillStyle = hex;
+  ctx.fillRect(0, 0, W, H);
+  // The shape, watermarked into the colour so the letters stay first.
+  ctx.save();
+  ctx.globalAlpha = 0.30;
+  ctx.fillStyle = ink;
+  crewShape(ctx, shape, W / 2, H * 0.5, H * 0.44);
+  ctx.restore();
+  // Edge shading, so the plate has a form rather than being a flat sticker.
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, 'rgba(0,0,0,0.28)');
+  grad.addColorStop(0.5, 'rgba(255,255,255,0.06)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.30)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Shrink to fit rather than guessing from the letter count. A guess is fine
+  // for LOS PIRATAS and runs off both ends of the plate for LOS TIBURONES, and
+  // the whole point of this is that Justin can call it whatever he likes.
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const fits = W * 0.88;
+  let size = H * 0.54;
+  for (; size > H * 0.18; size -= 2) {
+    ctx.font = `900 ${Math.round(size)}px Impact, "Arial Black", system-ui, sans-serif`;
+    if (ctx.measureText(name).width <= fits) break;
+  }
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = size * 0.20;
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.strokeText(name, W / 2, H * 0.53);
+  ctx.fillStyle = ink;
+  ctx.fillText(name, W / 2, H * 0.53);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.anisotropy = ANISOTROPY;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  CREW_DECALS.set(key, tex);
+  return tex;
+}
+
 export function makeCrewDecal(text: string, a: string, b: string, ink: string): THREE.CanvasTexture {
   const key = `${text}|${a}|${b}|${ink}`;
   const had = CREW_DECALS.get(key);
@@ -935,5 +1072,40 @@ export function makeCrewDecal(text: string, a: string, b: string, ink: string): 
   tex.anisotropy = ANISOTROPY;
   tex.colorSpace = THREE.SRGBColorSpace;
   CREW_DECALS.set(key, tex);
+  return tex;
+}
+
+/**
+ * A speed limit plate: the number, big, on white, in a black border.
+ *
+ * Cached by the number, because there are three of them in the whole city and
+ * a canvas per sign is the mistake this file has already made twice.
+ */
+const SPEED_TEXTURES = new Map<number, THREE.CanvasTexture>();
+
+export function makeSpeedTexture(mph: number): THREE.CanvasTexture {
+  const had = SPEED_TEXTURES.get(mph);
+  if (had) return had;
+  const W = 200;
+  const H = 256;
+  const [c, ctx] = makeCanvas(W, H);
+  ctx.fillStyle = '#f4f2ec';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#16181d';
+  ctx.lineWidth = 13;
+  ctx.strokeRect(11, 11, W - 22, H - 22);
+  ctx.fillStyle = '#16181d';
+  ctx.textAlign = 'center';
+  ctx.font = `700 30px "Helvetica Neue", Arial, system-ui, sans-serif`;
+  ctx.fillText('SPEED', W / 2, 62);
+  ctx.fillText('LIMIT', W / 2, 92);
+  ctx.font = `800 104px "Helvetica Neue", Arial, system-ui, sans-serif`;
+  ctx.fillText(String(mph), W / 2, 196);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.anisotropy = ANISOTROPY;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  SPEED_TEXTURES.set(mph, tex);
   return tex;
 }

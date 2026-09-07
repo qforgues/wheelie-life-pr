@@ -8,7 +8,10 @@ import { buildWheel } from './Wheel';
 import { BIKE_VISUALS, type BikeVisual } from './bikeVisuals';
 import { TRICKS } from '../sim/tuning';
 import { OUTFITS, STARTER_OUTFIT, type Outfit } from '../game/Outfits';
-import { makeCrewDecal } from '../world/textures';
+import { makeCrewDecal, makeCrewPlate } from '../world/textures';
+
+/** What goes on the back of the lid: Justin's crew, already resolved. */
+export interface CrewPlate { name: string; hex: string; ink: string; shape: string; }
 
 /**
  * Procedural Grom + rider. Built with its REAR CONTACT PATCH at the local
@@ -181,6 +184,7 @@ export class BikeView {
   private frontWheel = new THREE.Group();
   private forkGroup = new THREE.Group();
   private outfit: Outfit;
+  private crew: CrewPlate | null;
   private riderRoot = new THREE.Group();
   /**
    * Where the thrown rider lives during a crash. This has to sit in the SCENE,
@@ -234,9 +238,11 @@ export class BikeView {
     tuning: BikeTuning,
     visual: BikeVisual = BIKE_VISUALS.yz250f,
     outfit: Outfit = OUTFITS[STARTER_OUTFIT],
+    crew: CrewPlate | null = null,
   ) {
     this.visual = visual;
     this.outfit = outfit;
+    this.crew = crew;
     this.R = tuning.chassis.wheelRadius;
     this.frontR = visual.frontWheelRadius;
     this.WB = tuning.chassis.wheelbase;
@@ -461,14 +467,17 @@ export class BikeView {
     // the chase camera looks straight at for the whole ride, so it is where the
     // thing you won has to live - a jersey you can only see in a mirror is not
     // a reward.
-    if (kit.decal) {
+    // Your OWN crew wins over the outfit's badge: once Justin has named one it
+    // is his helmet, whatever kit he happens to be wearing.
+    const decalMap = this.crew
+      ? makeCrewPlate(this.crew.name, this.crew.hex, this.crew.ink, this.crew.shape)
+      : kit.decal
+        ? makeCrewDecal(kit.decal.text, kit.decal.flag[0], kit.decal.flag[1], kit.decal.ink)
+        : null;
+    if (decalMap) {
       const plate = new THREE.Mesh(
         new THREE.PlaneGeometry(0.175, 0.108),
-        new THREE.MeshStandardMaterial({
-          map: makeCrewDecal(kit.decal.text, kit.decal.flag[0], kit.decal.flag[1], kit.decal.ink),
-          roughness: 0.4,
-          metalness: 0.1,
-        }),
+        new THREE.MeshStandardMaterial({ map: decalMap, roughness: 0.4, metalness: 0.1 }),
       );
       // Just proud of the shell, facing back down the road behind the rider.
       plate.position.copy(V(0, 1.545, 0.02 - 0.139));

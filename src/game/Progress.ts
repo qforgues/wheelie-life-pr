@@ -5,7 +5,8 @@ import { isRivalCount, type RivalCount } from '../world/Rivals';
 import { isOrientation, type MapOrientation } from '../ui/Minimap';
 import { DEFAULT_AIM, isMirrorMount, type MirrorAim, type MirrorMount } from '../view/Mirrors';
 import { UPGRADES, UPGRADE_IDS, nextLevel, type UpgradeId, type UpgradeLevels } from './Upgrades';
-import { OUTFITS, STARTER_OUTFIT, WIN_ONLY, isOutfitId, type OutfitId } from './Outfits';
+import { MONOESTRELLADA_NEEDS, OUTFITS, STARTER_OUTFIT, WIN_ONLY, isOutfitId, type OutfitId } from './Outfits';
+import { CREW_SHAPES, NO_CREW, cleanCrewName, crewSize, type Crew, type CrewShape } from './Crew';
 
 /**
  * Money and what you own.
@@ -39,6 +40,9 @@ export interface SaveData {
   aura: number;
   battlesWon: number;
   battlesLost: number;
+  beaten: string[];
+  /** Justin's crew: what he called it, its colour, and its shape. */
+  crew: Crew;
 }
 
 /** Rider-scope upgrades live here rather than on a bike. */
@@ -83,6 +87,16 @@ export class Progress {
   aura = 0;
   battlesWon = 0;
   battlesLost = 0;
+  /** Names of the rivals you have beaten at least once. Unlocks the top kit. */
+  beaten = new Set<string>();
+  /**
+   * The crew. Empty until it is named.
+   *
+   * Its size is not stored - it is derived from the aura, because aura is the
+   * only thing that changes it and two numbers that must agree are one number
+   * waiting to disagree.
+   */
+  crew: Crew = { ...NO_CREW };
 
   /** Set for one frame after a payout, for the HUD toast. */
   lastPayout = 0;
@@ -142,6 +156,16 @@ export class Progress {
     this.save();
   }
 
+  /** How many riders ride with you, which is also the crew's level. */
+  get crewLevel(): number {
+    return this.crew.name ? crewSize(this.aura) : 0;
+  }
+
+  setCrew(name: string, color: string, shape: CrewShape): void {
+    this.crew = { name: cleanCrewName(name), color, shape };
+    this.save();
+  }
+
   wear(id: OutfitId): boolean {
     if (!this.outfits.has(id)) return false;
     this.wearing = id;
@@ -155,11 +179,27 @@ export class Progress {
    * Aura floors at nothing rather than going negative: a reputation is
    * something you have or have not got, and there is no such thing as owing one.
    */
-  settleBattle(won: boolean, auraDelta: number): void {
+  settleBattle(won: boolean, auraDelta: number, rival = ''): string | null {
     if (won) this.battlesWon++;
     else this.battlesLost++;
     this.aura = Math.max(0, this.aura + auraDelta);
+    let unlocked: string | null = null;
+    if (won && rival) {
+      this.beaten.add(rival);
+      // Beat every one of them and the top kit turns up. No money involved,
+      // which is the whole point of it.
+      if (this.beaten.size >= MONOESTRELLADA_NEEDS && !this.outfits.has('monoestrellada')) {
+        this.outfits.add('monoestrellada');
+        unlocked = 'monoestrellada';
+      }
+    }
     this.save();
+    return unlocked;
+  }
+
+  /** How many of Los Piratas you have taken one off. */
+  get beatenCount(): number {
+    return this.beaten.size;
   }
 
   /** Cash in or out of a wager. Never takes you below nothing. */
@@ -292,6 +332,8 @@ export class Progress {
     this.aura = 0;
     this.battlesWon = 0;
     this.battlesLost = 0;
+    this.crew = { ...NO_CREW };
+    this.beaten = new Set<string>();
     this.mapOrientation = 'north';
     this.mirrors = 'corners';
     this.mirrorAim = { ...DEFAULT_AIM };
@@ -329,6 +371,15 @@ export class Progress {
       if (typeof d.aura === 'number') this.aura = Math.max(0, d.aura);
       if (typeof d.battlesWon === 'number') this.battlesWon = d.battlesWon;
       if (typeof d.battlesLost === 'number') this.battlesLost = d.battlesLost;
+      if (Array.isArray(d.beaten)) this.beaten = new Set(d.beaten.filter((v: unknown) => typeof v === 'string'));
+      if (d.crew && typeof d.crew.name === 'string') {
+        this.crew = {
+          name: cleanCrewName(d.crew.name),
+          color: typeof d.crew.color === 'string' ? d.crew.color : NO_CREW.color,
+          shape: (CREW_SHAPES as string[]).includes(d.crew.shape)
+            ? d.crew.shape as CrewShape : NO_CREW.shape,
+        };
+      }
       if (isOrientation(d.mapOrientation)) this.mapOrientation = d.mapOrientation;
       if (isMirrorMount(d.mirrors)) this.mirrors = d.mirrors;
       if (d.upgrades && typeof d.upgrades === 'object') {
@@ -376,6 +427,8 @@ export class Progress {
         aura: this.aura,
         battlesWon: this.battlesWon,
         battlesLost: this.battlesLost,
+        crew: this.crew,
+        beaten: [...this.beaten],
         mapOrientation: this.mapOrientation,
         mirrors: this.mirrors,
         mirrorAim: this.mirrorAim,
