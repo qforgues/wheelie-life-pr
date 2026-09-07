@@ -291,23 +291,28 @@ function carParts(): CarParts {
   if (CAR_PARTS) return CAR_PARTS;
 
   const wheels: Array<[number, number]> = [[-0.83, 1.36], [0.83, 1.36], [-0.83, -1.36], [0.83, -1.36]];
-  const tyreGeo = new THREE.TorusGeometry(0.24, 0.10, 10, 22);
-  const rimGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.17, 16);
-  const archGeo = roundedBox(0.30, 0.46, 0.78, 0.16, 6);
-  const headGeo = roundedBox(0.40, 0.15, 0.10, 0.05, 5);
+  // Segment counts are deliberately low. A filleted box at 10 segments is 1200
+  // triangles, and with traffic on every road in the grid there are eighty-odd
+  // cars on screen - they were costing more than the entire city put together.
+  // At 3-4 segments the fillet still catches a highlight, which is all a car
+  // seen at speed from behind actually needs.
+  const tyreGeo = new THREE.TorusGeometry(0.24, 0.10, 6, 12);
+  const rimGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.17, 10);
+  const archGeo = roundedBox(0.30, 0.46, 0.78, 0.16, 2);
+  const headGeo = roundedBox(0.40, 0.15, 0.10, 0.05, 2);
 
   CAR_PARTS = {
     // Lower sill, main body and roof all take the paint.
     paint: bake([
-      [roundedBox(1.76, 0.34, 3.94, 0.12, 6), at(0, 0.5, 0)],
-      [roundedBox(1.72, 0.60, 4.12, 0.26, 10), at(0, 0.78, 0)],
-      [roundedBox(1.34, 0.16, 1.55, 0.12, 8), at(0, 1.46, -0.22)],
+      [roundedBox(1.76, 0.34, 3.94, 0.12, 3), at(0, 0.5, 0)],
+      [roundedBox(1.72, 0.60, 4.12, 0.26, 4), at(0, 0.78, 0)],
+      [roundedBox(1.34, 0.16, 1.55, 0.12, 3), at(0, 1.46, -0.22)],
     ]),
-    glass: bake([[roundedBox(1.56, 0.50, 2.05, 0.30, 10), at(0, 1.24, -0.16)]]),
+    glass: bake([[roundedBox(1.56, 0.50, 2.05, 0.30, 4), at(0, 1.24, -0.16)]]),
     dark: bake([
       ...wheels.map(([dx, dz]) => [archGeo, at(dx * 0.98, 0.56, dz)] as [THREE.BufferGeometry, THREE.Matrix4]),
       ...[2.03, -2.03].map((dz) =>
-        [roundedBox(1.70, 0.22, 0.20, 0.09, 6), at(0, 0.56, dz)] as [THREE.BufferGeometry, THREE.Matrix4]),
+        [roundedBox(1.70, 0.22, 0.20, 0.09, 3), at(0, 0.56, dz)] as [THREE.BufferGeometry, THREE.Matrix4]),
     ]),
     tyre: bake(wheels.map(([dx, dz]) =>
       [tyreGeo, at(dx, 0.34, dz, 0, Math.PI / 2, 0)] as [THREE.BufferGeometry, THREE.Matrix4])),
@@ -360,6 +365,50 @@ export function makeParkedCar(color: number): THREE.Group {
 }
 
 export const CAR_COLORS = [0xd8453f, 0xf0f0f0, 0x2c3e6b, 0x2f7a4a, 0x1a1a1e, 0xd8a021];
+
+const LIGHT_RED = new THREE.MeshStandardMaterial({
+  color: 0xff2a3a, emissive: 0xff2a3a, emissiveIntensity: 1.4, roughness: 0.3,
+});
+const LIGHT_BLUE = new THREE.MeshStandardMaterial({
+  color: 0x2a6cff, emissive: 0x2a6cff, emissiveIntensity: 1.4, roughness: 0.3,
+});
+
+/**
+ * A patrol car: the white body with a light bar on the roof.
+ *
+ * The two halves of the bar are returned so the chase can flash them - a
+ * stationary police car and one that is coming for you have to read differently
+ * from a long way off, and at minimap distance the flash is the only cue.
+ */
+export function makePoliceCar(): { group: THREE.Group; lights: [THREE.Mesh, THREE.Mesh] } {
+  const group = makeCar(0xf2f4f7);
+
+  const barGeo = roundedBox(0.34, 0.13, 0.5, 0.05, 2);
+  const red = new THREE.Mesh(barGeo, LIGHT_RED);
+  red.position.set(-0.2, 1.62, -0.1);
+  const blue = new THREE.Mesh(barGeo, LIGHT_BLUE);
+  blue.position.set(0.2, 1.62, -0.1);
+  const spine = new THREE.Mesh(
+    roundedBox(0.9, 0.09, 0.42, 0.04, 2),
+    new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.6 }),
+  );
+  spine.position.set(0, 1.57, -0.1);
+  group.add(spine, red, blue);
+
+  // A dark stripe down the flanks so it is not just a white car.
+  for (const side of [-1, 1]) {
+    const stripe = new THREE.Mesh(
+      roundedBox(0.04, 0.3, 2.6, 0.02, 2),
+      new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.7 }),
+    );
+    stripe.position.set(side * 0.88, 0.78, 0);
+    group.add(stripe);
+  }
+
+  return { group, lights: [red, blue] };
+}
+
+
 
 /** The garita - the domed sentry box on the fort walls. Pure PR silhouette. */
 export function makeGarita(scale = 1): THREE.Group {
@@ -434,9 +483,23 @@ export function makeAwning(width: number, color: number): THREE.Mesh {
   return m;
 }
 
+/**
+ * Shop signs, cached by what they say.
+ *
+ * Each sign paints its own canvas, and three.js uploads every distinct Texture
+ * separately - so once the city grew to a few hundred buildings this alone was
+ * a hundred GPU textures for what is really a couple of dozen distinct signs.
+ * That is the same fault that ran the Xbox out of memory once already.
+ */
+const SIGN_MATS = new Map<string, THREE.MeshStandardMaterial>();
+
 export function makeShopSign(text: string, bg: string, fg: string, width = 2.6): THREE.Mesh {
-  const tex = makeSignTexture(text, bg, fg);
-  const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8 });
+  const key = `${text}|${bg}|${fg}`;
+  let mat = SIGN_MATS.get(key);
+  if (!mat) {
+    mat = new THREE.MeshStandardMaterial({ map: makeSignTexture(text, bg, fg), roughness: 0.8 });
+    SIGN_MATS.set(key, mat);
+  }
   return new THREE.Mesh(new THREE.PlaneGeometry(width, width * 0.25), mat);
 }
 

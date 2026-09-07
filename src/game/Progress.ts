@@ -17,7 +17,11 @@ export interface SaveData {
   lastBike: BikeId;
   bestScore: number;
   traffic: TrafficSpeed;
+  scanner: boolean;
 }
+
+/** What the police scanner costs. Cheap: it is a quality-of-life buy, not a wall. */
+export const SCANNER_PRICE = 600;
 
 const KEY = 'wheelie-life:save:v1';
 
@@ -33,6 +37,8 @@ export class Progress {
   bestScore = 0;
   /** Justin's call every session, so it is remembered rather than re-picked. */
   traffic: TrafficSpeed = 'regular';
+  /** Shows patrols on the GPS. Justin asked for this as a purchase. */
+  scanner = false;
 
   /** Set for one frame after a payout, for the HUD toast. */
   lastPayout = 0;
@@ -82,6 +88,29 @@ export class Progress {
     this.save();
   }
 
+  /** Buys the police scanner. Returns false if already owned or unaffordable. */
+  buyScanner(): boolean {
+    if (this.scanner || !this.canAfford(SCANNER_PRICE)) return false;
+    this.money -= SCANNER_PRICE;
+    this.scanner = true;
+    this.save();
+    return true;
+  }
+
+  /**
+   * A fine for getting pulled over: a fifth of what's on hand, capped.
+   *
+   * Proportional rather than flat so it stings the same at every stage - a flat
+   * fine is brutal when you are saving for your first bike and meaningless once
+   * you own the Ducati.
+   */
+  fine(): number {
+    const owed = Math.min(400, Math.round(this.money * 0.2));
+    this.money -= owed;
+    this.save();
+    return owed;
+  }
+
   setTraffic(t: TrafficSpeed): void {
     this.traffic = t;
     this.save();
@@ -94,6 +123,7 @@ export class Progress {
     this.lastBike = STARTER_BIKE;
     this.bestScore = 0;
     this.traffic = 'regular';
+    this.scanner = false;
     this.save();
   }
 
@@ -116,6 +146,7 @@ export class Progress {
         this.bestScore = Math.max(0, d.bestScore);
       }
       if (isTrafficSpeed(d.traffic)) this.traffic = d.traffic;
+      if (typeof d.scanner === 'boolean') this.scanner = d.scanner;
     } catch {
       /* no save, or storage is unavailable - start fresh */
     }
@@ -129,6 +160,7 @@ export class Progress {
         lastBike: this.lastBike,
         bestScore: this.bestScore,
         traffic: this.traffic,
+        scanner: this.scanner,
       };
       localStorage.setItem(KEY, JSON.stringify(data));
     } catch {

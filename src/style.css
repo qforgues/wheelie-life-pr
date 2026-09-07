@@ -613,3 +613,42 @@ body.is-console .debug-gui { display: none !important; }
   letter-spacing: 0.06em;
   opacity: 0.75;
 }
+
+/* ------------------------------------------------------------------ GPS -- */
+.minimap {
+  position: absolute;
+  left: calc(20px + var(--safe));
+  bottom: calc(20px + var(--safe));
+  width: calc(168px * var(--hud-scale));
+  height: calc(168px * var(--hud-scale));
+  z-index: 12;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  border-radius: 3px;
+  background: rgba(12, 16, 24, 0.72);
+  pointer-events: none;
+}
+.is-console .minimap { border-color: rgba(255, 255, 255, 0.34); }
+
+/* ------------------------------------------------------------- scanner --- */
+.upgrade {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 10px;
+  padding: 11px 13px;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+  text-align: left;
+}
+.upgrade.is-owned { border-color: rgba(94, 219, 233, 0.5); }
+.upgrade b { display: block; font-size: calc(12px * var(--hud-scale)); letter-spacing: 0.08em; }
+.upgrade span { font-size: calc(11px * var(--hud-scale)); opacity: 0.7; }
+.upgrade .owned-tag {
+  flex: none;
+  color: var(--pr-cyan);
+  font-size: calc(11px * var(--hud-scale));
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  opacity: 1;
+}

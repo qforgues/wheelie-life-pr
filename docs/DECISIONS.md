@@ -288,3 +288,64 @@ the bike reading as though it floats. One 128px alpha blob under the contact
 patches puts it back. It shrinks and slides rearward as the front lifts, which
 is deliberate: the shadow leaving the front tyre is the clearest read on how far
 over you are, and that matters most on the tier that has no other shadow.
+
+## 17. The city is a grid, and the grid is the only source of truth
+
+The map was one avenue with two side streets. Good for proving the physics,
+wrong for riding around in: every run was the same straight line.
+
+Roads are now two arrays of centrelines - `avenueX` and `streetZ` - and
+*everything* derives from them: the tarmac, the kerbs, where buildings stand,
+where traffic drives, where the police route, and what the GPS draws. Adding a
+road is one number in one array. Nothing in the file knows about "the avenue"
+any more; "am I on tarmac" is a distance-to-the-union-of-road-strips test.
+
+Roughly 3.5x the area of the old map, and it draws **cheaper** than the old one
+did - 1266 calls / 173k triangles at a centre junction, against 1422 / 386k
+before. Three things paid for it:
+
+- **Scenery is bucketed into 60 m cells** and cells past 320 m are switched off
+  wholesale. One visibility flag beats a per-object frustum test, and the fog
+  hides the edge.
+- **Cars were the entire budget.** A filleted box at 10 segments is 1200
+  triangles, and the car model used that for its body *and* its cabin. With
+  traffic on every road that was more geometry than the whole city. Dropped to
+  3-4 segments, which still catches a highlight on something seen at speed from
+  behind, and cut the car count per lane.
+- **Shop signs are cached by what they say.** Every sign painted its own canvas,
+  so a few hundred buildings meant a hundred GPU textures for about two dozen
+  distinct signs - the exact fault that ran the Xbox out of memory once already.
+  42 textures now, on a map three times the size.
+
+## 18. The GPS is north-up
+
+A rotating map is prettier and much harder to read at a glance, and a glance is
+all you get while holding a wheelie. Drawn straight from `LAYOUT`, so it cannot
+go stale when a road moves.
+
+## 19. Police care about wheelies, not driving
+
+Heat climbs **only while the front wheel is up**, faster when a patrol can see
+you. Riding normally is free. That makes a long wheelie down a main road a risk
+you are choosing, and ducking down a side street to cool off a real tactic
+rather than a loading screen.
+
+Three levels, as the interview asked, and one warning before any of it - the
+first time heat crosses level 1 you get "¡BÁJALA!" and nothing else happens.
+
+Patrols route along the grid rather than driving through buildings, and they are
+not fast enough to catch a bike that keeps moving. Measured: sitting still while
+wheelieing gets you pulled over in about 17 seconds; riding hard up the avenue
+never gets caught. Being busted is nearly always the result of stopping,
+crashing, or dead-ending yourself.
+
+Two things that were deliberately *not* done:
+
+- **A bust is not a game over.** Justin's whole loop is "wreck and go again". It
+  costs a fifth of your cash, capped, and puts you back on the road. The fine is
+  proportional so it stings the same when you are saving for your first bike and
+  when you already own the Ducati.
+- **The router had to be fixed twice.** Patrols originally drove to the junction
+  nearest the rider, which meant they stalled a block away and never arrived; at
+  a junction they then re-picked the leg they were already parked on. Both were
+  found by simulating a chase rather than by watching one.

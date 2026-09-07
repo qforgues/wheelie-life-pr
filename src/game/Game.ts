@@ -8,6 +8,8 @@ import { BikeSim } from '../sim/BikeSim';
 import { BIKES, TRICKS, cloneTuning, type BikeId } from '../sim/tuning';
 import { BIKE_VISUALS } from '../view/bikeVisuals';
 import { City } from '../world/City';
+import { Police } from '../world/Police';
+import { Minimap, type MapBlip } from '../ui/Minimap';
 import { buildSky, buildEnvironment, type SkyRig } from '../world/Sky';
 import { makeBlobShadowTexture, setAnisotropy } from '../world/textures';
 import { BikeView } from '../view/BikeView';
@@ -90,6 +92,10 @@ export class Game {
   private contextLost = false;
   /** Fake contact shadow, shown only when real shadow mapping is off. */
   private blobShadow: THREE.Mesh;
+  private police = new Police();
+  private minimap = new Minimap();
+  private blips: MapBlip[] = [];
+  private heat = 0;
   private updates = new UpdateWatcher(() => {
     this.overlay.showUpdate();
     this.hud.showUpdate();
@@ -115,6 +121,8 @@ export class Game {
     // ---- world -----------------------------------------------------------
     this.city = new City();
     this.scene.add(this.city.root);
+    this.scene.add(this.police.root);
+    this.city.extraCollider = (x, z, r) => this.police.hits(x, z, r);
     this.sky = buildSky(this.scene, this.renderer);
 
     // ---- bike ------------------------------------------------------------
@@ -150,6 +158,7 @@ export class Game {
 
     // ---- ui --------------------------------------------------------------
     container.appendChild(this.hud.root);
+    container.appendChild(this.minimap.root);
     // Quality is picked from the device, then stepped down on its own if the
     // frame rate can't hold - the Xbox browser has a fraction of a desktop's
     // budget and it is better to lose shadows than to lose the frame rate.
@@ -189,6 +198,7 @@ export class Game {
     this.overlay.attachProgress(this.progress, this.bikeId);
     this.overlay.onBikePicked((id) => this.setBike(id));
     this.overlay.onDiagnostics(() => this.diagnostics.toggle());
+    this.overlay.onScannerBought(() => { this.hud.cash = this.progress.money; });
 
     this.input.attach(this.renderer.domElement);
     // Start card up: let the console's own cursor drive it. See setGamepadEmulation.
@@ -266,7 +276,7 @@ export class Game {
   // ------------------------------------------------------------------ update
 
   private fixedUpdate(dt: number): void {
-    this.city.update(dt);
+    this.city.update(dt, this.sim.state.x, this.sim.state.z);
     const frame = this.input.update();
 
     // Any real input dismisses the card and unlocks audio (browsers need the
@@ -298,6 +308,22 @@ export class Game {
       this.hud.showToast(`CAMERA: ${CAMERA_LABELS[mode]}`, 1.6);
     }
     if (frame.reset) this.resetBike();
+
+    // La policía. Heat only climbs while the front wheel is up, so ordinary
+    // riding is free and a long wheelie down a main road is a choice.
+    const st = this.sim.state;
+    const report = this.police.update(
+      dt, st.x, st.z, st.wheelieing, st.mode === 'riding',
+    );
+    this.heat = report.heat;
+    if (report.warned) {
+      this.hud.showToast('¡BÁJALA! — POLICE WARNING', 2.6);
+      this.voice.say('¡Bájala, bájala!', 'es');
+    }
+    if (report.busted) this.onBusted();
+    this.blips = this.progress.scanner
+      ? report.blips.map((b) => ({ x: b.x, z: b.z, kind: 'cop' as const }))
+      : [];
 
     const state = this.sim.state;
     const blocked = this.overlay.isVisible;
@@ -388,6 +414,22 @@ export class Game {
     if (state.wheelSlip > this.sim.getTuning().tyre.spinThreshold) {
       this.input.rumble(0.2, 0.35, 120);
     }
+  }
+
+  /**
+   * Pulled over. Costs a cut of the wallet and puts you back on the road.
+   *
+   * Deliberately not a game over: Justin's whole loop is "wreck and go again",
+   * and a bust that ends the session would be the one thing in this game that
+   * stops you riding.
+   */
+  private onBusted(): void {
+    const fine = this.progress.fine();
+    this.hud.showToast(fine > 0 ? `PULLED OVER — ${money(fine)} FINE` : 'PULLED OVER', 3);
+    this.voice.say('Te agarraron.', 'es');
+    this.hud.cash = this.progress.money;
+    this.overlay.renderGarage();
+    this.resetBike();
   }
 
   private resetBike(): void {
@@ -503,6 +545,7 @@ export class Game {
     this.audio.resumeIfNeeded();
 
     if (this.blobShadow.visible) this.placeBlobShadow(state);
+    this.minimap.draw(state.x, state.z, state.yaw, this.blips, this.heat);
     this.renderer.render(this.scene, this.chase.camera);
   }
 }

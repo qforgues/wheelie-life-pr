@@ -2,7 +2,7 @@ import { BINDINGS } from '../input/bindings';
 import { BIKE_VISUALS } from '../view/bikeVisuals';
 import { BIKES, type BikeId } from '../sim/tuning';
 import type { Progress } from '../game/Progress';
-import { money } from '../game/Progress';
+import { money, SCANNER_PRICE } from '../game/Progress';
 import { TRAFFIC_LABELS, TRAFFIC_ORDER, type TrafficSpeed } from '../world/Traffic';
 import { BUILD_ID } from '../core/version';
 import { hardReload } from '../core/UpdateWatcher';
@@ -30,6 +30,8 @@ export class ControlsOverlay {
   private updateBar!: HTMLElement;
   private traffic: TrafficSpeed = 'regular';
   private onTraffic: ((t: TrafficSpeed) => void) | null = null;
+  private scannerEl!: HTMLElement;
+  private onScanner: (() => void) | null = null;
 
   constructor(private onDismiss: () => void) {
     this.root = document.createElement('div');
@@ -52,6 +54,7 @@ export class ControlsOverlay {
           <span class="opt-label">TRAFFIC</span>
           <div class="opt-choices" data-el="traffic"></div>
         </div>
+        <div class="upgrade" data-el="scanner"></div>
         <table class="overlay-table">
           <thead><tr><th>Action</th><th>Xbox</th><th>Keyboard</th></tr></thead>
           <tbody data-el="tableBody"></tbody>
@@ -60,6 +63,7 @@ export class ControlsOverlay {
           <p><b>To get it up:</b> low gear, pin the throttle and pull back at the same time.</p>
           <p><b>To hold it:</b> ride the throttle. Too far over? A stab of brake brings the nose down.</p>
           <p><b>Listen.</b> When the tail starts scraping you are one heartbeat from looping it.</p>
+          <p><b>La policía:</b> they only care about wheelies. Heat climbs while the front wheel is up and cools when you ride clean — you get one warning first. Keep moving and they will not catch you.</p>
           <p><b>Tricks:</b> once the front is up, hold a trick button to get a knee on the seat or stand right up. Standing scores most and is hardest to hold.</p>
         </div>
         <div class="update-bar" data-el="updateBar" hidden>
@@ -111,6 +115,16 @@ export class ControlsOverlay {
     this.root.querySelector('[data-el="update"]')!
       .addEventListener('click', (e) => { e.stopPropagation(); void hardReload(); });
 
+    this.scannerEl = this.root.querySelector('[data-el="scanner"]')!;
+    this.scannerEl.addEventListener('click', (e) => {
+      if (!(e.target as HTMLElement).closest('[data-buy-scanner]')) return;
+      e.stopPropagation();
+      if (this.progress?.buyScanner()) {
+        this.renderGarage();
+        this.onScanner?.();
+      }
+    });
+
     this.trafficEl = this.root.querySelector('[data-el="traffic"]')!;
     this.trafficEl.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>('[data-traffic]');
@@ -132,6 +146,27 @@ export class ControlsOverlay {
    *  readout on a console without remembering the D-pad shortcut. */
   onDiagnostics(fn: () => void): void {
     this.onDiag = fn;
+  }
+
+  /** Called after the police scanner is bought, so the HUD can update cash. */
+  onScannerBought(fn: () => void): void {
+    this.onScanner = fn;
+  }
+
+  private renderScanner(): void {
+    const owned = this.progress?.scanner ?? false;
+    const afford = this.progress?.canAfford(SCANNER_PRICE) ?? false;
+    this.scannerEl.classList.toggle('is-owned', owned);
+    this.scannerEl.innerHTML = `
+      <div>
+        <b>POLICE SCANNER</b>
+        <span>Shows patrols on your GPS while the heat is on.</span>
+      </div>
+      ${owned
+        ? '<span class="owned-tag">OWNED</span>'
+        : `<button class="bike-buy" data-buy-scanner type="button" ${afford ? '' : 'disabled'}>
+             BUY · ${money(SCANNER_PRICE)}
+           </button>`}`;
   }
 
   /** Called when the traffic setting changes. */
@@ -205,6 +240,7 @@ export class ControlsOverlay {
     const p = this.progress;
     if (!p || !this.bikePick) return;
     this.cashEl.textContent = money(p.money);
+    this.renderScanner();
 
     this.bikePick.innerHTML = (Object.keys(BIKES) as BikeId[]).map((id) => {
       const v = BIKE_VISUALS[id];

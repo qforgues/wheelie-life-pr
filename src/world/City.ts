@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Traffic } from './Traffic';
 import type { CrashReason, GroundProvider } from '../sim/types';
 import type { SpawnPoint } from '../sim/BikeSim';
-import { roundedBox, scaleUV } from '../view/geometry';
+import { mergeMeshes, roundedBox, scaleUV } from '../view/geometry';
 import {
   CAR_COLORS, makeAwning, makeFort, makeGarita, makeParkedCar, makePalm, makePlanter,
   makeRailing, makeShopSign, makeStreetLamp, PROP_MATERIALS,
@@ -21,27 +21,78 @@ import {
  * distance. Speed bumps are placed to give you something to pop off.
  */
 
+/**
+ * The city is a grid.
+ *
+ * It used to be a single avenue with two side streets, which was the right
+ * shape for proving the physics and the wrong shape for riding around in: every
+ * run was the same straight line. Roads are now defined as two sets of
+ * centrelines - avenues running north-south, cross streets running east-west -
+ * and everything else in this file is derived from them. Adding a road anywhere
+ * is a single number in one of these arrays.
+ */
 export const LAYOUT = {
   roadHalf: 6,
   sidewalk: 2.3,
-  avenueStart: -60,
-  avenueEnd: 430,
-  blockDepth: 14,
-  crossStreets: [
-    { z: 80, half: 8, xMin: -95, xMax: 95 },
-    { z: 256, half: 8, xMin: -95, xMax: 95 },
-  ],
-  plaza: { zMin: 400, zMax: 452, xMin: -26, xMax: 26 },
-  seaWallZ: 452,
+  /** How deep a row of buildings sits back from the kerb. */
+  blockDepth: 16,
+  /** Avenues run along Z, at these X positions. */
+  avenueX: [-240, -120, 0, 120, 240],
+  /** Cross streets run along X, at these Z positions. */
+  streetZ: [-40, 120, 280, 440, 600],
+  /** Speed bumps, on every avenue at these Z. */
+  bumpZ: [40, 200, 360, 520],
+  plaza: { zMin: 620, zMax: 672, xMin: -26, xMax: 26 },
+  seaWallZ: 672,
 } as const;
+
+/** Where the roads start and stop - the extent every road is drawn across. */
+export const MAP = {
+  xMin: LAYOUT.avenueX[0],
+  xMax: LAYOUT.avenueX[LAYOUT.avenueX.length - 1],
+  zMin: LAYOUT.streetZ[0],
+  zMax: LAYOUT.streetZ[LAYOUT.streetZ.length - 1],
+} as const;
+
+/** Distance beyond the road edge before a point is off the tarmac, 0 if on it. */
+function distanceOffRoad(x: number, z: number): number {
+  let best = Infinity;
+  for (const ax of LAYOUT.avenueX) {
+    best = Math.min(best, Math.max(0, Math.abs(x - ax) - LAYOUT.roadHalf));
+    if (best === 0) return 0;
+  }
+  for (const sz of LAYOUT.streetZ) {
+    best = Math.min(best, Math.max(0, Math.abs(z - sz) - LAYOUT.roadHalf));
+    if (best === 0) return 0;
+  }
+  return best;
+}
+
+/** Nearest value in a sorted-ish list, and how far away it was. */
+function nearest(v: number, list: readonly number[]): { value: number; dist: number } {
+  let value = list[0];
+  let dist = Math.abs(v - value);
+  for (const c of list) {
+    const d = Math.abs(v - c);
+    if (d < dist) { dist = d; value = c; }
+  }
+  return { value, dist };
+}
+
+/** Kerb height. The sidewalk is this far above the road. */
+const KERB_HEIGHT = 0.16;
+
+/** Side of a scenery cell, and how far away a cell stops being drawn. */
+const CELL_SIZE = 60;
+const CULL_RADIUS = 320;
 
 interface Box2 { minX: number; maxX: number; minZ: number; maxZ: number; }
 /** A "muerto" - the tall speed humps all over the island. Real geometry. */
-interface Bump { z: number; half: number; height: number; }
+interface Bump { x: number; z: number; half: number; height: number; }
 
 export class City implements GroundProvider {
   readonly root = new THREE.Group();
-  readonly spawn: SpawnPoint = { x: 0, z: LAYOUT.avenueStart + 25, yaw: 0 };
+  readonly spawn: SpawnPoint = { x: 0, z: MAP.zMin + 30, yaw: 0 };
 
   private colliders: Box2[] = [];
 
@@ -52,8 +103,30 @@ export class City implements GroundProvider {
   private roofMat = new THREE.MeshStandardMaterial({ color: 0x8f7358, roughness: 0.98 });
   private bumps: Bump[] = [];
 
+  /**
+   * Scenery bucketed into square cells.
+   *
+   * A city this size is far more geometry than the console browser can afford
+   * to consider every frame. Everything static goes into the cell it stands in,
+   * and cells beyond `CULL_RADIUS` are switched off wholesale - one visibility
+   * flag instead of a per-object frustum test, and the fog hides the edge.
+   */
+  private cells: Array<{ group: THREE.Group; cx: number; cz: number }> = [];
+  private cellIndex = new Map<string, THREE.Group>();
+  /** How many cells the city ended up in. Read by the diagnostics panel. */
+  cellCount = 0;
+
   /** Moving cars. Owned here so `collide` can see them without extra plumbing. */
   readonly traffic = new Traffic();
+
+  /**
+   * Extra moving obstacles the sim should treat as solid.
+   *
+   * The police live in Game, because chasing needs to know what the rider is
+   * doing and the city has no business knowing about heat. But a patrol car is
+   * still a car in the road, so it has to be solid the same way traffic is.
+   */
+  extraCollider: ((x: number, z: number, r: number) => boolean) | null = null;
 
   constructor() {
     this.buildRoads();
@@ -66,56 +139,133 @@ export class City implements GroundProvider {
 
   // ---------------------------------------------------------------- terrain
 
+  /** The cell a point belongs to, created on demand. */
+  private cellAt(x: number, z: number): THREE.Group {
+    const ix = Math.floor(x / CELL_SIZE);
+    const iz = Math.floor(z / CELL_SIZE);
+    const key = `${ix},${iz}`;
+    let g = this.cellIndex.get(key);
+    if (!g) {
+      g = new THREE.Group();
+      this.cellIndex.set(key, g);
+      this.cells.push({
+        group: g,
+        cx: (ix + 0.5) * CELL_SIZE,
+        cz: (iz + 0.5) * CELL_SIZE,
+      });
+      this.root.add(g);
+    }
+    return g;
+  }
+
+  /** Adds a positioned object to whichever cell it stands in. */
+  private blockAdd(obj: THREE.Object3D): void {
+    this.cellAt(obj.position.x, obj.position.z).add(obj);
+  }
+
+  private flushBlocks(): void {
+    // Cells are built lazily; nothing to do but report what we ended up with.
+    this.cellCount = this.cells.length;
+  }
+
   private buildRoads(): void {
     const cobble = makeCobbleTexture();
     const walk = makeSidewalkTexture();
+    this.sidewalkTex = walk;
 
-    const avenueLen = LAYOUT.avenueEnd - LAYOUT.avenueStart;
-    const avenueMid = (LAYOUT.avenueEnd + LAYOUT.avenueStart) / 2;
-
-    // One cobble material for every stretch of road. The tile rate that used to
-    // live on a cloned texture per street is baked into each mesh's UVs.
+    // One material for every stretch of tarmac in the city; the tile rate is
+    // baked into each mesh's UVs rather than cloned onto its own texture.
     const roadMat = new THREE.MeshStandardMaterial({ map: cobble, roughness: 0.96 });
+    const walkMat = new THREE.MeshStandardMaterial({ map: walk, roughness: 0.95 });
 
-    const avenueGeo = new THREE.PlaneGeometry(LAYOUT.roadHalf * 2, avenueLen);
-    scaleUV(avenueGeo, (LAYOUT.roadHalf * 2) / 3.5, avenueLen / 3.5);
-    const avenue = new THREE.Mesh(avenueGeo, roadMat);
-    avenue.rotation.x = -Math.PI / 2;
-    avenue.position.set(0, 0, avenueMid);
-    avenue.receiveShadow = true;
-    this.root.add(avenue);
+    const lenZ = MAP.zMax - MAP.zMin;
+    const lenX = MAP.xMax - MAP.xMin;
+    const midZ = (MAP.zMax + MAP.zMin) / 2;
+    const midX = (MAP.xMax + MAP.xMin) / 2;
+    const W = LAYOUT.roadHalf * 2;
 
-    // Cross streets, sharing that one material at their own tile rate.
-    for (const cs of LAYOUT.crossStreets) {
-      const geo = new THREE.PlaneGeometry(cs.xMax - cs.xMin, cs.half * 2);
-      scaleUV(geo, (cs.xMax - cs.xMin) / 3.5, (cs.half * 2) / 3.5);
+    const slab = (w: number, l: number, x: number, z: number, rot: boolean) => {
+      const geo = new THREE.PlaneGeometry(w, l);
+      scaleUV(geo, w / 3.5, l / 3.5);
       const m = new THREE.Mesh(geo, roadMat);
       m.rotation.x = -Math.PI / 2;
-      m.position.set((cs.xMin + cs.xMax) / 2, 0.001, cs.z);
+      if (rot) m.rotation.z = Math.PI / 2;
+      m.position.set(x, 0, z);
+      m.receiveShadow = true;
+      this.root.add(m);
+    };
+
+    for (const ax of LAYOUT.avenueX) slab(W, lenZ, ax, midZ, false);
+    // Cross streets sit a hair higher so the two surfaces never z-fight where
+    // they overlap at a junction.
+    for (const sz of LAYOUT.streetZ) {
+      const geo = new THREE.PlaneGeometry(lenX, W);
+      scaleUV(geo, lenX / 3.5, W / 3.5);
+      const m = new THREE.Mesh(geo, roadMat);
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(midX, 0.001, sz);
       m.receiveShadow = true;
       this.root.add(m);
     }
 
-    // Sidewalks + kerbs down both sides of the avenue.
-    this.sidewalkTex = walk;
-    const walkMat = new THREE.MeshStandardMaterial({ map: walk, roughness: 0.95 });
-    for (const side of [-1, 1]) {
-      const swGeo = roundedBox(LAYOUT.sidewalk, 0.16, avenueLen, 0.04, 2);
-      scaleUV(swGeo, LAYOUT.sidewalk / 1.5, avenueLen / 1.5);
-      const sw = new THREE.Mesh(swGeo, walkMat);
-      sw.position.set(side * (LAYOUT.roadHalf + LAYOUT.sidewalk / 2), 0.08, avenueMid);
-      sw.receiveShadow = true;
-      this.root.add(sw);
+    // Sidewalks run between junctions, so they don't cut across the road at a
+    // crossing. Merged per orientation - one draw call each, not two hundred.
+    const walkSlabs: THREE.Mesh[] = [];
+    const kerb = LAYOUT.roadHalf + LAYOUT.sidewalk / 2;
+    for (const ax of LAYOUT.avenueX) {
+      for (const [z0, z1] of this.spansBetween(LAYOUT.streetZ, MAP.zMin, MAP.zMax)) {
+        for (const side of [-1, 1]) {
+          const g = roundedBox(LAYOUT.sidewalk, KERB_HEIGHT, z1 - z0, 0.04, 2);
+          scaleUV(g, LAYOUT.sidewalk / 1.5, (z1 - z0) / 1.5);
+          const m = new THREE.Mesh(g, walkMat);
+          m.position.set(ax + side * kerb, KERB_HEIGHT / 2, (z0 + z1) / 2);
+          walkSlabs.push(m);
+        }
+      }
     }
+    for (const sz of LAYOUT.streetZ) {
+      for (const [x0, x1] of this.spansBetween(LAYOUT.avenueX, MAP.xMin, MAP.xMax)) {
+        for (const side of [-1, 1]) {
+          const g = roundedBox(x1 - x0, KERB_HEIGHT, LAYOUT.sidewalk, 0.04, 2);
+          scaleUV(g, (x1 - x0) / 1.5, LAYOUT.sidewalk / 1.5);
+          const m = new THREE.Mesh(g, walkMat);
+          m.position.set((x0 + x1) / 2, KERB_HEIGHT / 2, sz + side * kerb);
+          walkSlabs.push(m);
+        }
+      }
+    }
+    if (walkSlabs.length) this.root.add(mergeMeshes(walkSlabs, walkMat));
 
-    // Speed bumps. The mesh below is generated from the very same profile the
-    // physics samples, so what you ride over is exactly what you see.
+    // Muertos across every avenue, at the same Z so they read as a pattern.
     const hazard = makeHazardTexture();
-    for (const z of [30, 190, 330]) {
-      const bump: Bump = { z, half: 0.62, height: 0.115 };
-      this.bumps.push(bump);
-      this.root.add(this.buildBumpMesh(bump, hazard));
+    const bumpMeshes: THREE.Mesh[] = [];
+    for (const ax of LAYOUT.avenueX) {
+      for (const z of LAYOUT.bumpZ) {
+        const bump: Bump = { x: ax, z, half: 0.62, height: 0.115 };
+        this.bumps.push(bump);
+        bumpMeshes.push(this.buildBumpMesh(bump, hazard));
+      }
     }
+    this.root.add(mergeMeshes(bumpMeshes, bumpMeshes[0].material as THREE.Material));
+  }
+
+  /**
+   * The gaps between crossings along one axis, so kerbs stop at every junction
+   * instead of running straight through it.
+   */
+  private spansBetween(
+    crossings: readonly number[], from: number, to: number,
+  ): Array<[number, number]> {
+    const edge = LAYOUT.roadHalf + LAYOUT.sidewalk;
+    const spans: Array<[number, number]> = [];
+    let cursor = from;
+    for (const c of [...crossings].sort((a, b) => a - b)) {
+      const gapStart = c - edge;
+      if (gapStart - cursor > 1) spans.push([cursor, gapStart]);
+      cursor = Math.max(cursor, c + edge);
+    }
+    if (to - cursor > 1) spans.push([cursor, to]);
+    return spans;
   }
 
   /** Humped strip across the road, vertices displaced by `bumpProfile`. */
@@ -142,6 +292,17 @@ export class City implements GroundProvider {
 
   // --------------------------------------------------------------- buildings
 
+  /**
+   * Fills the city with frontage.
+   *
+   * Every road gets a row of buildings down each side, broken at the junctions.
+   * Rows are grouped into blocks and each block is merged down to one mesh per
+   * material, which is what makes a city this size affordable: three hundred
+   * buildings would otherwise be a thousand draw calls, and the console browser
+   * has already proved it has no room for that. Merging per block rather than
+   * city-wide keeps the bounding boxes small enough for frustum culling to
+   * still do its job.
+   */
   private buildBlocks(): void {
     const facades = Array.from({ length: 12 }, (_, i) => makeFacadeTexture(i * 977 + 13, 3, 3));
     let seed = 0;
@@ -150,139 +311,136 @@ export class City implements GroundProvider {
       return seed / 4294967296;
     };
 
-    const gaps: Array<[number, number]> = [
-      ...LAYOUT.crossStreets.map((c) => [c.z - c.half - 2, c.z + c.half + 2] as [number, number]),
-      [LAYOUT.plaza.zMin - 4, LAYOUT.plaza.zMax],
-    ];
-    const inGap = (a: number, b: number) => gaps.some(([g0, g1]) => b > g0 && a < g1);
+    const setback = LAYOUT.roadHalf + LAYOUT.sidewalk + LAYOUT.blockDepth / 2;
 
-    for (const side of [-1, 1]) {
-      let z = LAYOUT.avenueStart;
-      let index = 0;
-      while (z < LAYOUT.avenueEnd) {
-        const width = 11 + rnd() * 7;
-        if (inGap(z, z + width)) { z += 2; continue; }
-        const height = 7.5 + rnd() * 6;
-        const facade = facades[Math.floor(rnd() * facades.length)];
-        this.addBuilding(side, z, width, height, facade, rnd, index++);
-        z += width + 0.35;
-      }
-    }
-
-    // Buildings framing the cross streets so they don't dead-end into nothing.
-    for (const cs of LAYOUT.crossStreets) {
-      for (const zSide of [-1, 1]) {
-        for (const dir of [-1, 1]) {
-          let x = LAYOUT.roadHalf + 20;
-          while (x < 92) {
-            const w = 12 + rnd() * 6;
-            const h = 7 + rnd() * 5;
-            const facade = facades[Math.floor(rnd() * facades.length)];
-            const cz = cs.z + zSide * (cs.half + LAYOUT.blockDepth / 2 + 1.5);
-            this.addBoxBuilding(
-              dir * (x + w / 2), cz, w, LAYOUT.blockDepth, h, facade, zSide > 0 ? 5 : 4, rnd,
-            );
-            x += w + 0.4;
-          }
+    // Rows along the avenues (buildings face +/-X), then along the streets.
+    for (const ax of LAYOUT.avenueX) {
+      for (const [z0, z1] of this.spansBetween(LAYOUT.streetZ, MAP.zMin, MAP.zMax)) {
+        for (const side of [-1, 1]) {
+          this.frontage(true, ax + side * setback, -side, z0, z1, facades, rnd);
         }
       }
     }
+    for (const sz of LAYOUT.streetZ) {
+      for (const [x0, x1] of this.spansBetween(LAYOUT.avenueX, MAP.xMin, MAP.xMax)) {
+        for (const side of [-1, 1]) {
+          this.frontage(false, sz + side * setback, -side, x0, x1, facades, rnd);
+        }
+      }
+    }
+
+    this.flushBlocks();
   }
 
-  private addBuilding(
-    side: number, z: number, width: number, height: number,
-    facade: THREE.Texture, rnd: () => number, index: number,
+  /**
+   * One row of buildings down one side of one road.
+   *
+   * `alongZ` says which way the row runs; `facing` is the direction the fronts
+   * look, so the street-facing wall is the one that gets the bright facade.
+   */
+  private frontage(
+    alongZ: boolean, offset: number, facing: number,
+    from: number, to: number, facades: THREE.Texture[], rnd: () => number,
   ): void {
-    const depth = LAYOUT.blockDepth;
-    const x = side * (LAYOUT.roadHalf + LAYOUT.sidewalk + depth / 2);
-    // Street-facing material index: +X face (0) for the left row, -X face (1) for the right.
-    const faceIndex = side < 0 ? 0 : 1;
-    const mesh = this.addBoxBuilding(x, z + width / 2, depth, width, height, facade, faceIndex, rnd);
+    let cursor = from;
+    let index = 0;
+    while (to - cursor > 12) {
+      const width = Math.min(to - cursor, 16 + rnd() * 12);
+      const height = 8 + rnd() * 7;
+      const facade = facades[Math.floor(rnd() * facades.length)];
+      const centre = cursor + width / 2;
 
-    // Real balcony geometry on the first floor - the drawn ones on the texture
-    // do the detail, these do the shadow.
-    if (rnd() > 0.35) {
-      const bx = side * (LAYOUT.roadHalf + LAYOUT.sidewalk - 0.35);
+      const x = alongZ ? offset : centre;
+      const z = alongZ ? centre : offset;
+      const sizeX = alongZ ? LAYOUT.blockDepth : width;
+      const sizeZ = alongZ ? width : LAYOUT.blockDepth;
+      // Material index of the wall that faces the street: +X is 0, -X is 1,
+      // +Z is 4, -Z is 5.
+      const faceIndex = alongZ ? (facing > 0 ? 0 : 1) : (facing > 0 ? 4 : 5);
+
+      this.addBoxBuilding(x, z, sizeX, sizeZ, height, facade, faceIndex, rnd);
+      this.decorate(alongZ, offset, facing, centre, width, height, index++, rnd);
+      cursor += width + 0.4;
+    }
+  }
+
+  /** Balconies, signs, awnings and street furniture on one building's frontage. */
+  private decorate(
+    alongZ: boolean, offset: number, facing: number,
+    centre: number, width: number, height: number, index: number, rnd: () => number,
+  ): void {
+    const kerbOffset = offset - facing * (LAYOUT.blockDepth / 2 + LAYOUT.sidewalk * 0.45);
+    const at = (across: number, y: number, along: number): [number, number, number] =>
+      alongZ ? [across, y, along] : [along, y, across];
+    // Buildings run along Z when alongZ, so a frontage facing +X is rotated a
+    // quarter turn from one facing +Z.
+    const faceYaw = alongZ ? (facing > 0 ? Math.PI / 2 : -Math.PI / 2) : (facing > 0 ? 0 : Math.PI);
+
+    if (rnd() > 0.45) {
+      const wallFace = offset - facing * (LAYOUT.blockDepth / 2 - 0.35);
+      const railLen = Math.min(3.4, width * 0.45);
       const slab = new THREE.Mesh(
-        roundedBox(1.0, 0.14, Math.min(3.4, width * 0.45), 0.05, 5),
+        roundedBox(alongZ ? 1.0 : railLen, 0.14, alongZ ? railLen : 1.0, 0.05, 5),
         PROP_MATERIALS.stone,
       );
-      slab.position.set(bx, height * 0.42, z + width / 2);
+      slab.position.set(...at(wallFace, height * 0.42, centre));
       slab.castShadow = true;
-      this.root.add(slab);
-      const railLen = Math.min(3.4, width * 0.45);
+      this.blockAdd(slab);
+
       const rail = makeRailing(railLen, 0.8, 0.15);
-      rail.position.set(bx - side * 0.46, height * 0.42 + 0.07, z + width / 2);
-      this.root.add(rail);
-      // Short returns so the balcony is enclosed on three sides.
-      for (const dz of [-railLen / 2, railLen / 2]) {
-        const end = makeRailing(0.9, 0.8, 0.16);
-        end.rotation.y = Math.PI / 2;
-        end.position.set(bx - side * 0.02, height * 0.42 + 0.07, z + width / 2 + dz);
-        this.root.add(end);
-      }
-      // Corbels, so the slab isn't floating off the wall.
-      for (const dz of [-railLen * 0.36, railLen * 0.36]) {
-        const corbel = new THREE.Mesh(
-          roundedBox(0.7, 0.16, 0.16, 0.05, 4), PROP_MATERIALS.stone,
-        );
-        corbel.position.set(bx + side * 0.12, height * 0.42 - 0.13, z + width / 2 + dz);
-        corbel.rotation.z = side * 0.22;
-        corbel.castShadow = true;
-        this.root.add(corbel);
-      }
+      rail.rotation.y = alongZ ? Math.PI / 2 : 0;
+      rail.position.set(...at(wallFace + facing * 0.46, height * 0.42 + 0.07, centre));
+      this.blockAdd(rail);
     }
 
-    // Ground-floor colmado / taller every few buildings.
-    if (index % 4 === 1) {
+    // A colmado or taller every few buildings, with an awning over the door.
+    if (index % 3 === 1) {
       const names = ['COLMADO', 'TALLER', 'PANADERÍA', 'FRITURAS', 'PIRAGUA', 'BARBERÍA'];
       const bg = ['#1f6b52', '#8c3a2e', '#2f5d7c', '#d8a021'];
-      const sign = makeShopSign(
-        names[index % names.length], bg[index % bg.length], '#fbf6e9', 3.0,
-      );
-      sign.position.set(
-        side * (LAYOUT.roadHalf + LAYOUT.sidewalk - 0.05), 3.5, z + width / 2,
-      );
-      sign.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
-      this.root.add(sign);
+      const face = offset - facing * (LAYOUT.blockDepth / 2 - 0.05);
+      const sign = makeShopSign(names[index % names.length], bg[index % bg.length], '#fbf6e9', 3.0);
+      sign.rotation.y = faceYaw;
+      sign.position.set(...at(face, 3.5, centre));
+      this.blockAdd(sign);
 
       const awn = makeAwning(Math.min(3.6, width * 0.5), [0xd8453f, 0x2f7ab0, 0xe0a13a][index % 3]);
-      awn.position.set(side * (LAYOUT.roadHalf + LAYOUT.sidewalk - 0.7), 2.85, z + width / 2);
-      awn.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
-      awn.rotation.z = side < 0 ? -0.32 : 0.32;
-      this.root.add(awn);
+      awn.rotation.y = faceYaw;
+      awn.rotation.z = alongZ ? (facing > 0 ? 0.32 : -0.32) : 0.32;
+      awn.position.set(...at(offset - facing * (LAYOUT.blockDepth / 2 - 0.7), 2.85, centre));
+      this.blockAdd(awn);
     }
 
-    // Street furniture on the pavement in front.
-    const px = side * (LAYOUT.roadHalf + LAYOUT.sidewalk * 0.55);
+    // Street furniture out on the pavement.
     const roll = rnd();
-    if (roll > 0.78) {
+    if (roll > 0.80) {
       const lamp = makeStreetLamp();
-      lamp.position.set(px, 0.16, z + width / 2);
-      lamp.rotation.y = side < 0 ? 0 : Math.PI;
-      this.root.add(lamp);
-    } else if (roll > 0.62) {
-      const palm = makePalm(6 + rnd() * 3.5, index * 7 + side);
-      palm.position.set(px, 0.16, z + width / 2);
-      this.root.add(palm);
-    } else if (roll > 0.5) {
-      const p = makePlanter(index);
-      p.position.set(px, 0.16, z + width / 2);
-      this.root.add(p);
+      lamp.rotation.y = faceYaw + Math.PI / 2;
+      lamp.position.set(...at(kerbOffset, KERB_HEIGHT, centre));
+      this.blockAdd(lamp);
+    } else if (roll > 0.66) {
+      const palm = makePalm(6 + rnd() * 3.5, index * 7 + centre);
+      palm.position.set(...at(kerbOffset, KERB_HEIGHT, centre));
+      this.blockAdd(palm);
+    } else if (roll > 0.56) {
+      const planter = makePlanter(index);
+      planter.position.set(...at(kerbOffset, KERB_HEIGHT, centre));
+      this.blockAdd(planter);
     }
 
-    // A handful of cars parked against the kerb - obstacles, not traffic.
-    if (rnd() > 0.84 && width > 13) {
+    // Cars against the kerb - obstacles, not traffic.
+    if (rnd() > 0.86 && width > 18) {
+      const carAcross = offset - facing * (LAYOUT.blockDepth / 2 + LAYOUT.sidewalk + 1.05);
       const car = makeParkedCar(CAR_COLORS[Math.floor(rnd() * CAR_COLORS.length)]);
-      const cx = side * (LAYOUT.roadHalf - 1.05);
-      car.position.set(cx, 0, z + width / 2);
-      this.root.add(car);
+      car.rotation.y = alongZ ? 0 : Math.PI / 2;
+      const [cx, , cz] = at(carAcross, 0, centre);
+      car.position.set(cx, 0, cz);
+      this.blockAdd(car);
+      const halfX = alongZ ? 1.0 : 2.2;
+      const halfZ = alongZ ? 2.2 : 1.0;
       this.colliders.push({
-        minX: cx - 1.0, maxX: cx + 1.0, minZ: z + width / 2 - 2.2, maxZ: z + width / 2 + 2.2,
+        minX: cx - halfX, maxX: cx + halfX, minZ: cz - halfZ, maxZ: cz + halfZ,
       });
     }
-
-    void mesh;
   }
 
   private addBoxBuilding(
@@ -335,7 +493,7 @@ export class City implements GroundProvider {
     mesh.position.set(x, height / 2, z);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    this.root.add(mesh);
+    this.blockAdd(mesh);
 
     // Parapet so the rooflines aren't razor flat against the sky.
     const capMat = new THREE.MeshStandardMaterial({ color: 0xe0d6c0, roughness: 0.96 });
@@ -344,7 +502,7 @@ export class City implements GroundProvider {
     );
     parapet.position.set(x, height + 0.2, z);
     parapet.castShadow = true;
-    this.root.add(parapet);
+    this.blockAdd(parapet);
 
     // A cornice band under the parapet gives the roofline some depth instead of
     // a single flat lip.
@@ -353,7 +511,7 @@ export class City implements GroundProvider {
     );
     cornice.position.set(x, height - 0.16, z);
     cornice.castShadow = true;
-    this.root.add(cornice);
+    this.blockAdd(cornice);
 
     // A water tank or two up top, so the skyline has some silhouette.
     if (sizeX > 12 && sizeZ > 12) {
@@ -363,7 +521,7 @@ export class City implements GroundProvider {
       );
       tank.position.set(x + sizeX * 0.22, height + 0.95, z - sizeZ * 0.2);
       tank.castShadow = true;
-      this.root.add(tank);
+      this.blockAdd(tank);
     }
 
     this.colliders.push({
@@ -509,30 +667,42 @@ export class City implements GroundProvider {
   }
 
   /** Invisible walls so you can't ride out of the slice into the void. */
+  /** Invisible walls just past the outermost roads, so you can't ride into the void. */
   private buildBounds(): void {
-    this.colliders.push({ minX: -400, maxX: 400, minZ: LAYOUT.avenueStart - 12, maxZ: LAYOUT.avenueStart - 8 });
-    this.colliders.push({ minX: -104, maxX: -96, minZ: -400, maxZ: 900 });
-    this.colliders.push({ minX: 96, maxX: 104, minZ: -400, maxZ: 900 });
+    const edge = LAYOUT.roadHalf + LAYOUT.sidewalk + LAYOUT.blockDepth + 4;
+    const x0 = MAP.xMin - edge, x1 = MAP.xMax + edge;
+    const z0 = MAP.zMin - edge, z1 = MAP.zMax + edge;
+    const T = 4;
+    this.colliders.push({ minX: x0 - T, maxX: x1 + T, minZ: z0 - T, maxZ: z0 });
+    this.colliders.push({ minX: x0 - T, maxX: x0, minZ: z0 - T, maxZ: z1 + T });
+    this.colliders.push({ minX: x1, maxX: x1 + T, minZ: z0 - T, maxZ: z1 + T });
+    // The far edge stops at the plaza, which has its own sea wall.
+    this.colliders.push({ minX: x0 - T, maxX: LAYOUT.plaza.xMin, minZ: z1, maxZ: z1 + T });
+    this.colliders.push({ minX: LAYOUT.plaza.xMax, maxX: x1 + T, minZ: z1, maxZ: z1 + T });
   }
 
   // -------------------------------------------------------- GroundProvider
 
-  /** Raw surface height, before any tyre smoothing. */
+  /**
+   * Raw surface height, before any tyre smoothing.
+   *
+   * The road surface is the union of every avenue strip and every street strip,
+   * so "am I on tarmac" is a distance-to-that-union test rather than anything
+   * that knows about a particular street. Off it, the kerb ramps up over 30 cm
+   * instead of stepping: the tyre envelope only smooths along the direction of
+   * travel, so a hard edge here made the bike flicker whenever it was ridden.
+   */
   private rawHeight(x: number, z: number): number {
-    const ax = Math.abs(x);
-    const kerb = LAYOUT.roadHalf;
-    if (ax > kerb && ax < kerb + LAYOUT.sidewalk) {
-      // Ramped over 30 cm rather than a vertical face. The tyre envelope only
-      // smooths along the direction of travel, so a hard step here made the
-      // whole bike flicker up and down whenever the player rode the kerb line.
-      const t = Math.min(1, (ax - kerb) / 0.3);
-      return 0.16 * t * t * (3 - 2 * t);
+    const off = distanceOffRoad(x, z);
+    if (off > 0) {
+      const t = Math.min(1, off / 0.3);
+      return KERB_HEIGHT * t * t * (3 - 2 * t);
     }
-    if (ax <= kerb + 0.6) {
-      for (const b of this.bumps) {
-        const t = (z - b.z) / b.half;
-        if (t > -1 && t < 1) return b.height * bumpProfile(t);
-      }
+    // On tarmac: the only thing that lifts it is a muerto.
+    for (const b of this.bumps) {
+      if (Math.abs(x - b.x) > LAYOUT.roadHalf + 0.6) continue;
+      const t = (z - b.z) / b.half;
+      if (t > -1 && t < 1) return b.height * bumpProfile(t);
     }
     return 0;
   }
@@ -558,15 +728,24 @@ export class City implements GroundProvider {
     return best;
   }
 
-  /** Advance anything in the city that moves. Called on the fixed step. */
-  update(dt: number): void {
-    this.traffic.update(dt);
+  /**
+   * Advance anything in the city that moves, and switch off what is too far to
+   * see. Called on the fixed step so the cars the physics tests against are the
+   * cars that were drawn.
+   */
+  update(dt: number, px = 0, pz = 0): void {
+    this.traffic.update(dt, px, pz);
+    for (const c of this.cells) {
+      const dx = c.cx - px;
+      const dz = c.cz - pz;
+      c.group.visible = dx * dx + dz * dz < CULL_RADIUS * CULL_RADIUS;
+    }
   }
 
-  frictionAt(x: number, _z: number): number {
-    const ax = Math.abs(x);
-    const onPavement = ax > LAYOUT.roadHalf && ax < LAYOUT.roadHalf + LAYOUT.sidewalk;
-    return onPavement ? 0.88 : 1.0;
+  frictionAt(x: number, z: number): number {
+    // Anything that isn't road is pavement, and pavement is slick enough to
+    // punish riding the kerb line without making it undriveable.
+    return distanceOffRoad(x, z) > 0 ? 0.88 : 1.0;
   }
 
   collide(x: number, z: number, _speed: number): CrashReason | null {
@@ -576,7 +755,8 @@ export class City implements GroundProvider {
         return 'impact';
       }
     }
-    return this.traffic.hits(x, z, r) ? 'impact' : null;
+    if (this.traffic.hits(x, z, r)) return 'impact';
+    return this.extraCollider?.(x, z, r) ? 'impact' : null;
   }
 
   /**
@@ -589,22 +769,26 @@ export class City implements GroundProvider {
     // the sort of inconsistency that makes a practice loop feel unreliable.
     // BikeSim caps this speed to whatever 1st can actually carry per bike.
     const rolling = { speed: 11, gear: 0 };
-    const p = LAYOUT.plaza;
-    if (z > p.zMin - 20) {
-      return { x: 0, z: p.zMin - 70, yaw: 0, ...rolling };
+
+    // Drop back onto whichever road is nearest, pointing along it, far enough
+    // back to have a run-up. On a grid "back up the avenue" is no longer a
+    // meaningful direction on its own - you might have come off on a street.
+    const av = nearest(x, LAYOUT.avenueX);
+    const st = nearest(z, LAYOUT.streetZ);
+
+    if (av.dist <= st.dist) {
+      // Nearest an avenue: face up it, unless that would put you in the sea.
+      const forward = z < MAP.zMax - 40;
+      const back = forward
+        ? Math.max(MAP.zMin + 14, z - 26)
+        : Math.min(MAP.zMax - 14, z + 26);
+      return { x: av.value, z: back, yaw: forward ? 0 : Math.PI, ...rolling };
     }
-    for (const cs of LAYOUT.crossStreets) {
-      if (Math.abs(x) > LAYOUT.roadHalf && Math.abs(z - cs.z) < cs.half + 6) {
-        return {
-          x: Math.sign(x) * Math.min(Math.abs(x), 70),
-          z: cs.z,
-          yaw: x > 0 ? -Math.PI / 2 : Math.PI / 2,
-          ...rolling,
-        };
-      }
-    }
-    const back = Math.max(LAYOUT.avenueStart + 12, z - 24);
-    return { x: 0, z: back, yaw: 0, ...rolling };
+    const east = x < MAP.xMax - 40;
+    const back = east
+      ? Math.max(MAP.xMin + 14, x - 26)
+      : Math.min(MAP.xMax - 14, x + 26);
+    return { x: back, z: st.value, yaw: east ? -Math.PI / 2 : Math.PI / 2, ...rolling };
   }
 }
 
