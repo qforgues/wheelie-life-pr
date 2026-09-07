@@ -35,6 +35,8 @@ import { WheelieTracker } from './WheelieTracker';
 import { Progress, money } from './Progress';
 import { applyUpgrades, plateEffect, scannerMode } from './Upgrades';
 import type { BikeState } from '../sim/types';
+import { installGrade } from '../view/grade';
+import { Post } from '../view/Post';
 
 /** The handful of fields that need interpolating between physics steps. */
 interface Pose {
@@ -113,6 +115,8 @@ export class Game {
   /** Stops the same rider re-opening the prompt the instant you decline. */
   private declined = new Map<number, number>();
   private minimap = new Minimap();
+  /** The lens. Null on the console, which keeps the grade and skips the rest. */
+  private post: Post | null = null;
   private blips: MapBlip[] = [];
   private heat = 0;
   private sirenTimer = 0;
@@ -139,8 +143,13 @@ export class Game {
     this.renderer = createRenderer(tier !== 'low');
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    // ACES plus a split-tone grade, injected into the tone mapping hook so it
+    // costs no pass and no memory. See view/grade.ts.
+    installGrade(this.renderer);
+    // A touch brighter than before: the grade's S-curve and the vignette both
+    // take light out, and without this the whole city sat a stop darker than it
+    // used to rather than better lit.
+    this.renderer.toneMappingExposure = 1.16;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
@@ -208,6 +217,14 @@ export class Game {
     });
     applyQuality(this.quality.settings, this.renderer, this.sky.sun, this.scene.fog as THREE.Fog);
     this.blobShadow.visible = !this.quality.settings.shadows;
+    // The rest of the lens, on anything that can afford a frame buffer. The
+    // console gets 0 here and keeps the grade, which is most of the look for
+    // none of the memory - see view/Post.ts.
+    const lens = this.quality.settings.bloom;
+    if (lens > 0) {
+      this.post = new Post(this.renderer, this.scene, this.chase.camera, lens);
+      this.post.setSize(innerWidth, innerHeight, this.renderer.getPixelRatio());
+    }
     this.mirrors.setSize(innerWidth, innerHeight);
 
     this.overlay = new ControlsOverlay(() => this.onRide());
@@ -547,6 +564,7 @@ export class Game {
 
   private onResize(): void {
     this.renderer.setSize(innerWidth, innerHeight);
+    this.post?.setSize(innerWidth, innerHeight, this.renderer.getPixelRatio());
     this.mirrors.setSize(innerWidth, innerHeight);
     this.chase.setAspect(innerWidth / innerHeight);
   }
@@ -920,7 +938,12 @@ export class Game {
     );
     this.mirrors.setFirstPerson(this.chase.mode === 'first');
     this.mirrors.place(state.x, state.y, state.z, state.yaw);
-    this.renderer.render(this.scene, this.chase.camera);
+    if (this.post) {
+      this.post.setCamera(this.chase.camera);
+      this.post.render(dt);
+    } else {
+      this.renderer.render(this.scene, this.chase.camera);
+    }
     this.mirrors.render(this.renderer, this.scene);
   }
 }

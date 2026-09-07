@@ -1277,3 +1277,71 @@ They cycle, and they are deliberately not synchronised with each other - a city
 where every light changes together reads as a machine rather than a place.
 Nothing enforces them yet. Whether running a red should raise heat is a decision
 for when there is a reason to make it.
+
+## 64. The lens — phase one
+
+"is it possible to move more in the direction of gta in graphics than roblox or
+are we stuck here?"
+
+Not stuck, and it is worth saying why we looked like that. The entire lighting
+and camera setup was: one directional sun, one hemisphere light, ACES, straight
+to the screen. **No post-processing at all, and not one normal, roughness or AO
+map anywhere in the world.** That is the toy recipe exactly. Every hour so far
+had gone into physics, systems and the memory budget, and none into light.
+
+Which is lucky, because post-processing costs **fill rate, not memory**, and
+memory is the thing we have been fighting. So the cheapest direction visually is
+the one with the most headroom.
+
+**The grade is free.** Every material ends its fragment shader with
+`toneMapping( colour )`, and `THREE.CustomToneMapping` routes that to a stub in
+the tonemapping chunk. Rewriting the stub grades every surface in the game with
+no extra pass, no render target and no memory. It does three things: ACES as
+before, a **split tone** with the shadows cool and the highlights warm, and a
+gentle S-curve. The split tone is the one that does the work - real light is
+never one colour, the sun is warm and the sky filling the shade is blue, and a
+renderer with a single white-ish sun loses that completely. Saturation is left
+almost alone on purpose; desaturating is the lazy way to look cinematic and it
+would throw away the San Juan palette that is the whole point of the place.
+
+**The sun came down.** Overhead light is the flattest light there is - it lands
+on the tops of things and leaves every vertical face the same brightness. Late
+afternoon rakes it down the avenues, lights one side of every building and
+leaves the other in shade. The shadow camera had to grow with it or the long
+shadows clipped off mid-street.
+
+**Bloom, vignette and grain need a buffer, so the console does not get them.**
+A full-screen target at 1080p is eight megabytes before the bloom's own mips,
+and the Xbox has already been over its ceiling once. It keeps the grade, the low
+sun and the long shadows - most of the look for none of the memory. This is what
+the tiers are for.
+
+Two things had to be tuned by looking rather than reasoning. Bloom at threshold
+0.82 put sunlit pavement over the line and **every kerb in the city glowed like
+a strip light**, which reads as a bug rather than a lens; 0.95 catches only what
+is genuinely near-white or emissive. And the grade's S-curve plus the vignette
+both take light out, so the exposure went up to 1.16 - without it the city was a
+stop darker rather than better lit.
+
+## 65. The bike, and what the lens gave it to catch
+
+There has been a pre-filtered environment map on the scene since the sky was
+built. Nothing was asking for it. Dropping the paint's roughness and pushing
+`envMapIntensity` means the tank actually catches the sky and the buildings
+going past, which is most of the difference between painted metal and coloured
+plastic - and it costs nothing, because the map was already there.
+
+The tail light comes **on** now, hard, under braking, and it is the one thing
+the chase camera looks straight at for the whole ride. It is also the first
+thing in the game built to be seen through the bloom.
+
+The first pass built that material inside the Grom's bodywork, so the YZ and the
+Ducati carried their own dead copies and only one bike in three had a brake
+light that worked - exactly the kind of thing that looks fine in a screenshot of
+the bike you happened to be testing. One material, made once, shared by all
+three.
+
+And the rider's jacket trim takes the **outfit's** contrast colour rather than
+the bike's paint. That was right when there was one kit and wrong the moment
+there were three: black-and-gold leathers with the Yamaha's blue running through
+the collar is two outfits at once.

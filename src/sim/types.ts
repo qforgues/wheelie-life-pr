@@ -69,6 +69,8 @@ export interface BikeState {
   wheelSlip: number;
   /** True while the rev limiter is cutting. */
   onLimiter: boolean;
+  /** How hard the brake is being pulled, 0..1. The tail light reads this. */
+  braking: number;
 
   // --- derived cues (the game's substitute for a balance meter) --------
   /** True when the front wheel is off the ground. */

@@ -184,6 +184,26 @@ export class BikeView {
   private frontWheel = new THREE.Group();
   private forkGroup = new THREE.Group();
   private outfit: Outfit;
+  /** The tail light, driven every frame so braking actually shows. */
+  private brakeMat: THREE.MeshStandardMaterial | null = null;
+
+  /**
+   * The one brake light material, shared by all three bikes.
+   *
+   * It has to be a single object the update loop can write to. The first pass
+   * built it inside the Grom's bodywork, so the YZ and the Ducati carried their
+   * own dead copies and only one bike in three had a brake light that came on -
+   * which is exactly the kind of thing that looks fine in a screenshot of the
+   * bike you happened to test.
+   */
+  private brake(): THREE.MeshStandardMaterial {
+    if (!this.brakeMat) {
+      this.brakeMat = new THREE.MeshStandardMaterial({
+        color: 0xd8262c, emissive: 0xff1420, emissiveIntensity: 0.35, roughness: 0.28,
+      });
+    }
+    return this.brakeMat;
+  }
   private crew: CrewPlate | null;
   private riderRoot = new THREE.Group();
   /**
@@ -260,15 +280,20 @@ export class BikeView {
     this.pitchPivot.add(this.head);
 
     const body = new THREE.MeshStandardMaterial({
-      color: visual.bodyColor, roughness: 0.32, metalness: 0.45,
+      // Wetter paint. There is a pre-filtered environment on the scene already
+      // (Sky.ts) - it just was not being asked for. Lower roughness and a
+      // higher envMapIntensity means the tank actually catches the sky and the
+      // buildings going past, which is most of the difference between painted
+      // metal and coloured plastic. Costs nothing: the map is already there.
+      color: visual.bodyColor, roughness: 0.19, metalness: 0.62, envMapIntensity: 1.5,
     });
     const accent = new THREE.MeshStandardMaterial({
-      color: visual.accentColor, roughness: 0.5, metalness: 0.1,
+      color: visual.accentColor, roughness: 0.42, metalness: 0.18, envMapIntensity: 1.1,
     });
     const black = new THREE.MeshStandardMaterial({ color: 0x17181c, roughness: 0.6 });
     const rubber = new THREE.MeshStandardMaterial({ color: 0x101115, roughness: 0.95 });
-    const metal = new THREE.MeshStandardMaterial({ color: 0xb9bec6, roughness: 0.28, metalness: 0.9 });
-    const rimMat = new THREE.MeshStandardMaterial({ color: visual.rimColor, roughness: 0.3, metalness: 0.8 });
+    const metal = new THREE.MeshStandardMaterial({ color: 0xb9bec6, roughness: 0.18, metalness: 0.95, envMapIntensity: 1.9 });
+    const rimMat = new THREE.MeshStandardMaterial({ color: visual.rimColor, roughness: 0.22, metalness: 0.88, envMapIntensity: 1.5 });
     const engineMat = new THREE.MeshStandardMaterial({ color: 0x4a4d55, roughness: 0.55, metalness: 0.6 });
 
     // ---- wheels ----------------------------------------------------------
@@ -394,8 +419,13 @@ export class BikeView {
     // rider read as a mannequin: a real jacket has a collar standing off the
     // neck, a yoke across the shoulders, a zip down the middle and a hem that
     // stops. All of it follows the same box, so nothing floats.
+    // The trim is the OUTFIT's contrast colour, not the bike's. It used to take
+    // the machine's paint, which was right when there was only one kit and
+    // wrong the moment there were three: black-and-gold leathers with the
+    // Yamaha's blue running through the collar and cuffs is two outfits at
+    // once. The kit you won should look like the kit you won on any bike.
     const jacketTrim = new THREE.MeshStandardMaterial({
-      color: this.visual.bodyColor, roughness: 0.7,
+      color: kit.sleeve, roughness: 0.7,
     });
 
     // Collar: a band around the base of the neck, standing proud of it.
@@ -807,12 +837,7 @@ export class BikeView {
     plate.position.set(0, 0.60, -0.05);
     plate.rotation.x = 0.35;
     this.bike.add(plate);
-    const tailLight = new THREE.Mesh(
-      roundedBox(0.13, 0.05, 0.05, 0.022, 5),
-      new THREE.MeshStandardMaterial({
-        color: 0xd8262c, emissive: 0x8c0d12, emissiveIntensity: 0.6, roughness: 0.3,
-      }),
-    );
+    const tailLight = new THREE.Mesh(roundedBox(0.13, 0.05, 0.05, 0.022, 5), this.brake());
     tailLight.position.set(0, 0.71, -0.05);
     this.bike.add(tailLight);
 
@@ -1096,12 +1121,7 @@ export class BikeView {
     rearFender.rotation.x = -0.16;
     rearFender.castShadow = true;
     this.bike.add(rearFender);
-    const tailLight = new THREE.Mesh(
-      roundedBox(0.12, 0.05, 0.05, 0.022, 5),
-      new THREE.MeshStandardMaterial({
-        color: 0xd8262c, emissive: 0x8c0d12, emissiveIntensity: 0.6, roughness: 0.3,
-      }),
-    );
+    const tailLight = new THREE.Mesh(roundedBox(0.12, 0.05, 0.05, 0.022, 5), this.brake());
     tailLight.position.set(0, 0.95, -0.14);
     this.bike.add(tailLight);
 
@@ -1341,12 +1361,7 @@ export class BikeView {
     tail.rotation.x = -0.30;
     tail.castShadow = true;
     this.bike.add(tail);
-    const tailLight = new THREE.Mesh(
-      roundedBox(0.10, 0.04, 0.04, 0.018, 5),
-      new THREE.MeshStandardMaterial({
-        color: 0xd8262c, emissive: 0x8c0d12, emissiveIntensity: 0.7, roughness: 0.3,
-      }),
-    );
+    const tailLight = new THREE.Mesh(roundedBox(0.10, 0.04, 0.04, 0.018, 5), this.brake());
     tailLight.position.set(0, 0.985, 0.135);
     this.bike.add(tailLight);
 
@@ -1488,6 +1503,14 @@ export class BikeView {
 
   /** Push a frame of sim state into the scene graph. */
   update(state: BikeState, wheelSpin: number, weightShift: number, dt: number): void {
+    // Brake light. On hard under the brake, and a low glow the rest of the
+    // time so it reads as a light rather than switching on out of nothing.
+    if (this.brakeMat) {
+      const want = 0.35 + state.braking * 3.9;
+      this.brakeMat.emissiveIntensity += (want - this.brakeMat.emissiveIntensity)
+        * Math.min(1, dt * 22);
+    }
+
     this.root.position.set(state.x, state.y, state.z);
     this.root.rotation.y = state.yaw;
     this.rollPivot.rotation.z = state.roll;

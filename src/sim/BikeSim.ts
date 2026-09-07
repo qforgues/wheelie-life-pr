@@ -119,6 +119,7 @@ export class BikeSim {
       shifting: false,
       wheelSlip: 0,
       onLimiter: false,
+      braking: 0,
       wheelieing: false,
       scraping: false,
       balanceError: 0,
@@ -181,6 +182,7 @@ export class BikeSim {
     s.shifting = false;
     s.wheelSlip = 0;
     s.onLimiter = false;
+    s.braking = 0;
     s.wheelieing = false;
     s.scraping = false;
     s.balanceError = 0;
@@ -350,6 +352,7 @@ export class BikeSim {
     }
     s.rpm = clamp(s.rpm, 0, this.tuning.engine.limiterRpm + 200);
     s.onLimiter = this.engine.onLimiter(s.rpm);
+    s.braking = input.brake;
 
     const limiterCut = s.onLimiter ? (Math.sin(performance.now() * 0.09) > 0 ? 0 : 1) : 1;
     const crankTorque = this.engine.torqueAt(s.rpm, input.throttle) * limiterCut;

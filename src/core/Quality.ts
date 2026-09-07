@@ -17,20 +17,29 @@ export interface QualitySettings {
   shadowDistance: number;
   fogFar: number;
   antialias: boolean;
+  /**
+   * Bloom strength, and 0 means no post-processing chain at all.
+   *
+   * The console gets 0 deliberately: bloom needs the frame in a buffer first,
+   * and eleven megabytes of render targets is the wrong trade on a machine
+   * that has already run out of memory once. It keeps the grade and the low
+   * sun, which is most of the look for none of the memory.
+   */
+  bloom: number;
 }
 
 export const TIERS: Record<QualityTier, QualitySettings> = {
   high: {
     maxPixelRatio: 2, shadows: true, shadowMapSize: 2048,
-    shadowDistance: 70, fogFar: 1350, antialias: true,
+    shadowDistance: 70, fogFar: 1350, antialias: true, bloom: 0.30,
   },
   medium: {
     maxPixelRatio: 1.25, shadows: true, shadowMapSize: 1024,
-    shadowDistance: 45, fogFar: 900, antialias: true,
+    shadowDistance: 45, fogFar: 900, antialias: true, bloom: 0.22,
   },
   low: {
     maxPixelRatio: 1, shadows: false, shadowMapSize: 512,
-    shadowDistance: 30, fogFar: 600, antialias: false,
+    shadowDistance: 30, fogFar: 600, antialias: false, bloom: 0,
   },
 };
 

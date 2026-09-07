@@ -93,8 +93,16 @@ export function buildSky(scene: THREE.Scene, renderer: THREE.WebGLRenderer): Sky
   buildEnvironment(scene, renderer);
 
   // --- light --------------------------------------------------------------
-  const sun = new THREE.DirectionalLight(0xfff4de, 2.9);
-  sun.position.set(-90, 130, 60);
+  // Late afternoon rather than noon.
+  //
+  // Overhead light is the flattest light there is - it lands on the tops of
+  // things and leaves every vertical face the same brightness, which is a large
+  // part of why this read as a toy. Dropping the sun rakes it down the avenues,
+  // lights one side of every building and leaves the other in shade, and gives
+  // the whole city long shadows to ride through. Warmer with it, because a low
+  // sun IS warmer, and the grade splits the shade cool to meet it.
+  const sun = new THREE.DirectionalLight(0xffe6c2, 3.2);
+  sun.position.set(-118, 74, 52);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.near = 1;
@@ -102,12 +110,17 @@ export function buildSky(scene: THREE.Scene, renderer: THREE.WebGLRenderer): Sky
   sun.shadow.bias = -0.0006;
   sun.shadow.normalBias = 0.035;
   const cam = sun.shadow.camera;
-  cam.left = -70; cam.right = 70; cam.top = 70; cam.bottom = -70;
+  // A lower sun throws longer shadows, so the box has to reach further or they
+  // get clipped off mid-street.
+  cam.left = -95; cam.right = 95; cam.top = 95; cam.bottom = -95;
   cam.updateProjectionMatrix();
   scene.add(sun);
   scene.add(sun.target);
 
-  const hemi = new THREE.HemisphereLight(0xcdeaff, 0xc0a382, 1.15);
+  // Sky fill, cooled and pulled back a little. It was doing so much of the
+  // lighting that the sun had nothing left to say; a lower fill is what lets a
+  // shadow read as a shadow.
+  const hemi = new THREE.HemisphereLight(0xbcdcff, 0xbe9c78, 0.92);
   scene.add(hemi);
   scene.add(new THREE.AmbientLight(0xffffff, 0.06));
 
