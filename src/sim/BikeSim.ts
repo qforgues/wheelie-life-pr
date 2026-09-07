@@ -45,6 +45,16 @@ export interface SpawnPoint {
  */
 const RESPAWN_RPM_FRACTION = 0.68;
 
+/**
+ * Backing the bike up.
+ *
+ * Holding the brake at a standstill paddles it backwards, which is how you get
+ * out of a dead end or off a wall without resetting the whole run. Slow and
+ * capped on purpose - it is a manoeuvre, not a gear.
+ */
+const REVERSE_PUSH = 1.1;      // m/s^2 of push at full brake
+const REVERSE_MAX_SPEED = 2.2; // m/s, about walking pace
+
 export class BikeSim {
   readonly state: BikeState;
   readonly engine: Engine;
@@ -61,6 +71,8 @@ export class BikeSim {
   private rollNoiseTarget = 0;
   private rollNoiseTimer = 0;
   private rollRate = 0;
+  /** Seconds the bike has been genuinely stopped, which arms reverse. */
+  private stoppedFor = 0;
   private resetTimer = 0;
   /** Pitch imposed by the terrain under the two wheels, last step. */
   private prevPitchFloor = 0;
@@ -159,6 +171,7 @@ export class BikeSim {
     s.trickBlend = 0;
     this.weightShift = 0;
     this.rollRate = 0;
+    this.stoppedFor = 0;
     this.rollNoise = 0;
     this.resetTimer = 0;
     this.prevPitchFloor = this.groundPitch(s.x, s.z, s.yaw);
@@ -386,6 +399,15 @@ export class BikeSim {
     );
     const brakeForce = s.speed > 0.05 ? rearBrakeForce + frontBrakeForce : 0;
 
+    // --- backing it up -----------------------------------------------------
+    // Reverse only engages once the bike has genuinely been stopped for a
+    // moment. Without the dwell, braking hard from speed carried straight
+    // through zero and set off backwards, which is not what a brake does.
+    const atRest = s.speed <= 0.05 && s.speed > -0.001;
+    this.stoppedFor = atRest ? this.stoppedFor + dt : 0;
+    const reversing = input.brake > 0.5 && input.throttle < 0.05
+      && (this.stoppedFor > 0.3 || s.speed < -0.001);
+
     // --- the tail dragging -------------------------------------------------
     // Past the scrape angle the back of the bike is on the road. It pushes the
     // nose back down and scrubs speed off, which is what turns the last twenty
@@ -401,9 +423,23 @@ export class BikeSim {
     // --- longitudinal ------------------------------------------------------
     const netForce = driveForce - brakeForce - dragForce - rollForce - scrapeForce;
     let accel = netForce / ch.mass;
-    if (s.speed <= 0 && accel < 0) accel = 0; // no reverse
+
+    if (reversing) {
+      // Paddling backwards, capped at walking pace.
+      accel = s.speed > -REVERSE_MAX_SPEED ? -REVERSE_PUSH : 0;
+    } else if (s.speed < 0) {
+      // Rolling back with the brake off: friction brings it to rest. Zeroing
+      // the acceleration here instead would leave it coasting backwards
+      // forever, which is exactly what the first version of this did.
+      accel = REVERSE_PUSH * 1.6;
+    } else if (s.speed <= 0 && accel < 0) {
+      accel = 0;
+    }
+
     s.accel = accel;
-    s.speed = Math.max(0, s.speed + accel * dt);
+    s.speed = Math.max(-REVERSE_MAX_SPEED, s.speed + accel * dt);
+    // Snap the last crawl off so it comes to a proper stop rather than drifting.
+    if (!reversing && s.speed < 0 && s.speed > -0.2) s.speed = 0;
 
     // --- pitch (the whole game) -------------------------------------------
     const cosP = Math.cos(s.pitch);

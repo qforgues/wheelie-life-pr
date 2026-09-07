@@ -28,6 +28,28 @@ export class EngineAudio {
   private scrapeFilter!: BiquadFilterNode;
   private noiseBuffer!: AudioBuffer;
 
+  /**
+   * Every oscillator and looping noise source we have started.
+   *
+   * Web Audio sources cannot be stopped unless you kept a reference, and these
+   * all run with no stop time. Without this list the graph plays for the life
+   * of the page: at idleRpm the fundamental is only rpm/120 - about 12 Hz -
+   * so what you hear once the riding stops is a constant low hum.
+   */
+  private sources: AudioScheduledSourceNode[] = [];
+  /** ctx.currentTime of the last frame that was worth keeping the device open. */
+  private lastActive = 0;
+  /** Set when *we* suspended, so resumeIfNeeded() does not undo it next frame. */
+  private autoSuspended = false;
+  private readonly onVisibility = (): void => {
+    // A backgrounded tab stops rendering, so update() stops running and the
+    // gains freeze wherever they were - still audible. Park it instead.
+    if (document.hidden) this.park();
+  };
+
+  /** Seconds of a stationary, closed-throttle bike before we let the device go. */
+  private static readonly IDLE_TIMEOUT = 4;
+
   volume = 0.75;
 
   /** Must be called from a user gesture; browsers block audio otherwise. */
@@ -67,6 +89,7 @@ export class EngineAudio {
       osc.connect(gain);
       gain.connect(this.engineGain);
       osc.start();
+      this.sources.push(osc);
       this.harmonics.push({ osc, gain, mult });
     }
 
@@ -124,6 +147,9 @@ export class EngineAudio {
     this.noiseSource().connect(this.scrapeGain);
     this.scrapeGain.connect(this.scrapeFilter);
     this.scrapeFilter.connect(this.master);
+
+    this.lastActive = ctx.currentTime;
+    document.addEventListener('visibilitychange', this.onVisibility);
   }
 
   private noiseSource(): AudioBufferSourceNode {
@@ -131,6 +157,7 @@ export class EngineAudio {
     src.buffer = this.noiseBuffer;
     src.loop = true;
     src.start();
+    this.sources.push(src);
     return src;
   }
 
@@ -152,6 +179,24 @@ export class EngineAudio {
     if (!this.ctx || this.muted) return;
     const t = this.ctx.currentTime;
     const k = 0.045; // smoothing time constant, keeps everything from zippering
+
+    // Is anything actually meant to be making noise? A bike sitting still with
+    // the throttle shut is not - and that is the state that used to drone on
+    // indefinitely, because update() keeps re-targeting a non-zero engine gain
+    // whether or not anyone is riding.
+    const busy = throttle > 0.02
+      || state.speed > 0.4
+      || state.scraping
+      || state.wheelSlip > tuning.tyre.spinThreshold;
+    if (busy) {
+      this.lastActive = t;
+      this.unpark();
+    } else {
+      if (!this.autoSuspended && t - this.lastActive > EngineAudio.IDLE_TIMEOUT) this.park();
+      // ctx.currentTime is frozen while suspended, so there is nothing useful to
+      // schedule against - and every ramp below would be aimed at a stale time.
+      if (this.autoSuspended) return;
+    }
 
     // Four-stroke single: one firing event every two revolutions.
     const fundamental = Math.max(12, state.rpm / 120);
@@ -378,21 +423,78 @@ export class EngineAudio {
   /** The live context, so recorded clips decode and play through the same
    *  graph - and therefore obey mute and volume like everything else. */
   get context(): AudioContext | null {
-    return this.ctx;
+    return this.started ? this.ctx : null;
   }
 
   /** Bus recorded voice lines should join. */
   get bus(): AudioNode | null {
-    return this.master ?? null;
+    return this.started ? (this.master ?? null) : null;
   }
 
-  /** For the diagnostics readout - "running" is the only healthy value. */
+  /**
+   * For the diagnostics readout. "running" while riding and "suspended (idle)"
+   * when parked are both healthy; a bare "suspended" is not.
+   */
   get status(): string {
     if (!this.started) return 'not started';
-    return `${this.ctx?.state ?? 'none'}${this.muted ? ' (muted)' : ''}`;
+    const parked = this.autoSuspended ? ' (idle)' : '';
+    return `${this.ctx?.state ?? 'none'}${parked}${this.muted ? ' (muted)' : ''}`;
   }
 
   resumeIfNeeded(): void {
+    // Called every frame. If we parked on purpose, leave it parked - otherwise
+    // this immediately undoes the suspend and the hum comes straight back.
+    if (this.autoSuspended) return;
     if (this.ctx?.state === 'suspended') void this.ctx.resume();
+  }
+
+  /**
+   * Silence the graph and hand the audio device back to the OS.
+   *
+   * Suspending rather than closing is deliberate: closing an AudioContext is
+   * final and a new one needs a fresh user gesture, but a suspended context
+   * resumes on its own the moment the throttle moves again.
+   */
+  private park(): void {
+    const ctx = this.ctx;
+    if (!ctx || this.autoSuspended || ctx.state === 'closed') return;
+    this.autoSuspended = true;
+    const t = ctx.currentTime;
+    for (const g of [this.engineGain, this.exhaustGain, this.intakeGain,
+      this.windGain, this.scrubGain, this.scrapeGain]) {
+      if (!g) continue;
+      g.gain.cancelScheduledValues(t);
+      g.gain.setValueAtTime(0, t);
+    }
+    void ctx.suspend();
+  }
+
+  private unpark(): void {
+    if (!this.autoSuspended) return;
+    this.autoSuspended = false;
+    if (this.ctx?.state === 'suspended') void this.ctx.resume();
+  }
+
+  /**
+   * Full teardown. Stops every source, drops the graph and closes the context.
+   *
+   * start() is guarded by `started`, so that flag has to come back down here or
+   * audio can never be brought back up.
+   */
+  stop(): void {
+    if (!this.started) return;
+    this.started = false;
+    document.removeEventListener('visibilitychange', this.onVisibility);
+    for (const src of this.sources) {
+      try { src.stop(); } catch { /* already stopped */ }
+      src.disconnect();
+    }
+    this.sources = [];
+    this.harmonics = [];
+    try { this.master?.disconnect(); } catch { /* graph already torn down */ }
+    const ctx = this.ctx;
+    this.ctx = null;
+    this.autoSuspended = false;
+    if (ctx && ctx.state !== 'closed') void ctx.close();
   }
 }

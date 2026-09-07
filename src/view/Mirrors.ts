@@ -47,8 +47,21 @@ export function isMirrorMount(v: unknown): v is MirrorMount {
   return v === 'corners' || v === 'bike' || v === 'off';
 }
 
-/** Trim range, in fractions of the viewport. Deliberately modest. */
-export const AIM_LIMIT = { x: 0.12, y: 0.16 };
+/**
+ * Trim range, as a fraction of the viewport, per mirror.
+ *
+ * Wide open in both axes so a mirror can go anywhere that is useful - the only
+ * rule enforced is that the left mirror can never cross the right one, which
+ * would leave you reading the wrong side of the road.
+ */
+export const AIM_LIMIT = { x: 0.42, y: 0.40 };
+
+export interface MirrorAim {
+  lx: number; ly: number;
+  rx: number; ry: number;
+}
+
+export const DEFAULT_AIM: MirrorAim = { lx: 0, ly: 0, rx: 0, ry: 0 };
 
 export class Mirrors {
   private target: THREE.WebGLRenderTarget;
@@ -62,9 +75,8 @@ export class Mirrors {
   /** Off on the lowest tier, where the extra pass is not affordable. */
   enabled = true;
   mount: MirrorMount = 'corners';
-  /** Rider trim, -1..1 in each axis. Applied within AIM_LIMIT. */
-  aimX = 0;
-  aimY = 0;
+  /** Rider trim per mirror, each -1..1. */
+  aim: MirrorAim = { ...DEFAULT_AIM };
   /** True while the chase camera is in the rider's own view. */
   firstPerson = false;
 
@@ -94,6 +106,14 @@ export class Mirrors {
     this.ortho.top = height;
     this.ortho.updateProjectionMatrix();
 
+    // clear() detaches but does not free; these quads are rebuilt every resize
+    // and every aim nudge, so without this the scene accumulates them.
+    for (const m of this.group.children) {
+      m.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh) mesh.geometry.dispose();
+      });
+    }
     this.group.clear();
     if (this.mount === 'off') {
       document.documentElement.style.setProperty('--mirror-h', '0px');
@@ -105,31 +125,44 @@ export class Mirrors {
     const h = w * 0.6;
     const margin = Math.max(14, width * 0.018);
 
-    // Corner mount hugs the screen edges. Bike mount brings them inboard and
-    // down, to roughly where bar-end mirrors sit in the rider's view - and
-    // further in and down again in first person, where the bars are closer.
+    // Corner mount hugs the screen edges. Bike mount brings them well inboard
+    // and down to where bar-end mirrors actually sit in the rider's view, and
+    // further again in first person, where the bars are closer to your face.
     const inset = this.mount === 'bike'
-      ? (this.firstPerson ? width * 0.26 : width * 0.17)
+      ? (this.firstPerson ? width * 0.34 : width * 0.26)
       : 0;
     const drop = this.mount === 'bike'
-      ? (this.firstPerson ? height * 0.14 : height * 0.06)
+      ? (this.firstPerson ? height * 0.30 : height * 0.20)
       : 0;
 
-    const trimX = this.aimX * AIM_LIMIT.x * width;
-    const trimY = this.aimY * AIM_LIMIT.y * height;
+    const baseL = margin + inset;
+    const baseR = width - margin - w - inset;
+    const baseY = height - margin - h - drop;
 
-    for (const side of [-1, 1] as const) {
-      const x = side < 0
-        ? margin + inset + trimX
-        : width - margin - w - inset + trimX;
-      const y = height - margin - h - drop + trimY;
-      this.group.add(this.buildMirror(x, y, w, h, side));
+    let lx = baseL + this.aim.lx * AIM_LIMIT.x * width;
+    let rx = baseR + this.aim.rx * AIM_LIMIT.x * width;
+    const ly = baseY + this.aim.ly * AIM_LIMIT.y * height;
+    const ry = baseY + this.aim.ry * AIM_LIMIT.y * height;
+
+    // The one hard rule: left stays left of right, with a gap between them.
+    const GAP = w * 0.35;
+    if (lx + w + GAP > rx) {
+      const middle = (lx + w + GAP + rx) / 2;
+      lx = middle - w - GAP / 2;
+      rx = middle + GAP / 2;
     }
+    // And neither may leave the screen.
+    const clampX = (v: number) => Math.max(0, Math.min(width - w, v));
+    const clampY = (v: number) => Math.max(0, Math.min(height - h, v));
 
-    // The HUD reads this to place itself below the mirror rather than under it.
-    // Only the corner mount is in the HUD's way.
+    this.group.add(this.buildMirror(clampX(lx), clampY(ly), w, h, -1));
+    this.group.add(this.buildMirror(clampX(rx), clampY(ry), w, h, 1));
+
+    // The HUD reads this to place itself below the mirror rather than under it,
+    // but only when a mirror is actually sitting in the top-left corner.
+    const leftInCorner = this.mount === 'corners' && clampX(lx) < width * 0.25;
     document.documentElement.style.setProperty(
-      '--mirror-h', this.mount === 'corners' ? `${Math.round(margin + h + trimY)}px` : '0px',
+      '--mirror-h', leftInCorner ? `${Math.round(clampY(ly) + h - (height - height))}px` : '0px',
     );
   }
 
@@ -140,10 +173,10 @@ export class Mirrors {
     if (this.lastW) this.setSize(this.lastW, this.lastH);
   }
 
-  /** Rider trim, each -1..1. */
-  setAim(x: number, y: number): void {
-    this.aimX = Math.max(-1, Math.min(1, x));
-    this.aimY = Math.max(-1, Math.min(1, y));
+  /** Rider trim, per mirror, each axis -1..1. */
+  setAim(aim: MirrorAim): void {
+    const c = (v: number) => Math.max(-1, Math.min(1, v));
+    this.aim = { lx: c(aim.lx), ly: c(aim.ly), rx: c(aim.rx), ry: c(aim.ry) };
     if (this.lastW) this.setSize(this.lastW, this.lastH);
   }
 

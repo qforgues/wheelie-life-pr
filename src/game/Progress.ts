@@ -2,7 +2,7 @@ import { STARTER_BIKE, type BikeId } from '../sim/tuning';
 import { isTrafficSpeed, type TrafficSpeed } from '../world/Traffic';
 import { isPoliceStyle, type PoliceStyle } from '../world/Police';
 import { isOrientation, type MapOrientation } from '../ui/Minimap';
-import { isMirrorMount, type MirrorMount } from '../view/Mirrors';
+import { DEFAULT_AIM, isMirrorMount, type MirrorAim, type MirrorMount } from '../view/Mirrors';
 
 /**
  * Money and what you own.
@@ -24,8 +24,7 @@ export interface SaveData {
   police: PoliceStyle;
   mapOrientation: MapOrientation;
   mirrors: MirrorMount;
-  mirrorAimX: number;
-  mirrorAimY: number;
+  mirrorAim: MirrorAim;
 }
 
 /**
@@ -57,8 +56,7 @@ export class Progress {
   mapOrientation: MapOrientation = 'north';
   /** Where the mirrors hang, and the rider's trim on them. */
   mirrors: MirrorMount = 'corners';
-  mirrorAimX = 0;
-  mirrorAimY = 0;
+  mirrorAim: MirrorAim = { ...DEFAULT_AIM };
 
   /** Set for one frame after a payout, for the HUD toast. */
   lastPayout = 0;
@@ -151,9 +149,9 @@ export class Progress {
     this.save();
   }
 
-  setMirrorAim(x: number, y: number): void {
-    this.mirrorAimX = Math.max(-1, Math.min(1, x));
-    this.mirrorAimY = Math.max(-1, Math.min(1, y));
+  setMirrorAim(aim: MirrorAim): void {
+    const c = (v: number) => Math.max(-1, Math.min(1, v));
+    this.mirrorAim = { lx: c(aim.lx), ly: c(aim.ly), rx: c(aim.rx), ry: c(aim.ry) };
     this.save();
   }
 
@@ -168,8 +166,7 @@ export class Progress {
     this.police = 'professional';
     this.mapOrientation = 'north';
     this.mirrors = 'corners';
-    this.mirrorAimX = 0;
-    this.mirrorAimY = 0;
+    this.mirrorAim = { ...DEFAULT_AIM };
     this.save();
   }
 
@@ -196,8 +193,10 @@ export class Progress {
       if (isPoliceStyle(d.police)) this.police = d.police;
       if (isOrientation(d.mapOrientation)) this.mapOrientation = d.mapOrientation;
       if (isMirrorMount(d.mirrors)) this.mirrors = d.mirrors;
-      if (typeof d.mirrorAimX === 'number') this.mirrorAimX = d.mirrorAimX;
-      if (typeof d.mirrorAimY === 'number') this.mirrorAimY = d.mirrorAimY;
+      const a = d.mirrorAim as unknown as Record<string, unknown> | undefined;
+      if (a && ['lx', 'ly', 'rx', 'ry'].every((k) => typeof a[k] === 'number')) {
+        this.mirrorAim = d.mirrorAim as MirrorAim;
+      }
     } catch {
       /* no save, or storage is unavailable - start fresh */
     }
@@ -215,8 +214,7 @@ export class Progress {
         police: this.police,
         mapOrientation: this.mapOrientation,
         mirrors: this.mirrors,
-        mirrorAimX: this.mirrorAimX,
-        mirrorAimY: this.mirrorAimY,
+        mirrorAim: this.mirrorAim,
       };
       localStorage.setItem(KEY, JSON.stringify(data));
     } catch {

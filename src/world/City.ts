@@ -85,6 +85,13 @@ const KERB_HEIGHT = 0.16;
 /** Side of a scenery cell, and how far away a cell stops being drawn. */
 const CELL_SIZE = 60;
 const CULL_RADIUS = 320;
+/**
+ * Width of an alley through a building row.
+ *
+ * Three bikes abreast with room to move: the bike collides at a 0.42 m radius,
+ * so this is comfortably more than three of them side by side.
+ */
+const ALLEY_WIDTH = 6.5;
 
 interface Box2 { minX: number; maxX: number; minZ: number; maxZ: number; }
 /** A "muerto" - the tall speed humps all over the island. Real geometry. */
@@ -395,7 +402,14 @@ export class City implements GroundProvider {
       // Rounded to a step so the geometry can be shared. The eye cannot tell
       // 18.3 m from 18 m across a street; the GPU very much can tell 300
       // buffers from 30.
-      const width = quantise(Math.min(to - cursor, 16 + rnd() * 12), 2);
+      //
+      // Quantising ROUNDS, so it can round up past the space actually left -
+      // which pushed the last building of a row through the row running the
+      // other way and produced the z-fighting on the walls. Leave the remainder
+      // empty instead of overrunning it.
+      const want = quantise(16 + rnd() * 12, 2);
+      if (want > to - cursor) break;
+      const width = want;
       const height = quantise(8 + rnd() * 7, 1.5);
       const facade = facades[Math.floor(rnd() * facades.length)];
       const centre = cursor + width / 2;
@@ -410,7 +424,12 @@ export class City implements GroundProvider {
 
       this.addBoxBuilding(x, z, sizeX, sizeZ, height, facade, faceIndex, rnd);
       this.decorate(alongZ, offset, facing, centre, width, height, index++, rnd);
-      cursor += width + 0.4;
+
+      // Every few buildings, leave a callejón wide enough for three bikes
+      // abreast. It opens into the empty middle of the block, which makes the
+      // grid something to explore rather than a set of corridors.
+      const alley = index % 4 === 3 && to - cursor > width + ALLEY_WIDTH + 14;
+      cursor += width + (alley ? ALLEY_WIDTH : 0.4);
     }
   }
 

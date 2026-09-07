@@ -727,3 +727,52 @@ body.is-console .debug-gui { display: none !important; }
   border: 1px solid rgba(255, 255, 255, 0.25);
 }
 .hud-bust-bar i { display: block; height: 100%; width: 0; background: #ff4d5a; }
+
+/* The instant of capture. Short, hard, and over. */
+.hud.is-busted::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center,
+    rgba(255, 60, 74, 0) 35%, rgba(255, 40, 56, 0.55) 100%);
+  animation: busted 700ms ease-out forwards;
+}
+@keyframes busted {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud.is-busted::after { animation: none; opacity: 0.5; }
+}
+
+.overlay-flag {
+  display: inline-block;
+  width: calc(38px * var(--hud-scale));
+  height: auto;
+  margin-left: 12px;
+  vertical-align: -0.06em;
+  border-radius: 2px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5);
+}
+
+.aim { display: flex; align-items: center; gap: 8px; margin-left: 6px; }
+.aim-side { display: flex; flex-direction: column; gap: 3px; }
+.aim-side button {
+  width: 24px;
+  padding: 4px 0;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--paper);
+  font: inherit;
+  font-size: calc(10px * var(--hud-scale));
+  font-weight: 700;
+  cursor: pointer;
+}
+.aim-side button.is-on {
+  border-color: var(--pr-cyan);
+  background: rgba(94, 219, 233, 0.16);
+  color: var(--pr-cyan);
+}

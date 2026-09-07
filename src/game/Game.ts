@@ -182,18 +182,16 @@ export class Game {
     this.overlay = new ControlsOverlay(() => this.onRide());
     this.city.traffic.setSpeed(this.progress.traffic);
     this.overlay.setTrafficValue(this.progress.traffic);
-    this.overlay.setMirrorValues(
-      this.progress.mirrors, this.progress.mirrorAimX, this.progress.mirrorAimY,
-    );
+    this.overlay.setMirrorValues(this.progress.mirrors, this.progress.mirrorAim);
     this.mirrors.setMount(this.progress.mirrors);
-    this.mirrors.setAim(this.progress.mirrorAimX, this.progress.mirrorAimY);
+    this.mirrors.setAim(this.progress.mirrorAim);
     this.overlay.onMirrorsPicked((mnt) => {
       this.mirrors.setMount(mnt);
       this.progress.setMirrors(mnt);
     });
-    this.overlay.onMirrorAim((x, y) => {
-      this.mirrors.setAim(x, y);
-      this.progress.setMirrorAim(x, y);
+    this.overlay.onMirrorAim((aim) => {
+      this.mirrors.setAim(aim);
+      this.progress.setMirrorAim(aim);
     });
 
     this.overlay.setOrientationValue(this.progress.mapOrientation);
@@ -381,9 +379,6 @@ export class Game {
       this.hud.showToast('¡BÁJALA! — POLICE WARNING', 2.6);
       this.voice.say('¡Bájala, bájala!', 'es');
     }
-    // Being leant on costs you the line rather than scripting a wreck: you can
-    // still save it, and losing it is your own doing.
-    if (report.shove !== 0) this.sim.bump(report.shove * dt * 60, -0.35 * dt * 60);
     this.hud.setBustProgress(report.bustProgress);
     if (report.busted) this.onBusted();
 
@@ -507,7 +502,9 @@ export class Game {
   private onBusted(): void {
     const fine = this.progress.fine();
     this.audio.handcuffs();
+    this.audio.crash();
     this.hud.setBustProgress(0);
+    this.hud.flashBusted();
     this.hud.showToast(fine > 0 ? `PULLED OVER — ${money(fine)} FINE` : 'PULLED OVER', 3);
     this.voice.say('Te agarraron.', 'es');
     this.hud.cash = this.progress.money;

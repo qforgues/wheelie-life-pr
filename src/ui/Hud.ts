@@ -87,7 +87,7 @@ export class Hud {
 
       <div class="hud-banner" data-el="banner"></div>
       <div class="hud-bust" data-el="bust" hidden>
-        <span>PULLING YOU OVER — RIDE!</span>
+        <span>POLICE CLOSING — RIDE!</span>
         <div class="hud-bust-bar"><i data-el="bustFill"></i></div>
       </div>
       <div class="hud-toast" data-el="toast"></div>
@@ -175,6 +175,15 @@ export class Hud {
     const on = p > 0.02;
     this.bust.hidden = !on;
     if (on) this.bustFill.style.width = `${Math.round(p * 100)}%`;
+  }
+
+  /** The moment of capture: one hard red flash across the whole screen. */
+  flashBusted(): void {
+    this.root.classList.remove('is-busted');
+    // Force a reflow so the animation restarts if it fires twice quickly.
+    void this.root.offsetWidth;
+    this.root.classList.add('is-busted');
+    setTimeout(() => this.root.classList.remove('is-busted'), 700);
   }
 
   showUpdate(): void {

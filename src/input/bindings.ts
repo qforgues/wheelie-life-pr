@@ -41,7 +41,7 @@ export interface BindingRow {
 /** The on-screen card renders from this, so it cannot drift from the mapping. */
 export const BINDINGS: BindingRow[] = [
   { action: 'Throttle', pad: 'RT', key: 'W  /  ↑' },
-  { action: 'Brake', pad: 'LT', key: 'S  /  ↓' },
+  { action: 'Brake · reverse when stopped', pad: 'LT', key: 'S  /  ↓' },
   { action: 'Steer', pad: 'Left stick ←→', key: 'A  D  /  ←  →' },
   { action: 'Pull back (lift the front)', pad: 'Left stick ↓', key: 'Space' },
   { action: 'Lean forward (bring it down)', pad: 'Left stick ↑', key: 'Shift' },

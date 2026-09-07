@@ -9,8 +9,26 @@ import {
   ORIENTATION_BLURBS, ORIENTATION_LABELS, ORIENTATION_ORDER, type MapOrientation,
 } from './Minimap';
 import {
-  MOUNT_BLURBS, MOUNT_LABELS, MOUNT_ORDER, type MirrorMount,
+  DEFAULT_AIM, MOUNT_BLURBS, MOUNT_LABELS, MOUNT_ORDER,
+  type MirrorAim, type MirrorMount,
 } from '../view/Mirrors';
+
+/**
+ * La monoestrellada, inline.
+ *
+ * Five stripes, a blue triangle on the hoist and one white star. Drawn rather
+ * than fetched: an external image would be one more thing that can fail to load
+ * on a console, and this is three shapes.
+ */
+const PR_FLAG = `
+  <svg class="overlay-flag" viewBox="0 0 30 20" role="img" aria-label="Puerto Rico">
+    <rect width="30" height="20" fill="#ed1c24"/>
+    <rect y="4" width="30" height="4" fill="#fff"/>
+    <rect y="12" width="30" height="4" fill="#fff"/>
+    <path d="M0 0 L17 10 L0 20 Z" fill="#0050f0"/>
+    <path fill="#fff" d="M5.9 6.4 L7 9.6 L10.3 9.6 L7.6 11.6 L8.7 14.8 L5.9 12.8
+      L3.1 14.8 L4.2 11.6 L1.5 9.6 L4.8 9.6 Z"/>
+  </svg>`;
 
 const clampAim = (v: number) => Math.max(-1, Math.min(1, Math.round(v * 100) / 100));
 import { BUILD_ID } from '../core/version';
@@ -49,10 +67,10 @@ export class ControlsOverlay {
   private mirrorBlurbEl!: HTMLElement;
   private aimEl!: HTMLElement;
   private mirrors: MirrorMount = 'corners';
-  private aimX = 0;
-  private aimY = 0;
+  private aim: MirrorAim = { ...DEFAULT_AIM };
+  private aimSide: 'L' | 'R' = 'L';
   private onMirrors: ((m: MirrorMount) => void) | null = null;
-  private onAim: ((x: number, y: number) => void) | null = null;
+  private onAim: ((aim: MirrorAim) => void) | null = null;
   private gpsEl!: HTMLElement;
   private gpsBlurbEl!: HTMLElement;
   private orientation: MapOrientation = 'north';
@@ -63,8 +81,7 @@ export class ControlsOverlay {
     this.root.className = 'overlay';
     this.root.innerHTML = `
       <div class="overlay-card">
-        <div class="overlay-crown">♛</div>
-        <h1>WHEELIE LIFE <span>PR</span></h1>
+        <h1>WHEELIE LIFE <span>PR</span>${PR_FLAG}</h1>
         <p class="overlay-tag">CALLES ♛ BIKES ♛ ISLA ♛ LIBERTAD</p>
         <p class="overlay-device" data-el="device">Checking for a controller…</p>
 
@@ -92,18 +109,22 @@ export class ControlsOverlay {
         <div class="opt">
           <span class="opt-label">MIRRORS</span>
           <div class="opt-choices" data-el="mirrors"></div>
-        </div>
-        <p class="opt-blurb" data-el="mirrorBlurb"></p>
-        <div class="aim" data-el="aim">
-          <span class="opt-label">AIM</span>
-          <div class="aim-pad">
-            <button type="button" data-aim="0,1" title="Up">▲</button>
-            <button type="button" data-aim="-1,0" title="Left">◀</button>
-            <button type="button" data-aim="0,0" title="Centre">●</button>
-            <button type="button" data-aim="1,0" title="Right">▶</button>
-            <button type="button" data-aim="0,-1" title="Down">▼</button>
+          <div class="aim" data-el="aim">
+            <div class="aim-side">
+              <button type="button" data-side="L" class="is-on">L</button>
+              <button type="button" data-side="R">R</button>
+            </div>
+            <div class="aim-pad">
+              <button type="button" data-aim="0,1" title="Up">▲</button>
+              <button type="button" data-aim="-1,0" title="Left">◀</button>
+              <button type="button" data-aim="0,0" title="Centre">●</button>
+              <button type="button" data-aim="1,0" title="Right">▶</button>
+              <button type="button" data-aim="0,-1" title="Down">▼</button>
+            </div>
           </div>
         </div>
+        <p class="opt-blurb" data-el="mirrorBlurb"></p>
+        <button class="overlay-go" data-el="go">RIDE</button>
         <div class="upgrade" data-el="scanner"></div>
         <table class="overlay-table">
           <thead><tr><th>Action</th><th>Xbox</th><th>Keyboard</th></tr></thead>
@@ -121,14 +142,13 @@ export class ControlsOverlay {
           <button class="update-go" data-el="update" type="button">UPDATE NOW</button>
         </div>
 
-        <button class="overlay-go" data-el="go">RIDE</button>
-        <button class="overlay-diag" data-el="diag" type="button">Diagnostics</button>
         <p class="overlay-foot">
           <b>View</b> opens this menu any time · D-pad up shows diagnostics · Menu resets the bike
           <br>On a keyboard: H · D · P for the tuning panel · R to reset
         </p>
         <p class="overlay-version">
           VERSION <b data-el="version"></b>
+          <button class="overlay-diag" data-el="diag" type="button">Diagnostics</button>
           <button class="overlay-refresh" data-el="refresh" type="button">Force refresh</button>
         </p>
       </div>
@@ -209,17 +229,32 @@ export class ControlsOverlay {
       this.onMirrors?.(this.mirrors);
     });
     this.aimEl.addEventListener('click', (e) => {
-      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-aim]');
+      const target = e.target as HTMLElement;
+
+      // Which mirror the pad is driving.
+      const sideBtn = target.closest<HTMLElement>('[data-side]');
+      if (sideBtn) {
+        e.stopPropagation();
+        this.aimSide = sideBtn.dataset.side as 'L' | 'R';
+        this.aimEl.querySelectorAll('[data-side]').forEach((b) => {
+          b.classList.toggle('is-on', (b as HTMLElement).dataset.side === this.aimSide);
+        });
+        return;
+      }
+
+      const b = target.closest<HTMLElement>('[data-aim]');
       if (!b) return;
       e.stopPropagation();
       const [dx, dy] = b.dataset.aim!.split(',').map(Number);
-      // The centre button is the only one that resets; the rest nudge.
-      if (dx === 0 && dy === 0) { this.aimX = 0; this.aimY = 0; }
+      const xKey = this.aimSide === 'L' ? 'lx' : 'rx';
+      const yKey = this.aimSide === 'L' ? 'ly' : 'ry';
+      // The centre button resets only the mirror you are holding.
+      if (dx === 0 && dy === 0) { this.aim[xKey] = 0; this.aim[yKey] = 0; }
       else {
-        this.aimX = clampAim(this.aimX + dx * 0.25);
-        this.aimY = clampAim(this.aimY + dy * 0.25);
+        this.aim[xKey] = clampAim(this.aim[xKey] + dx * 0.14);
+        this.aim[yKey] = clampAim(this.aim[yKey] + dy * 0.14);
       }
-      this.onAim?.(this.aimX, this.aimY);
+      this.onAim?.({ ...this.aim });
     });
     this.renderMirrors();
 
@@ -273,14 +308,13 @@ export class ControlsOverlay {
   }
 
   /** Called when the rider trims the mirrors. */
-  onMirrorAim(fn: (x: number, y: number) => void): void {
+  onMirrorAim(fn: (aim: MirrorAim) => void): void {
     this.onAim = fn;
   }
 
-  setMirrorValues(mount: MirrorMount, aimX: number, aimY: number): void {
+  setMirrorValues(mount: MirrorMount, aim: MirrorAim): void {
     this.mirrors = mount;
-    this.aimX = aimX;
-    this.aimY = aimY;
+    this.aim = { ...aim };
     this.renderMirrors();
   }
 
@@ -291,8 +325,9 @@ export class ControlsOverlay {
              aria-pressed="${mnt === this.mirrors}">${MOUNT_LABELS[mnt]}</button>`)
       .join('');
     this.mirrorBlurbEl.textContent = MOUNT_BLURBS[this.mirrors];
-    // Nothing to aim if there are no mirrors.
-    this.aimEl.hidden = this.mirrors === 'off';
+    // Aiming only makes sense once they are off the corners: in the corners
+    // there is nowhere to move them to.
+    this.aimEl.hidden = this.mirrors !== 'bike';
   }
 
   /** Called when the GPS orientation changes. */

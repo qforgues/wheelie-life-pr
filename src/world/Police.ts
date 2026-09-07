@@ -89,22 +89,22 @@ const STYLES: Record<PoliceStyle, StyleTuning> = {
   },
   lazy: {
     shift: 3, maxChasers: 1, cruise: 10, heatSeen: 0.16, heatUnseen: 0.10, coolPerSecond: 0.35, coolDelay: 3,
-    sight: 90, speed: [0, 11, 14, 16], bustRange: 2.6, bustSeconds: 2.2,
+    sight: 90, speed: [0, 11, 14, 16], bustRange: 2.4, bustSeconds: 0,
     alwaysHunting: false, riotGear: false,
   },
   professional: {
     shift: 6, maxChasers: 3, cruise: 12, heatSeen: 0.34, heatUnseen: 0.22, coolPerSecond: 0.28, coolDelay: 4,
-    sight: 150, speed: [0, 15, 19, 23], bustRange: 2.8, bustSeconds: 1.6,
+    sight: 150, speed: [0, 15, 19, 23], bustRange: 2.6, bustSeconds: 0,
     alwaysHunting: false, riotGear: false,
   },
   aggressive: {
     shift: 9, maxChasers: 5, cruise: 14, heatSeen: 0.60, heatUnseen: 0.34, coolPerSecond: 0.22, coolDelay: 6,
-    sight: 210, speed: [0, 20, 24, 28], bustRange: 3.0, bustSeconds: 1.2,
+    sight: 210, speed: [0, 20, 24, 28], bustRange: 2.8, bustSeconds: 0,
     alwaysHunting: false, riotGear: false,
   },
   ice: {
     shift: 12, maxChasers: 8, cruise: 16, heatSeen: 0.85, heatUnseen: 0.60, coolPerSecond: 0.18, coolDelay: 8,
-    sight: 300, speed: [0, 25, 29, 33], bustRange: 3.2, bustSeconds: 0.9,
+    sight: 300, speed: [0, 25, 29, 33], bustRange: 3.0, bustSeconds: 0,
     alwaysHunting: true, riotGear: true,
   },
 };
@@ -135,8 +135,14 @@ const WRECK_SECONDS = 12;
  * close enough that they will follow you somewhere they should not.
  */
 const RAM_RANGE = 42;
-/** How hard a hit knocks the bike sideways. Enough to cost you a wheelie. */
-const RAM_SHOVE = 1.5;
+/**
+ * How fast a patrol can change direction, in radians per second.
+ *
+ * Without this they tracked the rider perfectly - locked on like a magnet, so
+ * contact was inevitable and there was nothing to ride away from. A car has to
+ * turn, and a car committed to a line can miss.
+ */
+const TURN_RATE = 1.5;
 
 interface Patrol {
   group: THREE.Group;
@@ -188,7 +194,6 @@ export class Police {
 
   private patrols: Patrol[] = [];
   private heat = 0;
-  private bustTimer = 0;
   private hasWarned = false;
   private flash = 0;
   private cleanFor = 0;
@@ -255,7 +260,6 @@ export class Police {
     this.style = style;
     this.tuning = STYLES[style];
     this.heat = 0;
-    this.bustTimer = 0;
     this.cleanFor = 0;
     this.hasWarned = false;
     // The shift size and the livery both change, so the cars are rebuilt.
@@ -275,7 +279,6 @@ export class Police {
    */
   private afterBust(px: number, pz: number): void {
     this.heat = 0;
-    this.bustTimer = 0;
     this.cleanFor = 0;
     this.hasWarned = false;
     this.grace = BUST_GRACE;
@@ -317,7 +320,6 @@ export class Police {
   /** Drops the heat. The shift stays on the road - they are always out there. */
   reset(): void {
     this.heat = 0;
-    this.bustTimer = 0;
     this.cleanFor = 0;
     this.hasWarned = false;
     this.grace = 0;
@@ -398,19 +400,16 @@ export class Police {
     // because a car drew alongside felt like nothing had happened; they have to
     // actually get a wing into you, repeatedly, and you can shake them off by
     // riding away from it.
+    // Touched by a chasing patrol and you are caught. That is the whole rule.
+    //
+    // It used to knock the bike sideways and run a timer, which meant spinning
+    // helplessly for a few seconds before a fine appeared - being caught should
+    // be a clean, instant, obvious moment, not a wrestling match you have
+    // already lost.
     r.shove = 0;
-    const rammer = this.contactWith(px, pz, t.bustRange);
-    if (level > 0 && riding && rammer) {
-      this.bustTimer += dt;
-      // Which side they hit from decides which way the bike gets knocked.
-      const cross = Math.sin(rammer.yaw) * (pz - rammer.z) - Math.cos(rammer.yaw) * (px - rammer.x);
-      r.shove = Math.sign(cross || 1) * RAM_SHOVE;
-      if (this.bustTimer >= t.bustSeconds) {
-        r.busted = true;
-        this.afterBust(px, pz);
-      }
-    } else {
-      this.bustTimer = Math.max(0, this.bustTimer - dt * 1.5);
+    if (level > 0 && riding && this.contactWith(px, pz, t.bustRange)) {
+      r.busted = true;
+      this.afterBust(px, pz);
     }
 
     // Lights only run on a chase. A patrol on its beat is just a car, which is
@@ -431,7 +430,9 @@ export class Police {
     r.heat = level;
     r.chasers = chasers;
     r.nearestChaser = this.nearestDistance(px, pz, true);
-    r.bustProgress = Math.min(1, this.bustTimer / t.bustSeconds);
+    // How close the nearest chaser is, as a warning rather than a countdown -
+    // there is no timer any more, contact is the whole of it.
+    r.bustProgress = r.nearestChaser < 26 ? 1 - r.nearestChaser / 26 : 0;
     r.blips = this.patrols.map((p) => ({ x: p.x, z: p.z, chasing: p.chasing }));
     return r;
   }
@@ -492,9 +493,16 @@ export class Police {
       // they are close they stop using the roads and come straight at you -
       // that commitment is what makes them dangerous, and also what puts them
       // into a wall when you cut a corner they cannot.
+      // Committed means: close enough to have abandoned the road and be coming
+      // straight at you. Only a committed patrol can crash - one still routing
+      // the grid is driving properly, and turn-rate limiting means it clips
+      // corners, so testing it against obstacles binned every car at every
+      // junction and no chase ever reached anybody.
+      let committed = false;
       if (p.chasing) {
         const range = Math.hypot(px - p.x, pz - p.z);
         if (range < RAM_RANGE) {
+          committed = true;
           p.tx = px;
           p.tz = pz;
         } else if (Math.hypot(p.tx - p.x, p.tz - p.z) < 3) {
@@ -512,19 +520,31 @@ export class Police {
       const dz = p.tz - p.z;
       const d = Math.hypot(dx, dz);
       if (d > 0.001) {
+        // Turn toward the target at a limited rate rather than snapping to it.
+        // This is what stops them behaving like a magnet: a patrol committed to
+        // a line has to come round again, and you can be gone by then.
+        const want = Math.atan2(dx, dz);
+        let turn = want - p.yaw;
+        while (turn > Math.PI) turn -= Math.PI * 2;
+        while (turn < -Math.PI) turn += Math.PI * 2;
+        const maxTurn = TURN_RATE * dt;
+        p.yaw += Math.max(-maxTurn, Math.min(maxTurn, turn));
+
         const step = Math.min(d, speed * dt);
-        const nx = p.x + (dx / d) * step;
-        const nz = p.z + (dz / d) * step;
+        const nx = p.x + Math.sin(p.yaw) * step;
+        const nz = p.z + Math.cos(p.yaw) * step;
 
         // Driving flat out at a moving target means sooner or later they put it
         // into a building. Cheap to check, and it is the most satisfying thing
         // in the whole chase.
-        if (this.obstacleTest?.(nx, nz, 1.15)) {
+        // A car smoking on a corner you never went near reads as broken, not
+        // as atmosphere - so this is only ever the last few metres of a
+        // committed run at the rider.
+        if (committed && this.obstacleTest?.(nx, nz, 1.15)) {
           this.wreck(p);
         } else {
           p.x = nx;
           p.z = nz;
-          p.yaw = Math.atan2(dx, dz);
         }
       }
       p.group.position.set(p.x, 0, p.z);
@@ -582,7 +602,14 @@ export class Police {
 
   /** A wrecked patrol is replaced by a fresh one back on the grid. */
   private recover(p: Patrol, px: number, pz: number): void {
-    if (p.smoke) p.smoke.visible = false;
+    if (p.smoke) {
+      p.group.remove(p.smoke);
+      for (const puff of p.smoke.children as THREE.Mesh[]) {
+        puff.geometry.dispose();
+        (puff.material as THREE.Material).dispose();
+      }
+      p.smoke = null;
+    }
     const away = this.farJunction(px, pz, Math.floor(Math.random() * 17));
     p.x = away.x; p.z = away.z;
     p.tx = away.x; p.tz = away.z;
