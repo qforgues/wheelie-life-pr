@@ -736,3 +736,33 @@ board. Counting the boards placed rather than the junctions visited fixes it.
 
 M was already mute, so the map took G: fixed, then arrow-fixed, then off. D-pad
 down on a controller.
+
+## 42. Nine upgrades, and the one that did nothing
+
+Four more parts to make a 3x3: swingarm, gearing, clutch on the bike, plates on
+the rider. That is nine, which is what a three-by-three grid holds.
+
+**Brakes were tried first and thrown away.** Every level was measured and every
+level did nothing: stopping from 30 mph went 7.4 m to 7.3 m, and the wheelie
+save - the thing the blurb promised - took 0.46 s at *every* level. Brake torque
+already saturates the available grip, so buying more of it is physically
+meaningless in this model. That is the second upgrade written that could not be
+felt; the rule now is that a part ships only once a measurement shows it
+changing something.
+
+The replacement is a **swingarm**, which is the mod a wheelie bike actually
+gets. Moving the axle back lengthens the wheelbase and puts the CG further ahead
+of it, so the balance point rises - 43.8° stock to 48.7° extended - and the bike
+wants to sit up. It steers like a bus in exchange.
+
+Gearing trades top end for pull (0-30 in 2.12 s to 1.81 s). Clutch shortens the
+shift (2.12 s to 1.95 s). Plates are rider-scope like the scanner and slow the
+police down: heat builds at 0.52x and fades at 2x when fully done.
+
+## 43. The Grom had no small parts
+
+It read as Lego because it had no hardware on it - a real one is covered in
+little bits, and those are what the eye uses to decide something is a machine
+rather than a moulded shape. Radiator, header heat shield, mirrors on stalks,
+amber indicators front and rear, a rear hugger and a chain guard. None of it is
+big and all of it is load-bearing.

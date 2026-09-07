@@ -688,6 +688,71 @@ export class BikeView {
     tail.castShadow = true;
     this.bike.add(tail);
 
+    // The details that stop it reading as a brick.
+    //
+    // A real Grom is covered in small hardware - a radiator out front, a heat
+    // shield over the header, mirrors on stalks, indicators, a hugger. None of
+    // it is big, and all of it is what your eye uses to decide something is a
+    // machine rather than a moulded shape.
+    const hardware = new THREE.MeshStandardMaterial({
+      color: 0x2a2c33, roughness: 0.55, metalness: 0.55,
+    });
+    const amber = new THREE.MeshStandardMaterial({
+      color: 0xffa422, emissive: 0x6b3a00, emissiveIntensity: 0.5, roughness: 0.35,
+    });
+
+    // Radiator, tucked between the downtube and the front wheel.
+    const rad = new THREE.Mesh(
+      roundedBox(0.20, 0.17, 0.045, 0.012, 4),
+      new THREE.MeshStandardMaterial({ color: 0x4a4f57, roughness: 0.5, metalness: 0.7 }),
+    );
+    rad.position.set(0, 0.56, 0.88);
+    rad.rotation.x = 0.20;
+    rad.castShadow = true;
+    this.bike.add(rad);
+
+    // Heat shield over the header, which is the shiny thing on the right.
+    const shield = new THREE.Mesh(roundedBox(0.055, 0.10, 0.24, 0.02, 4), m.metal);
+    shield.position.set(0.10, 0.45, 0.42);
+    shield.rotation.set(0.18, 0.10, 0);
+    this.bike.add(shield);
+
+    // Mirrors on stalks. Small, but they break the silhouette at the bars.
+    for (const side of [-1, 1]) {
+      const stalk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.011, 0.013, 0.16, 8), hardware,
+      );
+      stalk.position.set(side * 0.20, 1.05, 0.94);
+      stalk.rotation.z = side * 0.28;
+      this.bike.add(stalk);
+      const glass = new THREE.Mesh(roundedBox(0.10, 0.062, 0.02, 0.012, 5), hardware);
+      glass.position.set(side * 0.235, 1.13, 0.94);
+      glass.rotation.set(0, side * -0.3, side * 0.2);
+      this.bike.add(glass);
+    }
+
+    // Indicators, front and back.
+    for (const side of [-1, 1]) {
+      for (const [y, z] of [[0.86, 0.93], [0.70, -0.02]] as const) {
+        const ind = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.019, 0.016, 0.05, 8), amber,
+        );
+        ind.rotation.z = Math.PI / 2;
+        ind.position.set(side * 0.15, y, z);
+        this.bike.add(ind);
+      }
+    }
+
+    // Rear hugger over the tyre, and a chain guard.
+    const hugger = new THREE.Mesh(roundedBox(0.13, 0.03, 0.24, 0.012, 4), m.black);
+    hugger.position.set(0, 0.40, 0.10);
+    hugger.rotation.x = -0.22;
+    this.bike.add(hugger);
+    const chainGuard = new THREE.Mesh(roundedBox(0.02, 0.055, 0.30, 0.01, 4), m.black);
+    chainGuard.position.set(-0.10, 0.34, 0.26);
+    chainGuard.rotation.x = -0.16;
+    this.bike.add(chainGuard);
+
     // Tail light + plate: this is what drags when you go too far.
     const plate = new THREE.Mesh(
       roundedBox(0.17, 0.12, 0.025, 0.0025, 5),

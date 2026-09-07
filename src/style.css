@@ -873,8 +873,12 @@ body.is-console .debug-gui { display: none !important; }
 }
 .tuneshop-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  /* Nine parts, three across. */
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
+}
+@media (max-width: 620px) {
+  .tuneshop-grid { grid-template-columns: repeat(2, 1fr); }
 }
 .tunepart {
   display: flex;

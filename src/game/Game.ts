@@ -27,7 +27,7 @@ import { DebugPanel } from '../ui/DebugPanel';
 import { Diagnostics } from '../ui/Diagnostics';
 import { WheelieTracker } from './WheelieTracker';
 import { Progress, money } from './Progress';
-import { applyUpgrades, scannerMode } from './Upgrades';
+import { applyUpgrades, plateEffect, scannerMode } from './Upgrades';
 import type { BikeState } from '../sim/types';
 
 /** The handful of fields that need interpolating between physics steps. */
@@ -209,6 +209,7 @@ export class Game {
       this.minimap.root.hidden = o === 'off';
     });
 
+    this.applyPlates();
     this.police.setStyle(this.progress.police);
     this.overlay.setPoliceValue(this.progress.police);
     this.overlay.onPolicePicked((style) => {
@@ -244,6 +245,7 @@ export class Game {
     this.overlay.onDiagnostics(() => this.diagnostics.toggle());
     this.overlay.onUpgradeBought(() => {
       this.hud.cash = this.progress.money;
+      this.applyPlates();
       // Rebuild on the current bike so the new part is live immediately.
       this.applyTuning();
     });
@@ -543,6 +545,13 @@ export class Game {
    * and a bust that ends the session would be the one thing in this game that
    * stops you riding.
    */
+  /** Pushes the rider's plate upgrade into the police. */
+  private applyPlates(): void {
+    const e = plateEffect(this.progress.levelOf(this.bikeId, 'plates'));
+    this.police.plateGain = e.gain;
+    this.police.plateCool = e.cool;
+  }
+
   /** Re-applies the current bike's tuning after an upgrade, without a rebuild. */
   private applyTuning(): void {
     const tuning = applyUpgrades(

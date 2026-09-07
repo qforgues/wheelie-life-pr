@@ -12,7 +12,10 @@ import type { BikeTuning } from '../sim/tuning';
  * makes the bike harder to hold; a lighter bike loses the flywheel that keeps a
  * wheelie steady. Buying everything should not be obviously correct.
  */
-export type UpgradeId = 'engine' | 'tyres' | 'suspension' | 'weight' | 'scanner';
+export type UpgradeId =
+  | 'engine' | 'tyres' | 'suspension' | 'weight'
+  | 'swingarm' | 'gearing' | 'clutch'
+  | 'scanner' | 'plates';
 
 export interface UpgradeLevel {
   label: string;
@@ -127,6 +130,69 @@ export const UPGRADES: Record<UpgradeId, UpgradeKind> = {
         apply: (t) => { lighten(t, 0.20); } },
     ],
   },
+  swingarm: {
+    scope: 'bike',
+    name: 'SWINGARM',
+    summary: 'A longer arm. The single best thing for holding a wheelie.',
+    levels: [
+      {
+        label: '+30 mm',
+        blurb: 'Balance point sits higher. Easier to hold, slower to turn.',
+        price: 800,
+        apply: (t) => { stretch(t, 0.03); },
+      },
+      {
+        label: '+70 mm',
+        blurb: 'Noticeably steadier up top. Turns in lazily.',
+        price: 2500,
+        apply: (t) => { stretch(t, 0.07); },
+      },
+      {
+        label: 'Extended arm',
+        blurb: 'Sits up almost on its own. Handles like a bus.',
+        price: 5900,
+        apply: (t) => { stretch(t, 0.13); },
+      },
+    ],
+  },
+  gearing: {
+    scope: 'bike',
+    name: 'GEARING',
+    summary: 'Sprockets. Trades top end for how hard it pulls.',
+    levels: [
+      { label: '+2 rear teeth', blurb: 'Lifts easier everywhere. A little less top speed.', price: 500,
+        apply: (t) => { t.gearbox.finalRatio *= 1.07; } },
+      { label: '+4 rear teeth', blurb: 'Pulls hard and revs out early.', price: 1600,
+        apply: (t) => { t.gearbox.finalRatio *= 1.14; } },
+      { label: 'Wheelie sprocket', blurb: 'Brutal off the bottom. Top speed is gone.', price: 3900,
+        apply: (t) => { t.gearbox.finalRatio *= 1.24; } },
+    ],
+  },
+  clutch: {
+    scope: 'bike',
+    name: 'CLUTCH',
+    summary: 'How cleanly the drive arrives, and how fast it shifts.',
+    levels: [
+      { label: 'Heavy springs', blurb: 'Shifts 15% quicker. Less nose-dip on the change.', price: 650,
+        apply: (t) => {
+          t.gearbox.shiftTimeUp *= 0.85;
+          t.gearbox.shiftTimeDown *= 0.85;
+        } },
+      { label: 'Slipper clutch', blurb: 'Shifts 30% quicker and drives off the bottom.', price: 2000,
+        apply: (t) => {
+          t.gearbox.shiftTimeUp *= 0.7;
+          t.gearbox.shiftTimeDown *= 0.7;
+          t.gearbox.clutchSlipSpeed *= 1.25;
+        } },
+      { label: 'Race basket', blurb: 'Near-instant shifts. Time the pull through them.', price: 4800,
+        apply: (t) => {
+          t.gearbox.shiftTimeUp *= 0.5;
+          t.gearbox.shiftTimeDown *= 0.5;
+          t.gearbox.clutchSlipSpeed *= 1.4;
+          t.gearbox.efficiency = Math.min(0.99, t.gearbox.efficiency * 1.03);
+        } },
+    ],
+  },
   scanner: {
     scope: 'rider',
     name: 'SCANNER',
@@ -152,6 +218,19 @@ export const UPGRADES: Record<UpgradeId, UpgradeKind> = {
       },
     ],
   },
+  plates: {
+    scope: 'rider',
+    name: 'PLATES',
+    summary: 'Harder to identify. Heat builds slower and fades faster.',
+    levels: [
+      { label: 'Dirty plate', blurb: 'They take a little longer to be sure it is you.', price: 900,
+        apply: () => { /* read by the police, not the physics */ } },
+      { label: 'Tilt bracket', blurb: 'Heat builds noticeably slower.', price: 2800,
+        apply: () => { /* ditto */ } },
+      { label: 'Flip plate', blurb: 'Heat builds slowly and cools twice as fast.', price: 6200,
+        apply: () => { /* ditto */ } },
+    ],
+  },
 };
 
 export const UPGRADE_IDS = Object.keys(UPGRADES) as UpgradeId[];
@@ -161,6 +240,22 @@ export const BIKE_UPGRADE_IDS = UPGRADE_IDS.filter((id) => UPGRADES[id].scope ==
 
 /** What the scanner shows at each level. Read by the GPS. */
 export type ScannerMode = 'none' | 'chasers' | 'all' | 'heading';
+
+/**
+ * How much the plates slow the police down.
+ *
+ * Returns a pair of multipliers: how fast heat builds, and how fast it fades.
+ * Rider-scope like the scanner, because it is your bike's plate wherever you
+ * bolt it.
+ */
+export function plateEffect(level: number): { gain: number; cool: number } {
+  switch (level) {
+    case 1: return { gain: 0.85, cool: 1.15 };
+    case 2: return { gain: 0.68, cool: 1.4 };
+    case 3: return { gain: 0.52, cool: 2.0 };
+    default: return { gain: 1, cool: 1 };
+  }
+}
 
 export function scannerMode(level: number): ScannerMode {
   return level >= 3 ? 'heading' : level >= 2 ? 'all' : level >= 1 ? 'chasers' : 'none';
@@ -180,6 +275,26 @@ function mix(from: number, to: number, k: number): number {
  * featherweight bike is faster to lift and much harder to hold there. That is
  * the trade, and it is why buying every level is not automatically right.
  */
+/**
+ * Extends the swingarm.
+ *
+ * Moving the rear axle back lengthens the wheelbase and puts the CG further
+ * forward OF that axle, which raises the balance point - the angle the bike
+ * naturally sits at. That is the whole reason wheelie bikes run long arms. The
+ * cost is steering: a longer bike does not want to change direction.
+ *
+ * This replaced a brakes upgrade that did nothing measurable at all. Brake
+ * torque already saturates the available grip, so buying more of it changed
+ * neither stopping distance nor how fast the nose came down.
+ */
+function stretch(t: BikeTuning, metres: number): void {
+  t.chassis.wheelbase += metres;
+  t.chassis.cgToRear += metres * 0.82;
+  t.chassis.pitchInertia *= 1 + metres * 1.1;
+  t.steering.maxYawRateLow *= 1 - metres * 0.9;
+  t.balance.rollAuthority *= 1 - metres * 0.7;
+}
+
 function lighten(t: BikeTuning, frac: number): void {
   t.chassis.mass *= 1 - frac;
   t.chassis.pitchInertia *= 1 - frac * 1.15;

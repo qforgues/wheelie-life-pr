@@ -330,6 +330,13 @@ export class Police {
    * @param wheelieing whether the front wheel is currently up.
    * @param riding     false while crashed, so heat can't climb off a wreck.
    */
+  /**
+   * Plate multipliers, set from the rider's upgrades: how fast heat builds and
+   * how fast it fades. A harder bike to identify is a slower call to make.
+   */
+  plateGain = 1;
+  plateCool = 1;
+
   update(
     dt: number, px: number, pz: number, wheelieing: boolean, riding: boolean,
   ): PoliceReport {
@@ -375,13 +382,15 @@ export class Police {
 
     if (wanted) {
       this.cleanFor = 0;
-      this.heat = Math.min(3.999, this.heat + (seen ? t.heatSeen : t.heatUnseen) * dt);
+      this.heat = Math.min(3.999,
+        this.heat + (seen ? t.heatSeen : t.heatUnseen) * this.plateGain * dt);
     } else {
       this.cleanFor += dt;
       // Their interest lingers. Only once you have been clean for a while does
       // it start to fade - and slower still while a patrol has eyes on you.
       if (this.cleanFor > t.coolDelay) {
-        const rate = seen && nearest < GIVE_UP ? t.coolPerSecond * 0.4 : t.coolPerSecond;
+        const base = seen && nearest < GIVE_UP ? t.coolPerSecond * 0.4 : t.coolPerSecond;
+        const rate = base * this.plateCool;
         this.heat = Math.max(0, this.heat - rate * dt);
       }
     }
