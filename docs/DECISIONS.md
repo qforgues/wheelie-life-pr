@@ -407,3 +407,36 @@ picture of where you are. **ARROW FIXED** keeps the rider upright and turns the
 city, so "left on the map" is always "left on the screen": better for following
 a turn. People are genuinely split on this, so it is a toggle rather than a
 decision, and north gets marked with an N when the city is the thing rotating.
+
+
+## 23. Police are scenery first, a threat second
+
+The first version only created patrols once heat was up, which meant a city with
+no police in it: you could ride for ten minutes and never see one, and the
+difficulty tiers were invisible until you had already misbehaved.
+
+Each tier now puts a **shift** on the road, cruising the grid whether or not
+anyone is wanted, and the tier decides how many. Heat breaks the nearest ones
+off to chase; the rest carry on with their beat. Measured over a four-minute
+clean lap of the city:
+
+| | on shift | patrols passed | chasers while riding clean |
+|---|---|---|---|
+| none | 0 | 0 | 0 |
+| lazy | 3 | 2 | 0 |
+| pro | 6 | 7 | 0 |
+| aggro | 9 | 15 | 0 |
+| ice | 12 | 54 | **8** |
+
+Three details that carry the idea:
+
+- **Lights only run on a chase.** A patrol on its beat is just a car, which is
+  what makes one lighting up mean something.
+- **Beats are aimless on purpose.** A patrol that drifted toward the rider
+  without chasing would read as buggy rather than watchful.
+- **The nearest cars break off**, so the patrol you just rode past is the one
+  that comes after you.
+
+Cost at the console tier: ICE with twelve on shift is 69 draw calls and 10k
+triangles over `none`, because patrols past 260 m keep driving but stop being
+drawn.

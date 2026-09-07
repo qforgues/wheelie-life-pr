@@ -43,8 +43,18 @@ export const POLICE_BLURBS: Record<PoliceStyle, string> = {
 };
 
 interface StyleTuning {
-  /** Most patrols out at once. */
-  patrols: number;
+  /**
+   * Cars on shift: patrols cruising the grid whether or not anyone is wanted.
+   *
+   * Police used to exist only once heat was up, which meant a city with no
+   * police in it - you could ride for ten minutes and never see one. They are
+   * scenery first and a threat second, and the tier decides how many are out.
+   */
+  shift: number;
+  /** Most of that shift that will ever break off to chase you at once. */
+  maxChasers: number;
+  /** Speed while cruising a beat, as opposed to chasing. */
+  cruise: number;
   /** Heat per second of wheelie, in sight of a patrol and out of it. */
   heatSeen: number;
   heatUnseen: number;
@@ -73,27 +83,27 @@ interface StyleTuning {
 
 const STYLES: Record<PoliceStyle, StyleTuning> = {
   none: {
-    patrols: 0, heatSeen: 0, heatUnseen: 0, coolPerSecond: 1, coolDelay: 0,
+    shift: 0, maxChasers: 0, cruise: 0, heatSeen: 0, heatUnseen: 0, coolPerSecond: 1, coolDelay: 0,
     sight: 0, speed: [0, 0, 0, 0], bustRange: 0, bustSeconds: 99,
     alwaysHunting: false, riotGear: false,
   },
   lazy: {
-    patrols: 2, heatSeen: 0.16, heatUnseen: 0.10, coolPerSecond: 0.35, coolDelay: 3,
+    shift: 3, maxChasers: 1, cruise: 10, heatSeen: 0.16, heatUnseen: 0.10, coolPerSecond: 0.35, coolDelay: 3,
     sight: 90, speed: [0, 11, 14, 16], bustRange: 4.5, bustSeconds: 2.6,
     alwaysHunting: false, riotGear: false,
   },
   professional: {
-    patrols: 3, heatSeen: 0.34, heatUnseen: 0.22, coolPerSecond: 0.28, coolDelay: 4,
+    shift: 6, maxChasers: 3, cruise: 12, heatSeen: 0.34, heatUnseen: 0.22, coolPerSecond: 0.28, coolDelay: 4,
     sight: 150, speed: [0, 15, 19, 23], bustRange: 5.5, bustSeconds: 1.4,
     alwaysHunting: false, riotGear: false,
   },
   aggressive: {
-    patrols: 3, heatSeen: 0.60, heatUnseen: 0.34, coolPerSecond: 0.22, coolDelay: 6,
+    shift: 9, maxChasers: 5, cruise: 14, heatSeen: 0.60, heatUnseen: 0.34, coolPerSecond: 0.22, coolDelay: 6,
     sight: 210, speed: [0, 20, 24, 28], bustRange: 6.5, bustSeconds: 1.0,
     alwaysHunting: false, riotGear: false,
   },
   ice: {
-    patrols: 3, heatSeen: 0.85, heatUnseen: 0.60, coolPerSecond: 0.18, coolDelay: 8,
+    shift: 12, maxChasers: 8, cruise: 16, heatSeen: 0.85, heatUnseen: 0.60, coolPerSecond: 0.18, coolDelay: 8,
     sight: 300, speed: [0, 25, 29, 33], bustRange: 7.5, bustSeconds: 0.7,
     alwaysHunting: true, riotGear: true,
   },
@@ -105,6 +115,8 @@ export function isPoliceStyle(v: unknown): v is PoliceStyle {
 
 /** Cops give up beyond this whatever the style. */
 const GIVE_UP = 280;
+/** Patrols past this are still driving, just not drawn. */
+const DRAW_RADIUS = 260;
 
 interface Patrol {
   group: THREE.Group;
@@ -116,15 +128,19 @@ interface Patrol {
   tx: number;
   tz: number;
   active: boolean;
+  /** Cruising a beat, or coming for you. */
+  chasing: boolean;
 }
 
 export interface PoliceReport {
   heat: HeatLevel;
+  /** How many of the shift are actively chasing. */
+  chasers: number;
   /** Rising edge of level 1 - the one warning you get. */
   warned: boolean;
   busted: boolean;
   /** Live positions, for the minimap. */
-  blips: Array<{ x: number; z: number }>;
+  blips: Array<{ x: number; z: number; chasing: boolean }>;
 }
 
 export class Police {
@@ -136,21 +152,40 @@ export class Police {
   private hasWarned = false;
   private flash = 0;
   private cleanFor = 0;
-  private report: PoliceReport = { heat: 0, warned: false, busted: false, blips: [] };
+  private litLastFrame = false;
+  private wanderSeed = 9127;
+  private report: PoliceReport = { heat: 0, chasers: 0, warned: false, busted: false, blips: [] };
   private style: PoliceStyle = 'professional';
   private tuning: StyleTuning = STYLES.professional;
 
   constructor() {
-    // Three is the ceiling from the interview. They are built once and parked
-    // off-duty rather than spawned, so heat rising never costs a frame hitch.
-    for (let i = 0; i < 3; i++) {
-      const { group, lights } = makePoliceCar();
-      group.visible = false;
+    this.rebuild();
+  }
+
+  /** Builds a shift of the right size and livery for the current style. */
+  private rebuild(): void {
+    for (const p of this.patrols) this.root.remove(p.group);
+    this.patrols = [];
+    for (let i = 0; i < this.tuning.shift; i++) {
+      const { group, lights } = makePoliceCar(this.tuning.riotGear);
+      const start = this.junctionByIndex(i);
+      group.position.set(start.x, 0, start.z);
       this.root.add(group);
       this.patrols.push({
-        group, lights, x: 0, z: 0, yaw: 0, tx: 0, tz: 0, active: false,
+        group, lights,
+        x: start.x, z: start.z, yaw: 0,
+        tx: start.x, tz: start.z,
+        active: true, chasing: false,
       });
     }
+  }
+
+  /** Spreads the shift across the grid so they don't all start on one corner. */
+  private junctionByIndex(i: number): { x: number; z: number } {
+    const av = LAYOUT.avenueX;
+    const st = LAYOUT.streetZ;
+    // Stride by a coprime-ish step so successive patrols land far apart.
+    return { x: av[(i * 2 + 1) % av.length], z: st[(i * 3 + 2) % st.length] };
   }
 
   get styleName(): PoliceStyle {
@@ -163,38 +198,28 @@ export class Police {
    */
   setStyle(style: PoliceStyle): void {
     if (style === this.style) return;
-    const wasRiot = this.tuning.riotGear;
     this.style = style;
     this.tuning = STYLES[style];
-    this.reset();
-    if (this.tuning.riotGear !== wasRiot) this.rebuild();
+    this.heat = 0;
+    this.bustTimer = 0;
+    this.cleanFor = 0;
+    this.hasWarned = false;
+    // The shift size and the livery both change, so the cars are rebuilt.
+    this.rebuild();
     this.root.visible = style !== 'none';
   }
 
-  private rebuild(): void {
-    for (const p of this.patrols) this.root.remove(p.group);
-    this.patrols = [];
-    for (let i = 0; i < 3; i++) {
-      const { group, lights } = makePoliceCar(this.tuning.riotGear);
-      group.visible = false;
-      this.root.add(group);
-      this.patrols.push({ group, lights, x: 0, z: 0, yaw: 0, tx: 0, tz: 0, active: false });
-    }
-  }
-
   get heatLevel(): HeatLevel {
-    return Math.min(this.tuning.patrols, Math.floor(this.heat)) as HeatLevel;
+    return Math.min(3, Math.floor(this.heat)) as HeatLevel;
   }
 
+  /** Drops the heat. The shift stays on the road - they are always out there. */
   reset(): void {
     this.heat = 0;
     this.bustTimer = 0;
     this.cleanFor = 0;
     this.hasWarned = false;
-    for (const p of this.patrols) {
-      p.active = false;
-      p.group.visible = false;
-    }
+    for (const p of this.patrols) p.chasing = false;
   }
 
   /**
@@ -242,7 +267,7 @@ export class Police {
     }
     if (level === 0) this.hasWarned = false;
 
-    this.deploy(level, px, pz);
+    const chasers = this.deploy(level, px, pz);
     this.drive(dt, px, pz, level);
 
     // Getting caught: a patrol on top of you, for long enough to stop.
@@ -256,56 +281,66 @@ export class Police {
       this.bustTimer = Math.max(0, this.bustTimer - dt * 1.5);
     }
 
+    // Lights only run on a chase. A patrol on its beat is just a car, which is
+    // what makes seeing one light up mean something.
     this.flash += dt * 9;
     const on = Math.sin(this.flash) > 0;
-    for (const p of this.patrols) {
-      if (!p.active) continue;
-      (p.lights[0].material as THREE.MeshStandardMaterial).emissiveIntensity = on ? 2.4 : 0.15;
-      (p.lights[1].material as THREE.MeshStandardMaterial).emissiveIntensity = on ? 0.15 : 2.4;
+    const anyChasing = this.patrols.some((p) => p.chasing);
+    if (anyChasing || this.litLastFrame) {
+      for (const p of this.patrols) {
+        const a = p.chasing && on ? 2.4 : 0.12;
+        const b = p.chasing && !on ? 2.4 : 0.12;
+        (p.lights[0].material as THREE.MeshStandardMaterial).emissiveIntensity = a;
+        (p.lights[1].material as THREE.MeshStandardMaterial).emissiveIntensity = b;
+      }
+      this.litLastFrame = anyChasing;
     }
 
     r.heat = level;
-    r.blips = this.patrols.filter((p) => p.active).map((p) => ({ x: p.x, z: p.z }));
+    r.chasers = chasers;
+    r.blips = this.patrols.map((p) => ({ x: p.x, z: p.z, chasing: p.chasing }));
     return r;
   }
 
   private nearestDistance(px: number, pz: number): number {
     let best = Infinity;
     for (const p of this.patrols) {
-      if (!p.active) continue;
       best = Math.min(best, Math.hypot(p.x - px, p.z - pz));
     }
     return best;
   }
 
-  /** Brings patrols on and off duty to match the heat level. */
-  private deploy(level: number, px: number, pz: number): void {
-    for (let i = 0; i < this.patrols.length; i++) {
-      const p = this.patrols[i];
-      const wanted = i < level;
-      if (wanted === p.active) continue;
-      p.active = wanted;
-      p.group.visible = wanted;
-      if (!wanted) continue;
-      // Arrive from a junction a couple of blocks away, never on top of you.
-      const spawn = this.junctionNear(px, pz, 150 + i * 40);
-      p.x = spawn.x;
-      p.z = spawn.z;
-      p.tx = spawn.x;
-      p.tz = spawn.z;
-    }
+  /**
+   * Decides which of the shift break off to chase.
+   *
+   * The nearest ones do, which is both the obvious behaviour and the one that
+   * makes the city feel joined up: the car you just rode past is the car that
+   * comes after you.
+   */
+  private deploy(level: number, px: number, pz: number): number {
+    const wanted = level === 0
+      ? 0
+      : Math.max(1, Math.round((level / 3) * this.tuning.maxChasers));
+
+    const byRange = [...this.patrols]
+      .sort((a, b) => Math.hypot(a.x - px, a.z - pz) - Math.hypot(b.x - px, b.z - pz));
+    byRange.forEach((p, i) => { p.chasing = i < wanted; });
+    return Math.min(wanted, this.patrols.length);
   }
 
   private drive(dt: number, px: number, pz: number, level: number): void {
-    const speed = this.tuning.speed[level] ?? 0;
+    const chaseSpeed = this.tuning.speed[level] ?? this.tuning.cruise;
+
     for (const p of this.patrols) {
-      if (!p.active) continue;
+      const speed = p.chasing ? chaseSpeed : this.tuning.cruise;
 
       // Re-target whenever the current waypoint is reached. Waypoints are grid
       // intersections, so a patrol always drives on a road - chasing in a
       // straight line would send them through the middle of a block.
       if (Math.hypot(p.tx - p.x, p.tz - p.z) < 3) {
-        const next = this.stepToward(p.x, p.z, px, pz);
+        const next = p.chasing
+          ? this.stepToward(p.x, p.z, px, pz)
+          : this.wander(p);
         p.tx = next.x;
         p.tz = next.z;
       }
@@ -321,7 +356,36 @@ export class Police {
       }
       p.group.position.set(p.x, 0, p.z);
       p.group.rotation.y = p.yaw;
+
+      // Off-duty geometry still costs a draw call, so stop drawing the far half
+      // of the shift - especially on ICE, where there are twelve of them.
+      const far = Math.hypot(p.x - px, p.z - pz);
+      p.group.visible = far < DRAW_RADIUS;
     }
+  }
+
+  /**
+   * A patrol working its beat: drive to a neighbouring junction, then another.
+   *
+   * Deliberately aimless. A patrol that drifted toward the player without
+   * chasing would read as buggy rather than watchful, and the whole point of
+   * the shift is that they are going about their business until you give them
+   * a reason not to.
+   */
+  private wander(p: Patrol): { x: number; z: number } {
+    const av: readonly number[] = LAYOUT.avenueX;
+    const st: readonly number[] = LAYOUT.streetZ;
+    const ai = av.indexOf(snap(p.x, av));
+    const si = st.indexOf(snap(p.z, st));
+    this.wanderSeed = (this.wanderSeed * 1664525 + 1013904223) >>> 0;
+    const roll = this.wanderSeed / 4294967296;
+    // Turn or carry on, one block at a time.
+    if (roll < 0.5) {
+      const step = roll < 0.25 ? 1 : -1;
+      return { x: av[clampIndex(ai + step, av.length)], z: st[si] ?? p.z };
+    }
+    const step = roll < 0.75 ? 1 : -1;
+    return { x: av[ai] ?? p.x, z: st[clampIndex(si + step, st.length)] };
   }
 
   /**
@@ -364,23 +428,9 @@ export class Police {
     return best ?? { x: tax, z: tsz };
   }
 
-  /** A junction roughly `away` metres from the rider, to arrive from. */
-  private junctionNear(px: number, pz: number, away: number): { x: number; z: number } {
-    let best: { x: number; z: number } = { x: LAYOUT.avenueX[0], z: LAYOUT.streetZ[0] };
-    let bestErr = Infinity;
-    for (const ax of LAYOUT.avenueX) {
-      for (const sz of LAYOUT.streetZ) {
-        const err = Math.abs(Math.hypot(ax - px, sz - pz) - away);
-        if (err < bestErr) { bestErr = err; best = { x: ax, z: sz }; }
-      }
-    }
-    return best;
-  }
-
   /** True if a patrol is physically on top of the bike - a real collision. */
   hits(x: number, z: number, r: number): boolean {
     for (const p of this.patrols) {
-      if (!p.active) continue;
       // Patrols are rotated, so use the larger half-extent both ways rather
       // than pretend they are axis-aligned. Slightly generous, and forgiving
       // is the right way to be wrong about a collision you did not choose.
@@ -389,6 +439,13 @@ export class Police {
     }
     return false;
   }
+}
+
+/** Keeps a grid index in range by bouncing off the edge rather than wrapping. */
+function clampIndex(i: number, len: number): number {
+  if (i < 0) return 1 % len;
+  if (i >= len) return Math.max(0, len - 2);
+  return i;
 }
 
 function snap(v: number, list: readonly number[]): number {

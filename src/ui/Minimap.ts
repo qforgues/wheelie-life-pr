@@ -41,7 +41,7 @@ export function isOrientation(v: unknown): v is MapOrientation {
 export interface MapBlip {
   x: number;
   z: number;
-  kind: 'cop' | 'poi';
+  kind: 'cop' | 'patrol' | 'poi';
 }
 
 export class Minimap {
@@ -129,13 +129,16 @@ export class Minimap {
       if (Math.hypot(b.x - x, b.z - z) > RANGE * 1.5) continue;
       const bx = px(b.x);
       const bz = pz(b.z);
+      // A patrol on its beat and one that is coming for you have to be
+      // distinguishable at a glance - that is the whole value of the scanner.
       c.beginPath();
-      c.arc(bx, bz, b.kind === 'cop' ? 4.5 : 3.5, 0, Math.PI * 2);
-      c.fillStyle = b.kind === 'cop' ? '#ff4d5a' : '#e0a13a';
+      c.arc(bx, bz, b.kind === 'cop' ? 4.5 : 3.2, 0, Math.PI * 2);
+      c.fillStyle = b.kind === 'cop' ? '#ff4d5a'
+        : b.kind === 'patrol' ? '#5a8bd6' : '#e0a13a';
       c.fill();
       if (b.kind === 'cop') {
-        c.strokeStyle = 'rgba(255,255,255,0.85)';
-        c.lineWidth = 1.2;
+        c.strokeStyle = 'rgba(255,255,255,0.9)';
+        c.lineWidth = 1.4;
         c.stroke();
       }
     }

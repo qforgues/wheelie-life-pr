@@ -333,7 +333,9 @@ export class Game {
     }
     if (report.busted) this.onBusted();
     this.blips = this.progress.scanner
-      ? report.blips.map((b) => ({ x: b.x, z: b.z, kind: 'cop' as const }))
+      ? report.blips.map((b) => ({
+        x: b.x, z: b.z, kind: b.chasing ? ('cop' as const) : ('patrol' as const),
+      }))
       : [];
 
     const state = this.sim.state;
