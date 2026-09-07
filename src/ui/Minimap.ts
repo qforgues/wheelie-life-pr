@@ -22,20 +22,22 @@ const RANGE = 210;
  * "left on the map" is always "left on the screen" - easier to follow a turn.
  * Both are legitimate and people are strongly divided, so it is a setting.
  */
-export type MapOrientation = 'north' | 'track';
+export type MapOrientation = 'north' | 'track' | 'off';
 
-export const ORIENTATION_ORDER: MapOrientation[] = ['north', 'track'];
+export const ORIENTATION_ORDER: MapOrientation[] = ['north', 'track', 'off'];
 export const ORIENTATION_LABELS: Record<MapOrientation, string> = {
   north: 'MAP FIXED',
   track: 'ARROW FIXED',
+  off: 'OFF',
 };
 export const ORIENTATION_BLURBS: Record<MapOrientation, string> = {
   north: 'North stays up. The arrow turns as you do.',
   track: 'You stay pointing up. The city turns around you.',
+  off: 'No map. G brings it back.',
 };
 
 export function isOrientation(v: unknown): v is MapOrientation {
-  return v === 'north' || v === 'track';
+  return v === 'north' || v === 'track' || v === 'off';
 }
 
 export interface MapBlip {
@@ -85,8 +87,14 @@ export class Minimap {
     const half = s / 2;
     const scale = half / RANGE;
 
-    // World -> map. +Z is up, so the vertical axis is negated.
-    const px = (wx: number) => half + (wx - x) * scale;
+    // World -> map, viewed from ABOVE.
+    //
+    // Both axes are negated, and the x one is the subtle half. Three.js is
+    // right-handed with Y up, so facing +Z your right hand points at -X -
+    // steering right takes the bike toward -X. Drawing +X to the right of the
+    // map therefore mirrors the whole world: turning right swung everything
+    // left. Looking down at a scene with +Z up puts +X on the LEFT.
+    const px = (wx: number) => half - (wx - x) * scale;
     const pz = (wz: number) => half - (wz - z) * scale;
 
     c.clearRect(0, 0, s, s);
@@ -95,10 +103,11 @@ export class Minimap {
 
     c.save();
     if (orientation === 'track') {
-      // Turn the city so the rider's heading points up. A canvas rotation of
-      // -yaw sends the heading (sin yaw, -cos yaw) onto (0, -1).
+      // Turn the city so the rider's heading points up. With x mirrored the
+      // heading draws at (-sin yaw, -cos yaw), which a rotation of +yaw sends
+      // onto (0, -1).
       c.translate(half, half);
-      c.rotate(-yaw);
+      c.rotate(yaw);
       c.translate(-half, -half);
     }
 
@@ -150,7 +159,7 @@ export class Minimap {
       if (b.heading !== undefined) {
         c.beginPath();
         c.moveTo(bx, bz);
-        c.lineTo(bx + Math.sin(b.heading) * 11, bz - Math.cos(b.heading) * 11);
+        c.lineTo(bx - Math.sin(b.heading) * 11, bz - Math.cos(b.heading) * 11);
         c.strokeStyle = b.kind === 'cop' ? '#ff4d5a' : '#5a8bd6';
         c.lineWidth = 2;
         c.stroke();
@@ -162,9 +171,9 @@ export class Minimap {
     // map already turned, so it just points up.
     c.save();
     c.translate(half, half);
-    // Canvas rotate(yaw) sends (0,-1) to (sin yaw, -cos yaw), which is the
-    // heading. Negating it here is what made the arrow swing the wrong way.
-    if (orientation === 'north') c.rotate(yaw);
+    // With x mirrored the heading draws at (-sin yaw, -cos yaw), and
+    // rotate(-yaw) is what sends the arrow's tip there.
+    if (orientation === 'north') c.rotate(-yaw);
     c.beginPath();
     c.moveTo(0, -7.5);
     c.lineTo(5, 6);
@@ -182,7 +191,7 @@ export class Minimap {
     if (orientation === 'track') {
       c.save();
       c.translate(half, half);
-      c.rotate(-yaw);
+      c.rotate(yaw);
       c.fillStyle = 'rgba(255,255,255,0.75)';
       c.font = `bold ${Math.round(s * 0.075)}px ui-monospace, monospace`;
       c.textAlign = 'center';

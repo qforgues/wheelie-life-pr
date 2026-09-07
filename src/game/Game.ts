@@ -9,7 +9,9 @@ import { BIKES, TRICKS, cloneTuning, type BikeId } from '../sim/tuning';
 import { BIKE_VISUALS } from '../view/bikeVisuals';
 import { City } from '../world/City';
 import { Police } from '../world/Police';
-import { Minimap, type MapBlip } from '../ui/Minimap';
+import {
+  Minimap, ORIENTATION_LABELS, ORIENTATION_ORDER, type MapBlip,
+} from '../ui/Minimap';
 import { Mirrors } from '../view/Mirrors';
 import { buildSky, buildEnvironment, type SkyRig } from '../world/Sky';
 import { makeBlobShadowTexture, setAnisotropy } from '../world/textures';
@@ -201,7 +203,11 @@ export class Game {
     });
 
     this.overlay.setOrientationValue(this.progress.mapOrientation);
-    this.overlay.onOrientationPicked((o) => this.progress.setMapOrientation(o));
+    this.minimap.root.hidden = this.progress.mapOrientation === 'off';
+    this.overlay.onOrientationPicked((o) => {
+      this.progress.setMapOrientation(o);
+      this.minimap.root.hidden = o === 'off';
+    });
 
     this.police.setStyle(this.progress.police);
     this.overlay.setPoliceValue(this.progress.police);
@@ -358,6 +364,15 @@ export class Game {
       this.input.setGamepadEmulation(this.overlay.isVisible ? 'mouse' : 'gamepad');
     }
     if (frame.toggleDiagnostics) this.diagnostics.toggle();
+    if (frame.cycleMap) {
+      // G / D-pad down cycles the GPS. M was already mute, so the map took G.
+      const order = ORIENTATION_ORDER;
+      const next = order[(order.indexOf(this.progress.mapOrientation) + 1) % order.length];
+      this.progress.setMapOrientation(next);
+      this.overlay.setOrientationValue(next);
+      this.minimap.root.hidden = next === 'off';
+      this.hud.showToast(`GPS: ${ORIENTATION_LABELS[next]}`, 1.6);
+    }
     if (frame.toggleDebug) this.debug.toggle();
     if (frame.toggleAudio) {
       this.audio.setMuted(!this.audio.isMuted);

@@ -316,18 +316,36 @@ export class City implements GroundProvider {
    */
   private buildBillboards(): void {
     const art = [makeAbiertoBillboard(), makePiratasBillboard()];
-    const back = LAYOUT.roadHalf + LAYOUT.sidewalk + LAYOUT.blockDepth + 9;
+    // Where a board can actually be seen.
+    //
+    // These used to sit 33 m out on both axes, which is PAST the building rows
+    // (they end 24 m out) and therefore deep in the empty middle of a block,
+    // hidden behind the buildings from every road. Nobody ever saw one.
+    //
+    // Rows stop 25 m short of a junction, so the corner between roughly 8 m and
+    // 25 m on both axes is open ground with a clear diagonal view of the
+    // crossing. That is where a hoarding goes.
+    const back = LAYOUT.roadHalf + LAYOUT.sidewalk + 7;
     let n = 0;
+    let placed = 0;
 
     for (const ax of LAYOUT.avenueX) {
       for (const sz of LAYOUT.streetZ) {
-        // Every third junction, alternating which board goes up.
-        if ((n++ % 3) !== 1) continue;
-        const side = n % 2 === 0 ? 1 : -1;
-        const board = makeBillboard(art[n % art.length], 8);
-        board.position.set(ax + side * back, 3.4, sz + side * back);
-        // Turned to face back down the junction it stands on.
-        board.rotation.y = side > 0 ? Math.PI * 0.75 : -Math.PI * 0.25;
+        // Every other junction, alternating which board goes up and which
+        // corner it stands on.
+        //
+        // `n++` post-increments, so indexing art[n % 2] AFTER the test always
+        // landed on an odd n - and therefore always the same board. Only one of
+        // the two designs was ever built. Count the boards placed instead.
+        if ((n++ % 2) !== 0) continue;
+        const k = placed++;
+        const sx = (k % 2 === 0) ? 1 : -1;
+        const sz2 = (k % 4 < 2) ? 1 : -1;
+        const board = makeBillboard(art[k % art.length], 9);
+        board.position.set(ax + sx * back, 4.0, sz + sz2 * back);
+        // Square on to the junction it stands over: face back along the
+        // diagonal toward the crossing.
+        board.rotation.y = Math.atan2(-sx, -sz2);
         this.blockAdd(board);
       }
     }

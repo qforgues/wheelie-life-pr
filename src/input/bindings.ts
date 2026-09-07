@@ -53,6 +53,7 @@ export const BINDINGS: BindingRow[] = [
   { action: 'Look around', pad: 'Right stick', key: 'Drag mouse' },
   { action: 'Reset', pad: 'Menu / B', key: 'R' },
   { action: 'Menu / exit to menu', pad: 'View', key: 'H' },
+  { action: 'GPS: fixed / arrow / off', pad: 'D-pad down', key: 'G' },
   { action: 'Diagnostics', pad: 'D-pad up', key: 'D' },
 ];
 
@@ -72,6 +73,7 @@ export const KEY_MAP = {
   toggleHelp: ['KeyH'],
   toggleDebug: ['KeyP'],
   toggleAudio: ['KeyM'],
+  cycleMap: ['KeyG'],
   diagnostics: ['KeyD'],
 } as const;
 

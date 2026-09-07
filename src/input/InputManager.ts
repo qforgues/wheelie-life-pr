@@ -11,6 +11,8 @@ export interface FrameInput {
   toggleHelp: boolean;
   toggleDebug: boolean;
   toggleAudio: boolean;
+  /** One-shot: cycle the GPS between fixed, arrow-fixed and off. */
+  cycleMap: boolean;
   /** One-shot: cycle to the next camera mode. */
   cycleCamera: boolean;
   /** One-shot: show or hide the diagnostics readout. */
@@ -55,6 +57,7 @@ export class InputManager {
     toggleHelp: false,
     toggleDebug: false,
     toggleAudio: false,
+    cycleMap: false,
     cycleCamera: false,
     toggleDiagnostics: false,
     activeDevice: 'keyboard',
@@ -144,6 +147,7 @@ export class InputManager {
     let toggleHelp = this.pressed('toggleHelp');
     const toggleDebug = this.pressed('toggleDebug');
     const toggleAudio = this.pressed('toggleAudio');
+    let cycleMap = this.pressed('cycleMap');
 
     let camX = this.mouseDx * 0.03;
     let camY = this.mouseDy * 0.03;
@@ -186,6 +190,7 @@ export class InputManager {
         || this.padEdge(PAD.B, down(PAD.B));
       cycleCamera = cycleCamera || this.padEdge(PAD.Y, down(PAD.Y));
       toggleDiagnostics = toggleDiagnostics || this.padEdge(PAD.DPAD_UP, down(PAD.DPAD_UP));
+      cycleMap = cycleMap || this.padEdge(PAD.DPAD_DOWN, down(PAD.DPAD_DOWN));
       // View opens and closes the menu. The controls card has always advertised
       // this and the button was never actually read, which left a controller
       // with no way back to the menu at all - Menu/B resets the bike.
@@ -194,7 +199,9 @@ export class InputManager {
       if (down(PAD.X)) trick = 'stand';
       else if (down(PAD.A)) trick = 'knee';
       // Keep the rest of the button edges warm so nothing double-fires.
-      const edged: number[] = [PAD.RB, PAD.LB, PAD.MENU, PAD.B, PAD.Y, PAD.DPAD_UP, PAD.VIEW];
+      const edged: number[] = [
+        PAD.RB, PAD.LB, PAD.MENU, PAD.B, PAD.Y, PAD.DPAD_UP, PAD.DPAD_DOWN, PAD.VIEW,
+      ];
       for (let i = 0; i < pad.buttons.length; i++) {
         if (!edged.includes(i)) this.prevPad.buttons[i] = down(i);
       }
@@ -214,6 +221,7 @@ export class InputManager {
     f.toggleHelp = toggleHelp;
     f.toggleDebug = toggleDebug;
     f.toggleAudio = toggleAudio;
+    f.cycleMap = cycleMap;
     f.cycleCamera = cycleCamera;
     f.toggleDiagnostics = toggleDiagnostics;
     f.activeDevice = this.lastDevice;

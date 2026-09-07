@@ -702,3 +702,37 @@ The fat tube was at the bottom, which is a conventional fork. A 2022-on Grom is
 upside-down: the fat outer tube is clamped at the top and a thin chrome slider
 runs down to the axle, with a carrier at the bottom. That inverted stance is a
 large part of why the current bike looks like it does.
+
+## 39. The minimap was mirrored
+
+Reported as "the map isn't turning right when I am locked in with the arrow, I
+can't explain how it is off" - which is exactly how a mirrored map feels. You
+can see it is wrong and not say why.
+
+Three.js is right-handed with Y up, so facing +Z your right hand points at **-X**
+- steering right takes the bike toward -X, measured rather than assumed. The map
+drew +X to the right, so the entire world was flipped left-to-right against what
+the rider experiences. Looking down at a scene with +Z up puts +X on the LEFT.
+
+Flipping the x axis meant the arrow rotation, the track-mode rotation, the north
+marker and the scanner heading stubs all had to follow. Verified by probing
+pixels: a landmark on the rider's right now draws on the right of the map at
+every heading in track mode, which is the defining property of that mode, and
+the arrow aligns with the heading within measurement noise at N/E/S/W.
+
+## 40. Both billboards, and where a board can be seen
+
+Two bugs, both mine. The boards sat 33 m out on each axis, which is past the
+building rows (they end at 24 m) and therefore in the middle of a block, hidden
+from every road - nobody ever saw one. They now stand in the corner void
+between roughly 8 m and 25 m, which building rows leave clear, facing the
+junction down the diagonal.
+
+And only one of the two designs was ever built: `n++` post-increments, so
+`art[n % 2]` was evaluated with an always-odd `n` and always picked the same
+board. Counting the boards placed rather than the junctions visited fixes it.
+
+## 41. G cycles the GPS
+
+M was already mute, so the map took G: fixed, then arrow-fixed, then off. D-pad
+down on a controller.
