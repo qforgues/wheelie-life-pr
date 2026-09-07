@@ -7,7 +7,8 @@ wheelie physics.
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
+npm run dev      # http://localhost:4174  — hot reload while you work
+npm run beta     # http://localhost:4173  — the real build, what gets tested
 ```
 
 ---
@@ -154,7 +155,7 @@ anything.
 
 ### Recording the lines
 
-Open **`/record.html`** on the live site (or `localhost:5173/record.html`) on a
+Open **`/record.html`** on the live site (or `localhost:4173/record.html`) on a
 laptop or phone. It walks through each line, records it, plays it back, and
 downloads the files named the way the game expects, plus a `manifest.json`.
 

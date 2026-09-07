@@ -1498,3 +1498,26 @@ So the machine tells us instead:
 
 The UA test stays, because when it matches it is right. It is just no longer the
 only thing standing between Justin and a white screen.
+
+## 72. Black buildings, and the handoff
+
+Justin got it running for about a minute before it went. Two things from the
+photos:
+
+**He was on `f21f77b`** — the build *before* the self-healing fix. So the
+remembered-tier mechanism was never in the code he was running, and the
+diagnostics still read `desktop / other`, `quality high`, `fps 4`.
+
+**"All the buildings were black, the street was black too."** That is the
+missing half of the picture and it is worth writing down: when the console runs
+out of GPU memory, **texture uploads start failing before the context drops**.
+The geometry is still there and still lit, but every material samples a texture
+that was never uploaded, so it renders black. Black buildings under a normal sky
+are not a shading bug — they are the memory ceiling being hit, about a minute
+before the context goes. If that is ever seen again, the answer is memory, and
+the diagnostics panel will already know.
+
+The project passes to Justin's Mac from here. `CLAUDE.md` is the brief for
+whoever picks it up next: how to run it, the gate, the harnesses and what each
+one is protecting, the Xbox story in full, and the standing rule that draw calls
+are the metric and frame timings are not.
