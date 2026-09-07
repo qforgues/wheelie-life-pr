@@ -77,14 +77,19 @@ export class Post {
   ) {
     this.composer = new EffectComposer(renderer);
     this.composer.addPass(new RenderPass(scene, camera));
-    // Threshold high, and it needs to be. At 0.82 the sunlit pavement was over
-    // the line, so every kerb in the city glowed like a strip light - which
-    // reads as a bug, not as a lens. At 0.95 only things that are genuinely
-    // near-white or emissive bloom: the brake light, a light bar, the sun off
-    // a tank. Radius wide and strength low with it, for a soft halo rather than
-    // a hard glow.
+    // Threshold very high, and it needs to be.
+    //
+    // At 0.82 the sunlit pavement was over the line and every kerb in the city
+    // glowed like a strip light. 0.95 was not enough either - a pale sidewalk
+    // under a low sun is genuinely near-white, so the kerb edge stayed a neon
+    // stripe down both sides of every road. Turning the post chain off and
+    // comparing was what settled it: the scene was fine, the bloom was doing
+    // it. At 0.98 only what is actually emissive gets through - a brake light,
+    // a light bar, a sun glint off a tank - which is the point of having it.
+    // Radius wide and strength low with it, for a soft halo rather than a
+    // hard glow.
     this.bloom = new UnrealBloomPass(
-      new THREE.Vector2(innerWidth, innerHeight), strength, 0.9, 0.95,
+      new THREE.Vector2(innerWidth, innerHeight), strength, 0.9, 0.98,
     );
     this.composer.addPass(this.bloom);
     this.final = new ShaderPass(FINAL);

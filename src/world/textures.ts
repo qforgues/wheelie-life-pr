@@ -376,65 +376,119 @@ export function makeGrassTexture(): THREE.CanvasTexture {
 const BILLBOARDS = new Map<string, THREE.CanvasTexture>();
 
 /** The Abierto? wordmark: teal script, a cyan wave over it, a gold swoosh under. */
+/**
+ * Abierto's brand, as Abierto actually paints it.
+ *
+ * Taken off abierto.app rather than remembered: layered turquoise water across
+ * the top, the wordmark in **Pacifico** - which is the face the site loads - and
+ * a band of gold sand sweeping under it. The palette is theirs by name, straight
+ * out of their stylesheet:
+ *
+ *   ocean #0d9488   ocean-deep #0f766e   turquoise #2dd4bf
+ *   sand  #f5c518   sand-deep  #d4a017   sky #f0fdfa
+ *
+ * The first version put a dark keyline round the letters to make them "read",
+ * which is what the black outline was. It was solving a problem that did not
+ * exist: deep teal on near-white is already a mile of contrast, and outlining a
+ * script face fills in every join and turns it into a sticker. Brand marks do
+ * not get outlined. If a wordmark needs one, the colours are wrong.
+ *
+ * Pacifico arrives over the network and the city is built the moment the page
+ * loads, so the first paint uses whatever script face the machine has. Rather
+ * than block on the font, the canvas repaints itself once it lands and flags the
+ * texture - same texture object, same GPU binding, no reload.
+ */
+let abiertoRepaint: (() => void) | null = null;
+
 export function makeAbiertoBillboard(): THREE.CanvasTexture {
   const cached = BILLBOARDS.get('abierto');
   if (cached) return cached;
 
-  const W = 1024, H = 512;
+  const W = 1024;
+  const H = 512;
   const [canvas, ctx] = makeCanvas(W, H);
-  // White ground: it is a painted sign, not a backlit one.
-  ctx.fillStyle = '#f7f5f0';
-  ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = 'rgba(0,0,0,0.10)';
-  ctx.lineWidth = 10;
-  ctx.strokeRect(16, 16, W - 32, H - 32);
 
-  // The wave across the top, two overlapping strokes with a break in them.
-  ctx.strokeStyle = '#31b6cc';
-  ctx.lineCap = 'round';
-  for (const [y, w, x0, x1] of [[104, 26, 250, 620], [86, 20, 560, 860]] as const) {
-    ctx.lineWidth = w;
+  const paint = () => {
+    ctx.clearRect(0, 0, W, H);
+    // Their "sky": near-white with the faintest green in it, not pure white.
+    ctx.fillStyle = '#f0fdfa';
+    ctx.fillRect(0, 0, W, H);
+
+    // Water. Several passes of the same wave at different heights, widths and
+    // opacities, which is what gives the icon its depth - one clean stroke
+    // reads as a logo, five overlapping ones read as sea.
+    const wave = (y: number, amp: number, width: number, colour: string, alpha: number) => {
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = width;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-40, y);
+      for (let x = -40; x <= W + 40; x += 8) {
+        ctx.lineTo(x, y + Math.sin(x / 96 + y * 0.05) * amp + Math.sin(x / 41) * amp * 0.35);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    };
+    wave(38, 13, 16, '#2dd4bf', 0.40);
+    wave(62, 16, 12, '#2dd4bf', 0.62);
+    wave(84, 11, 20, '#14b8a6', 0.30);
+    wave(96, 18, 9, '#0d9488', 0.55);
+    wave(120, 12, 14, '#2dd4bf', 0.35);
+
+    // Sand: a solid band curving up to the right, the way it does on the icon.
+    ctx.fillStyle = '#f5c518';
     ctx.beginPath();
-    ctx.moveTo(x0, y + 16);
-    ctx.bezierCurveTo(x0 + 90, y - 26, x0 + 170, y + 40, x1, y - 6);
+    ctx.moveTo(0, H);
+    ctx.lineTo(0, H - 96);
+    ctx.bezierCurveTo(W * 0.34, H - 46, W * 0.62, H - 132, W, H - 150);
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#d4a017';
+    ctx.lineWidth = 5;
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    ctx.moveTo(0, H - 96);
+    ctx.bezierCurveTo(W * 0.34, H - 46, W * 0.62, H - 132, W, H - 150);
     ctx.stroke();
-  }
-  ctx.lineWidth = 12;
-  ctx.beginPath();
-  ctx.moveTo(880, 66);
-  ctx.lineTo(936, 58);
-  ctx.stroke();
+    ctx.globalAlpha = 1;
 
-  // The wordmark. A script face if the platform has one, italic serif if not.
-  const label = 'Abierto?';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = 'italic 900 250px "Brush Script MT", "Snell Roundhand", Georgia, serif';
-  // Pale keyline first, then the teal fill on top of it.
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = '#0d5f5c';
-  ctx.lineWidth = 12;
-  ctx.strokeText(label, W / 2, H / 2 + 6);
-  ctx.fillStyle = '#1a8f8a';
-  ctx.fillText(label, W / 2, H / 2 + 6);
+    // The wordmark. Filled, and only filled.
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#0d9488';
+    ctx.font = '190px Pacifico, "Snell Roundhand", "Brush Script MT", cursive';
+    ctx.fillText('Abierto?', W / 2, H * 0.50);
 
-  // The gold swoosh underlining it.
-  ctx.strokeStyle = '#f0a92b';
-  ctx.lineWidth = 34;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(150, 430);
-  ctx.bezierCurveTo(330, 470, 620, 372, 900, 352);
-  ctx.stroke();
+    // What it is, under the name, in the sand.
+    ctx.fillStyle = '#0f766e';
+    ctx.font = '700 34px Outfit, "Helvetica Neue", Arial, sans-serif';
+    ctx.letterSpacing = '5px';
+    ctx.fillText('¿QUÉ ESTÁ ABIERTO EN VIEQUES?', W / 2, H - 52);
+    ctx.letterSpacing = '0px';
+  };
 
+  paint();
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = ANISOTROPY;
   BILLBOARDS.set('abierto', tex);
+
+  // Repaint once Pacifico lands, then never again.
+  abiertoRepaint = () => {
+    paint();
+    tex.needsUpdate = true;
+    abiertoRepaint = null;
+  };
+  if (typeof document !== 'undefined' && document.fonts) {
+    document.fonts.load('190px Pacifico')
+      .then(() => abiertoRepaint?.())
+      .catch(() => { /* no network, no Pacifico - the fallback script still reads */ });
+  }
   return tex;
 }
 
-/** VQS Bike Club - Los Piratas. Vieques, and the flag they ride under. */
 export function makePiratasBillboard(): THREE.CanvasTexture {
   const cached = BILLBOARDS.get('piratas');
   if (cached) return cached;

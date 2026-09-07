@@ -1358,3 +1358,45 @@ It runs through `tools/beta.mjs` now, which probes the port first: if something
 is already serving 4173 it says so and exits, and if nothing is it takes over.
 Either way the port ends up serving the game, which is the only thing the caller
 ever wanted — and running it twice is harmless instead of a port clash.
+
+## 67. The Abierto sign, from Abierto
+
+"my abierto logo has a black outline around it which is ugly."
+
+It did, and I put it there. The wordmark was stroked with a dark teal keyline
+before being filled, to make it "read" — solving a problem that did not exist.
+Deep teal on near-white is already a mile of contrast, and outlining a script
+face fills in every join and turns a logo into a sticker. **Brand marks do not
+get outlined. If a wordmark needs one, the colours are wrong.**
+
+The rest of it was remembered rather than looked at, so I went and got it. From
+abierto.app itself:
+
+  * The wordmark is set in **Pacifico** — the site loads it — not Brush Script.
+  * The palette has names in their stylesheet: `ocean #0d9488`,
+    `ocean-deep #0f766e`, `turquoise #2dd4bf`, `sand #f5c518`,
+    `sand-deep #d4a017`, `sky #f0fdfa`.
+  * The mark is layered water across the top and a band of gold sand sweeping
+    underneath, which the icon shows plainly and my two lonely strokes did not.
+
+Five overlapping wave passes at different heights, widths and opacities, because
+one clean stroke reads as a logo and five reads as sea.
+
+Pacifico arrives over the network and the city is built the instant the page
+loads, so the hoarding paints once in whatever script face the machine has and
+**repaints itself when the font lands** — same texture object, same GPU binding,
+no reload, and a missing font degrades instead of blocking. It is deliberately
+not loaded with the `media="print"` swap trick: that defers the stylesheet far
+enough that `document.fonts.load` has no `@font-face` to work with and Pacifico
+simply never arrives.
+
+## 68. Bloom was drawing neon kerbs
+
+Threshold 0.95 was still not enough. A pale sidewalk under a low sun is
+genuinely near-white, so the kerb stayed a bright cyan stripe down both sides of
+every road — which reads as a rendering fault, not as a lens.
+
+Turning the post chain off in the live page and comparing settled it in one
+screenshot: the scene was fine and the bloom was doing it. At 0.98 only things
+that are actually emissive get through — a brake light, a light bar, a glint off
+a tank — which is the entire point of having it.
