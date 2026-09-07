@@ -103,6 +103,104 @@ export function scaleUV(
   uv.needsUpdate = true;
 }
 
+/**
+ * Splits a multi-material geometry into one geometry per material group.
+ *
+ * A building box carries six groups - two wall materials, a roof and a floor -
+ * and `mergeGeometries` can only take one material. Pulling the groups apart
+ * first is what lets a whole block of buildings collapse into a handful of
+ * meshes instead of three per building.
+ */
+export function splitByGroup(geo: THREE.BufferGeometry): Array<{
+  geometry: THREE.BufferGeometry;
+  materialIndex: number;
+}> {
+  const index = geo.index;
+  if (!index || geo.groups.length <= 1) {
+    return [{ geometry: geo, materialIndex: geo.groups[0]?.materialIndex ?? 0 }];
+  }
+  const out: Array<{ geometry: THREE.BufferGeometry; materialIndex: number }> = [];
+  for (const g of geo.groups) {
+    // Remap only the vertices this group actually touches, so each piece
+    // carries its own compact buffers rather than a copy of the whole mesh.
+    const remap = new Map<number, number>();
+    const newIndex: number[] = [];
+    for (let i = g.start; i < g.start + g.count; i++) {
+      const v = index.getX(i);
+      let n = remap.get(v);
+      if (n === undefined) { n = remap.size; remap.set(v, n); }
+      newIndex.push(n);
+    }
+    const piece = new THREE.BufferGeometry();
+    for (const name of ['position', 'normal', 'uv']) {
+      const src = geo.attributes[name] as THREE.BufferAttribute | undefined;
+      if (!src) continue;
+      const size = src.itemSize;
+      const dst = new Float32Array(remap.size * size);
+      for (const [from, to] of remap) {
+        for (let c = 0; c < size; c++) dst[to * size + c] = src.array[from * size + c] as number;
+      }
+      piece.setAttribute(name, new THREE.BufferAttribute(dst, size));
+    }
+    piece.setIndex(newIndex);
+    out.push({ geometry: piece, materialIndex: g.materialIndex ?? 0 });
+  }
+  return out;
+}
+
+/**
+ * Bakes a whole subtree down to one mesh per material.
+ *
+ * Static scenery is authored as hundreds of little objects, and every one of
+ * them costs a draw call and a slot in the scene walk. The city was submitting
+ * 997 calls for 186k triangles - about 187 triangles each, which is almost all
+ * overhead. Merging by material within a cell keeps the bounding boxes small
+ * enough for culling to still work while collapsing the object count.
+ *
+ * The subtree is consumed: only the returned meshes should be added back.
+ */
+export function bakeSubtree(root: THREE.Object3D): THREE.Mesh[] {
+  root.updateMatrixWorld(true);
+  const buckets = new Map<THREE.Material, THREE.BufferGeometry[]>();
+
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.geometry) return;
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const piece of splitByGroup(mesh.geometry)) {
+      const mat = mats[piece.materialIndex] ?? mats[0];
+      if (!mat) continue;
+      const g = piece.geometry === mesh.geometry ? piece.geometry.clone() : piece.geometry;
+      g.applyMatrix4(mesh.matrixWorld);
+      g.clearGroups();
+      for (const name of Object.keys(g.attributes)) {
+        if (name !== 'position' && name !== 'normal' && name !== 'uv') g.deleteAttribute(name);
+      }
+      // Everything in a bucket must agree on which attributes it has.
+      if (!g.attributes.uv) {
+        const count = g.attributes.position.count;
+        g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(count * 2), 2));
+      }
+      if (!g.attributes.normal) g.computeVertexNormals();
+      const list = buckets.get(mat) ?? [];
+      list.push(g);
+      buckets.set(mat, list);
+    }
+  });
+
+  const out: THREE.Mesh[] = [];
+  for (const [mat, geos] of buckets) {
+    const merged = geos.length === 1 ? geos[0] : mergeGeometries(geos, false);
+    if (!merged) continue;
+    if (geos.length > 1) for (const g of geos) g.dispose();
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    out.push(mesh);
+  }
+  return out;
+}
+
 /** Capsule with enough segments to read as round at chase-camera distance. */
 export function limbCapsule(radius: number, length: number): THREE.BufferGeometry {
   return new THREE.CapsuleGeometry(radius, Math.max(0.01, length - radius * 2), 10, 24);

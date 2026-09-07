@@ -634,3 +634,36 @@ something:
 Tyres originally changed nothing measurable - grip is not what limits a Grom off
 the line - so a £5,200 part bought a number nobody could feel. They now buy lean
 angle before the bike lets go, which is what grip actually gives you.
+
+## 35. The city was submitting 187 triangles per draw call
+
+Profiled because it felt slow, and the numbers said something specific: the
+**low** tier ran at 13.5 ms against high's 19 ms with *identical* draw calls and
+triangle counts. Shadows and resolution were not the bottleneck. 997 draw calls
+for 186k triangles is about 187 triangles each - almost pure overhead - and 2144
+separate objects to walk every frame.
+
+Two changes, both aimed at object count rather than pixels:
+
+**Cells are baked.** Nothing inside a cell moves, so a block of buildings has no
+reason to be three hundred objects. Each cell is merged down to one mesh per
+material after the city is built. Per cell rather than city-wide, so the
+bounding boxes stay small and distance culling still works.
+
+**Six facades, one material each.** After the bake a cell costs exactly one draw
+call per material it holds, so every extra facade is another mesh in every block
+that uses it. Twelve facades with a light and a dark variant was 24 wall
+materials and dense corners were 31 meshes. The dark variant went too - it
+doubled the mesh count for a shading difference you cannot pick out from the
+road.
+
+| | before | after |
+|---|---|---|
+| draw calls | 997 | **533** |
+| low tier | 13.5 ms (74 fps) | **~10 ms (~100 fps)** |
+| wall materials | 24 | **6** |
+
+Worth writing down: the first measurement was meaningless because the tab was
+backgrounded, so rAF was paused, nothing had uploaded and every cell still read
+as visible. Frames are now driven by hand with a `gl.finish()` so the timing is
+real.

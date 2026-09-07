@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Traffic } from './Traffic';
 import type { CrashReason, GroundProvider } from '../sim/types';
 import type { SpawnPoint } from '../sim/BikeSim';
-import { mergeMeshes, roundedBox, scaleUV } from '../view/geometry';
+import { bakeSubtree, mergeMeshes, roundedBox, scaleUV } from '../view/geometry';
 import {
   CAR_COLORS, makeAwning, makeBillboard, makeFort, makeGarita, makeParkedCar, makePalm, makePlanter,
   makeRailing, makeShopSign, makeStreetLamp, PROP_MATERIALS,
@@ -188,6 +188,8 @@ export class City implements GroundProvider {
     this.buildBillboards();
     this.buildHeadland();
     this.buildBounds();
+    // Last, so anything added above is included in the bake.
+    this.flushBlocks();
     this.root.add(this.traffic.root);
   }
 
@@ -217,8 +219,30 @@ export class City implements GroundProvider {
     this.cellAt(obj.position.x, obj.position.z).add(obj);
   }
 
+  /**
+   * Bakes every cell down to one mesh per material.
+   *
+   * Nothing inside a cell ever moves, so there is no reason for a block of
+   * buildings to be three hundred separate objects. Before this the city
+   * submitted ~1000 draw calls for 186k triangles - about 187 triangles each,
+   * which is nearly all overhead - and the frame cost barely moved between the
+   * high and low tiers, because the bottleneck was walking and submitting the
+   * objects rather than drawing them.
+   *
+   * Per cell rather than city-wide, so the bounding boxes stay small and
+   * distance culling still does its job.
+   */
   private flushBlocks(): void {
-    // Cells are built lazily; nothing to do but report what we ended up with.
+    for (const cell of this.cells) {
+      const baked = bakeSubtree(cell.group);
+      // Free the originals before swapping the merged meshes in.
+      cell.group.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh && !baked.includes(m)) m.geometry.dispose();
+      });
+      cell.group.clear();
+      for (const mesh of baked) cell.group.add(mesh);
+    }
     this.cellCount = this.cells.length;
   }
 
@@ -445,7 +469,14 @@ export class City implements GroundProvider {
    * still do its job.
    */
   private buildBlocks(): void {
-    const facades = Array.from({ length: 12 }, (_, i) => makeFacadeTexture(i * 977 + 13, 3, 3));
+    // Six, not twelve.
+    //
+    // After the cell bake, a cell costs exactly one draw call per material it
+    // contains - so every extra facade is another mesh in every block that uses
+    // it. Twelve facades and a light/dark variant of each was 24 wall
+    // materials, and dense corners were 31 meshes. Six reads no differently
+    // down a street where the buildings are all different sizes anyway.
+    const facades = Array.from({ length: 6 }, (_, i) => makeFacadeTexture(i * 1637 + 13, 3, 3));
     let seed = 0;
     const rnd = () => {
       seed = (seed * 1664525 + 1013904223) >>> 0;
@@ -474,7 +505,6 @@ export class City implements GroundProvider {
       }
     }
 
-    this.flushBlocks();
   }
 
   /**
@@ -610,26 +640,25 @@ export class City implements GroundProvider {
     // Every wall gets a facade, not just the one facing the street: the ends of
     // the blocks are fully visible from the cross streets and the plaza, and
     // blank slabs there were killing the whole look.
-    // One material per facade-and-brightness pair for the whole city, instead
-    // of a fresh cloned texture per wall. The tile rate moves onto the mesh.
-    const wall = (bright: number) => {
-      const key = `${facade.uuid}:${bright}`;
+    // One material per facade for the whole city.
+    //
+    // There used to be a second, slightly darker variant for the walls that do
+    // not face the street. It doubled the wall materials to 24, and after the
+    // cell bake that is a doubled mesh count in every block - a real frame cost
+    // for a shading difference you cannot pick out from the road.
+    const wall = () => {
+      const key = facade.uuid;
       let mat = this.wallMats.get(key);
       if (!mat) {
-        mat = new THREE.MeshStandardMaterial({
-          map: facade,
-          roughness: 0.94,
-          color: new THREE.Color(bright, bright, bright),
-        });
+        mat = new THREE.MeshStandardMaterial({ map: facade, roughness: 0.94 });
         this.wallMats.set(key, mat);
       }
       return mat;
     };
 
-    // Side walls are very slightly knocked back so the frontage still reads as
-    // the "face" of the building.
-    const xFaces = wall(faceIndex <= 1 ? 1 : 0.88);
-    const zFaces = wall(faceIndex >= 4 ? 1 : 0.88);
+    const xFaces = wall();
+    const zFaces = xFaces;
+    void faceIndex;
     const roof = this.roofMat;
 
     const mats: THREE.Material[] = [xFaces, xFaces, roof, roof, zFaces, zFaces];
