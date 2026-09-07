@@ -667,3 +667,17 @@ Worth writing down: the first measurement was meaningless because the tab was
 backgrounded, so rAF was paused, nothing had uploaded and every cell still read
 as visible. Frames are now driven by hand with a `gl.finish()` so the timing is
 real.
+
+## 36. Chains, and engine covers instead of a grey crate
+
+A bike without a visible chain reads as a toy however good the bodywork is - it
+is the one part that says the back wheel is driven. All three now have one: two
+straight runs between the sprockets rather than a swept loop, because at
+chase-camera distance the top and bottom runs are all you ever see, plus teeth
+around the rear sprocket so it reads as a sprocket rather than a disc. On the
+Ducati it sits on the open side, which is the entire point of a single-sided
+swingarm.
+
+The YZ's engine was a plain grey box and it is the largest thing on the side of
+the bike. It now has a clutch cover and an ignition cover, both proud of the
+case, polished, and ringed with bolts so they read as castings.

@@ -519,6 +519,56 @@ export class BikeView {
 
 
   /** Builds the bodywork for whichever bike this is. */
+  /**
+   * The chain run, and a sprocket with teeth on it.
+   *
+   * A bike without a visible chain reads as a toy however good the bodywork is -
+   * it is the one part that says the back wheel is driven. Two straight runs
+   * between the sprockets rather than a real loop: at chase-camera distance the
+   * top and bottom runs are all you ever see, and a swept loop would cost far
+   * more geometry for nothing.
+   *
+   * Coordinates are bike-local, `x` is which side the chain lives on.
+   */
+  private addChain(
+    m: BodyMaterials,
+    x: number,
+    front: { y: number; z: number; r: number },
+    rear: { y: number; z: number; r: number },
+  ): void {
+    const chainMat = new THREE.MeshStandardMaterial({
+      color: 0x4a4d55, roughness: 0.45, metalness: 0.9,
+    });
+
+    // A run along each side of the sprockets: from the top of one to the top of
+    // the other, and the same underneath.
+    for (const sign of [1, -1]) {
+      const y0 = front.y + sign * front.r;
+      const z0 = front.z;
+      const y1 = rear.y + sign * rear.r;
+      const z1 = rear.z;
+      const dy = y1 - y0;
+      const dz = z1 - z0;
+      const len = Math.hypot(dy, dz);
+      const run = new THREE.Mesh(roundedBox(0.022, 0.026, len, 0.008, 3), chainMat);
+      run.position.set(x, (y0 + y1) / 2, (z0 + z1) / 2);
+      run.rotation.x = -Math.atan2(dy, dz);
+      run.castShadow = true;
+      this.bike.add(run);
+    }
+
+    // Teeth around the rear sprocket, which is what makes it read as a sprocket
+    // rather than a disc.
+    const teeth = 16;
+    for (let i = 0; i < teeth; i++) {
+      const a = (i / teeth) * Math.PI * 2;
+      const tooth = new THREE.Mesh(roundedBox(0.016, 0.022, 0.022, 0.005, 3), m.metal);
+      tooth.position.set(x, rear.y + Math.cos(a) * rear.r, rear.z + Math.sin(a) * rear.r);
+      tooth.rotation.x = -a;
+      this.bike.add(tooth);
+    }
+  }
+
   private buildBodywork(m: BodyMaterials): void {
     if (this.visual.style === 'dirt') this.buildDirtBodywork(m);
     else if (this.visual.style === 'sport') this.buildSportBodywork(m);
@@ -669,6 +719,9 @@ export class BikeView {
     sprocket.rotation.z = Math.PI / 2;
     sprocket.position.set(-0.085, 0.24, 0);
     this.bike.add(sprocket);
+    this.addChain(m, -0.085,
+      { y: 0.41, z: 0.55, r: 0.042 },
+      { y: 0.24, z: 0, r: 0.10 });
 
     // ---- front end -------------------------------------------------------
     // Everything here lives inside forkGroup, whose origin IS the front axle,
@@ -768,6 +821,9 @@ export class BikeView {
     sprocket.rotation.z = Math.PI / 2;
     sprocket.position.set(-0.075, this.R, 0);
     this.bike.add(sprocket);
+    this.addChain(m, -0.075,
+      { y: 0.50, z: 0.60, r: 0.048 },
+      { y: this.R, z: 0, r: 0.115 });
 
     // Shock, nearly vertical and buried in the frame.
     const shockBody = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.042, 0.30, 16), m.metal);
@@ -795,6 +851,36 @@ export class BikeView {
     head.position.set(0, 0.94, 0.57);
     head.rotation.x = 0.30;
     this.bike.add(head);
+    // Engine covers. The cases were a plain grey crate, and it is the biggest
+    // thing on the side of the bike: a clutch cover on the right, an ignition
+    // cover on the left, both proud of the case and polished.
+    const caseCover = new THREE.MeshStandardMaterial({
+      color: 0x9aa0a8, roughness: 0.32, metalness: 0.88,
+    });
+    for (const [side, radius] of [[1, 0.098], [-1, 0.082]] as const) {
+      const cover = new THREE.Mesh(
+        new THREE.CylinderGeometry(radius, radius, 0.035, 18), caseCover,
+      );
+      cover.rotation.z = Math.PI / 2;
+      cover.position.set(side * 0.145, 0.50, side > 0 ? 0.63 : 0.68);
+      cover.castShadow = true;
+      this.bike.add(cover);
+      // Bolt ring, so it is a casting rather than a coin.
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        const bolt = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.008, 0.008, 0.045, 6), m.metal,
+        );
+        bolt.rotation.z = Math.PI / 2;
+        bolt.position.set(
+          side * 0.15,
+          0.50 + Math.cos(a) * radius * 0.72,
+          (side > 0 ? 0.63 : 0.68) + Math.sin(a) * radius * 0.72,
+        );
+        this.bike.add(bolt);
+      }
+    }
+
     const skid = new THREE.Mesh(roundedBox(0.28, 0.05, 0.42, 0.008, 5), m.black);
     skid.position.set(0, 0.365, 0.68);
     skid.castShadow = true;
@@ -1019,6 +1105,17 @@ export class BikeView {
     hubArm.rotation.z = Math.PI / 2;
     hubArm.position.set(-0.13, this.R, 0);
     this.bike.add(hubArm);
+    // The chain sits on the open side, which is the whole point of a
+    // single-sided swingarm - you can see the wheel AND the drive.
+    const ducSprocket = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.115, 0.115, 0.014, 22), m.metal,
+    );
+    ducSprocket.rotation.z = Math.PI / 2;
+    ducSprocket.position.set(0.075, this.R, 0);
+    this.bike.add(ducSprocket);
+    this.addChain(m, 0.075,
+      { y: 0.42, z: 0.62, r: 0.05 },
+      { y: this.R, z: 0, r: 0.115 });
 
     const shock = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.04, 0.30, 16), gold);
     shock.position.set(0.05, 0.58, 0.48);
