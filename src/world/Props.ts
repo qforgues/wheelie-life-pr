@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { makePalmFrondTexture, makeSignTexture } from './textures';
 import { bakeSubtree, mergeMeshes, roundedBox } from '../view/geometry';
+import { standard } from '../view/materials';
 
 /** Street furniture. Everything here is cheap boxes and cylinders, lit well. */
 
@@ -12,17 +13,17 @@ function getFrondTexture(): THREE.Texture {
 }
 
 const SHARED = {
-  trunk: new THREE.MeshStandardMaterial({ color: 0x8a7a5f, roughness: 0.95 }),
-  iron: new THREE.MeshStandardMaterial({ color: 0x1c1c20, roughness: 0.55, metalness: 0.6 }),
-  glassWarm: new THREE.MeshStandardMaterial({
+  trunk: standard({ color: 0x8a7a5f, roughness: 0.95 }),
+  iron: standard({ color: 0x1c1c20, roughness: 0.55, metalness: 0.6 }),
+  glassWarm: standard({
     color: 0xffe6b0, emissive: 0xffd68a, emissiveIntensity: 0.35, roughness: 0.3,
   }),
-  terracotta: new THREE.MeshStandardMaterial({ color: 0xb5643f, roughness: 0.9 }),
-  stone: new THREE.MeshStandardMaterial({ color: 0xcfc6b0, roughness: 0.95 }),
-  leaf: new THREE.MeshStandardMaterial({ color: 0x2f7a37, roughness: 0.85 }),
-  chrome: new THREE.MeshStandardMaterial({ color: 0xc8ccd2, roughness: 0.25, metalness: 0.9 }),
-  tyre: new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.9 }),
-  glassCool: new THREE.MeshStandardMaterial({
+  terracotta: standard({ color: 0xb5643f, roughness: 0.9 }),
+  stone: standard({ color: 0xcfc6b0, roughness: 0.95 }),
+  leaf: standard({ color: 0x2f7a37, roughness: 0.85 }),
+  chrome: standard({ color: 0xc8ccd2, roughness: 0.25, metalness: 0.9 }),
+  tyre: standard({ color: 0x15161a, roughness: 0.9 }),
+  glassCool: standard({
     color: 0x2a3a4a, roughness: 0.15, metalness: 0.4, transparent: true, opacity: 0.85,
   }),
 };
@@ -52,6 +53,36 @@ function cached(key: string, build: () => THREE.Group): THREE.Group {
 /** Rounds to a step so shapes repeat and their geometry can be shared. */
 function bucket(v: number, step: number): number {
   return Math.round(v / step) * step;
+}
+
+/**
+ * Flattens a vehicle to one mesh per material.
+ *
+ * The traffic car has been built this way from the start - seven meshes, one
+ * per material, whatever the part count - and nothing else was. An ATV was
+ * nineteen draw calls, a Hummer twenty-three, the bomba twenty-five. On ICE
+ * that is twelve Hummers, which is **276 draw calls of police** in a frame the
+ * whole city renders in about 530.
+ *
+ * It also makes detail free. Once a vehicle bakes, another mudguard or mirror
+ * in a material the model already uses costs triangles and nothing else - which
+ * is why this and the pass to make the vehicles look better are the same
+ * change.
+ *
+ * `keep` is for parts that have to stay their own object because something
+ * animates them: light bars, beacons. Their transform is folded in first, so
+ * they land back in the right place.
+ */
+function bakeVehicle(g: THREE.Group, keep: THREE.Object3D[] = []): THREE.Group {
+  g.updateMatrixWorld(true);
+  for (const k of keep) {
+    k.matrixWorld.decompose(k.position, k.quaternion, k.scale);
+    k.removeFromParent();
+  }
+  const out = new THREE.Group();
+  for (const m of bakeSubtree(g)) out.add(m);
+  for (const k of keep) out.add(k);
+  return out;
 }
 
 export function makePalm(height = 7, seed = 0): THREE.Group {
@@ -88,7 +119,7 @@ function buildPalm(height = 7, seed = 0): THREE.Group {
   crown.position.set(topX, y - 0.1, 0);
   g.add(crown);
 
-  const frondMat = new THREE.MeshStandardMaterial({
+  const frondMat = standard({
     map: getFrondTexture(),
     transparent: true,
     alphaTest: 0.35,
@@ -191,7 +222,7 @@ function buildRailing(length: number, height = 0.85, spacing = 0.16): THREE.Grou
 /** Colonial cast-iron street lamp, the ones all over Old San Juan. */
 export function makeStreetLamp(): THREE.Group {
   const g = new THREE.Group();
-  const glass = new THREE.MeshStandardMaterial({
+  const glass = standard({
     color: 0xfff0c8, emissive: 0xffd98a, emissiveIntensity: 0.55,
     roughness: 0.25, transparent: true, opacity: 0.9,
   });
@@ -260,7 +291,7 @@ function buildPlanter(seed = 0): THREE.Group {
   const bloomColors = [0xd6417a, 0xe0653f, 0xc23b8f, 0xe89a3c];
   for (let i = 0; i < 9; i++) {
     const r = 0.16 + ((i * 37 + seed * 13) % 10) / 40;
-    const mat = new THREE.MeshStandardMaterial({
+    const mat = standard({
       color: i % 3 === 0 ? SHARED.leaf.color : bloomColors[(i + seed) % bloomColors.length],
       roughness: 0.9,
     });
@@ -301,11 +332,11 @@ interface CarParts {
 
 let CAR_PARTS: CarParts | null = null;
 const CAR_PAINT = new Map<number, THREE.MeshStandardMaterial>();
-const CAR_HEAD = new THREE.MeshStandardMaterial({
+const CAR_HEAD = standard({
   color: 0xf6f2e2, emissive: 0x2a2a24, roughness: 0.15, metalness: 0.3,
 });
-const CAR_TAIL = new THREE.MeshStandardMaterial({ color: 0xa8202a, roughness: 0.3 });
-const CAR_DARK = new THREE.MeshStandardMaterial({ color: 0x22242a, roughness: 0.7 });
+const CAR_TAIL = standard({ color: 0xa8202a, roughness: 0.3 });
+const CAR_DARK = standard({ color: 0x22242a, roughness: 0.7 });
 
 /** Merges a set of positioned geometries into one, consuming the inputs. */
 function bake(parts: Array<[THREE.BufferGeometry, THREE.Matrix4]>): THREE.BufferGeometry {
@@ -344,23 +375,52 @@ function carParts(): CarParts {
   const archGeo = roundedBox(0.30, 0.46, 0.78, 0.16, 2);
   const headGeo = roundedBox(0.40, 0.15, 0.10, 0.05, 2);
 
+  // Once the car bakes to one mesh per material, another part in a material it
+  // already uses is triangles and nothing else - so the shapes that carry the
+  // silhouette are worth having. A raked screen at each end is what stops a car
+  // reading as a box with a smaller box on it.
+  const screenGeo = roundedBox(1.5, 0.62, 0.10, 0.04, 2);
+  const mirrorGeo = roundedBox(0.10, 0.13, 0.22, 0.04, 2);
+  const plateGeo = roundedBox(0.52, 0.14, 0.04, 0.02, 1);
+
   CAR_PARTS = {
     // Lower sill, main body and roof all take the paint.
     paint: bake([
       [roundedBox(1.76, 0.34, 3.94, 0.12, 3), at(0, 0.5, 0)],
       [roundedBox(1.72, 0.60, 4.12, 0.26, 4), at(0, 0.78, 0)],
-      [roundedBox(1.34, 0.16, 1.55, 0.12, 3), at(0, 1.46, -0.22)],
+      // Roof, tapered in from the body so the greenhouse sits inside the
+      // shoulders the way a real one does.
+      [roundedBox(1.30, 0.16, 1.62, 0.12, 3), at(0, 1.47, -0.20)],
+      // Mirror stalks.
+      ...[-0.86, 0.86].map((dx) =>
+        [roundedBox(0.12, 0.06, 0.06, 0.02, 1), at(dx, 1.10, 0.86)] as [THREE.BufferGeometry, THREE.Matrix4]),
     ]),
-    glass: bake([[roundedBox(1.56, 0.50, 2.05, 0.30, 4), at(0, 1.24, -0.16)]]),
+    glass: bake([
+      [roundedBox(1.56, 0.50, 2.05, 0.30, 4), at(0, 1.24, -0.16)],
+      // Windscreen and backlight, raked.
+      [screenGeo, at(0, 1.26, 0.86, -0.62, 0, 0)],
+      [screenGeo, at(0, 1.26, -1.20, 0.72, 0, 0)],
+    ]),
     dark: bake([
       ...wheels.map(([dx, dz]) => [archGeo, at(dx * 0.98, 0.56, dz)] as [THREE.BufferGeometry, THREE.Matrix4]),
       ...[2.03, -2.03].map((dz) =>
         [roundedBox(1.70, 0.22, 0.20, 0.09, 3), at(0, 0.56, dz)] as [THREE.BufferGeometry, THREE.Matrix4]),
+      // Grille, and the mirror heads on their stalks.
+      [roundedBox(1.06, 0.20, 0.08, 0.03, 2), at(0, 0.88, 2.10)],
+      ...[-0.97, 0.97].map((dx) =>
+        [mirrorGeo, at(dx, 1.10, 0.88)] as [THREE.BufferGeometry, THREE.Matrix4]),
     ]),
     tyre: bake(wheels.map(([dx, dz]) =>
       [tyreGeo, at(dx, 0.34, dz, 0, Math.PI / 2, 0)] as [THREE.BufferGeometry, THREE.Matrix4])),
-    rim: bake(wheels.map(([dx, dz]) =>
-      [rimGeo, at(dx, 0.34, dz, 0, 0, Math.PI / 2)] as [THREE.BufferGeometry, THREE.Matrix4])),
+    rim: bake([
+      ...wheels.map(([dx, dz]) =>
+        [rimGeo, at(dx, 0.34, dz, 0, 0, Math.PI / 2)] as [THREE.BufferGeometry, THREE.Matrix4]),
+      // Number plates. Put in the wheel material rather than given a pale one
+      // of their own, because a pale one would be an eighth draw call on every
+      // car in the city and chrome-on-a-plate is right anyway.
+      [plateGeo, at(0, 0.62, 2.19)],
+      [plateGeo, at(0, 0.62, -2.19)],
+    ]),
     head: bake([-0.56, 0.56].map((dx) =>
       [headGeo, at(dx, 0.86, 2.06)] as [THREE.BufferGeometry, THREE.Matrix4])),
     tail: bake([-0.56, 0.56].map((dx) =>
@@ -371,6 +431,9 @@ function carParts(): CarParts {
   rimGeo.dispose();
   archGeo.dispose();
   headGeo.dispose();
+  screenGeo.dispose();
+  mirrorGeo.dispose();
+  plateGeo.dispose();
   return CAR_PARTS;
 }
 
@@ -381,7 +444,7 @@ export function makeCar(color: number): THREE.Group {
   const parts = carParts();
   let paint = CAR_PAINT.get(color);
   if (!paint) {
-    paint = new THREE.MeshStandardMaterial({ color, roughness: 0.28, metalness: 0.5 });
+    paint = standard({ color, roughness: 0.28, metalness: 0.5 });
     CAR_PAINT.set(color, paint);
   }
 
@@ -409,16 +472,16 @@ export function makeParkedCar(color: number): THREE.Group {
 
 export const CAR_COLORS = [0xd8453f, 0xf0f0f0, 0x2c3e6b, 0x2f7a4a, 0x1a1a1e, 0xd8a021];
 
-const LIGHT_RED = new THREE.MeshStandardMaterial({
+const LIGHT_RED = standard({
   color: 0xff2a3a, emissive: 0xff2a3a, emissiveIntensity: 1.4, roughness: 0.3,
 });
-const LIGHT_BLUE = new THREE.MeshStandardMaterial({
+const LIGHT_BLUE = standard({
   color: 0x2a6cff, emissive: 0x2a6cff, emissiveIntensity: 1.4, roughness: 0.3,
 });
-const LIGHT_AMBER = new THREE.MeshStandardMaterial({
+const LIGHT_AMBER = standard({
   color: 0xffa422, emissive: 0xffa422, emissiveIntensity: 1.4, roughness: 0.3,
 });
-const LIGHT_WHITE = new THREE.MeshStandardMaterial({
+const LIGHT_WHITE = standard({
   color: 0xfff4e0, emissive: 0xfff4e0, emissiveIntensity: 1.4, roughness: 0.3,
 });
 
@@ -430,6 +493,27 @@ const LIGHT_WHITE = new THREE.MeshStandardMaterial({
  * from a long way off, and at minimap distance the flash is the only cue.
  */
 export function makePoliceCar(riot = false): { group: THREE.Group; lights: [THREE.Mesh, THREE.Mesh] } {
+  return withLights(cached(`police:${riot}`, () => buildPoliceCar(riot)));
+}
+
+/**
+ * Pulls the two light-bar halves back out of a baked, cloned vehicle.
+ *
+ * Baking is what makes a patrol seven draw calls instead of twelve, but it also
+ * means the group handed back is a clone - so the light meshes have to be found
+ * by name rather than held onto from the build.
+ */
+function withLights(group: THREE.Group): { group: THREE.Group; lights: [THREE.Mesh, THREE.Mesh] } {
+  return {
+    group,
+    lights: [
+      group.getObjectByName('lightA') as THREE.Mesh,
+      group.getObjectByName('lightB') as THREE.Mesh,
+    ],
+  };
+}
+
+function buildPoliceCar(riot: boolean): THREE.Group {
   // Riot units are a different vehicle entirely at a glance: matte black
   // instead of white, amber running lights, a bull bar and a cage on the roof.
   // The player has to be able to tell which kind is coming from a long way off,
@@ -438,19 +522,23 @@ export function makePoliceCar(riot = false): { group: THREE.Group; lights: [THRE
 
   const barGeo = roundedBox(0.34, 0.13, 0.5, 0.05, 2);
   const red = new THREE.Mesh(barGeo, riot ? LIGHT_AMBER : LIGHT_RED);
+  red.name = 'lightA';
   red.position.set(-0.2, 1.62, -0.1);
   const blue = new THREE.Mesh(barGeo, riot ? LIGHT_WHITE : LIGHT_BLUE);
+  blue.name = 'lightB';
   blue.position.set(0.2, 1.62, -0.1);
-  const spine = new THREE.Mesh(
-    roundedBox(0.9, 0.09, 0.42, 0.04, 2),
-    new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.6 }),
-  );
+  // The light-bar spine and the door stripes take the car's OWN dark material
+  // rather than two near-black ones of their own. They were a hair different -
+  // 0x1a1c22 and 0x14161c against the car's 0x22242a - and nobody has ever seen
+  // the difference at 30 mph, but each one was a whole extra draw call on every
+  // patrol in the city.
+  const spine = new THREE.Mesh(roundedBox(0.9, 0.09, 0.42, 0.04, 2), CAR_DARK);
   spine.position.set(0, 1.57, -0.1);
   group.add(spine, red, blue);
 
-  const trim = new THREE.MeshStandardMaterial({
-    color: riot ? 0x3a3d46 : 0x14161c, roughness: 0.7,
-  });
+  // Riot kit stays its own grey, because a matte black car needs its cage and
+  // push bar to read AGAINST the paint rather than disappear into it.
+  const trim = riot ? standard({ color: 0x3a3d46, roughness: 0.7 }) : CAR_DARK;
   for (const side of [-1, 1]) {
     const stripe = new THREE.Mesh(roundedBox(0.04, 0.3, 2.6, 0.02, 2), trim);
     stripe.position.set(side * 0.88, 0.78, 0);
@@ -478,7 +566,7 @@ export function makePoliceCar(riot = false): { group: THREE.Group; lights: [THRE
     group.add(roofRack);
   }
 
-  return { group, lights: [red, blue] };
+  return bakeVehicle(group, [red, blue]);
 }
 
 
@@ -492,8 +580,8 @@ export function makePoliceCar(riot = false): { group: THREE.Group; lights: [THRE
 export function makeBillboard(art: THREE.Texture, width = 7.5): THREE.Group {
   const g = new THREE.Group();
   const h = width * 0.5;
-  const faceMat = new THREE.MeshStandardMaterial({ map: art, roughness: 0.82 });
-  const frameMat = new THREE.MeshStandardMaterial({ color: 0x2a2c33, roughness: 0.7, metalness: 0.4 });
+  const faceMat = standard({ map: art, roughness: 0.82 });
+  const frameMat = standard({ color: 0x2a2c33, roughness: 0.7, metalness: 0.4 });
 
   const board = new THREE.Mesh(roundedBox(width, h, 0.18, 0.05, 4), frameMat);
   board.position.y = h / 2;
@@ -523,7 +611,7 @@ export function makeBillboard(art: THREE.Texture, width = 7.5): THREE.Group {
   for (const dx of [-width * 0.26, 0, width * 0.26]) {
     const lamp = new THREE.Mesh(
       new THREE.CylinderGeometry(0.09, 0.13, 0.16, 10),
-      new THREE.MeshStandardMaterial({
+      standard({
         color: 0xfff2cf, emissive: 0xffe9b0, emissiveIntensity: 0.5, roughness: 0.4,
       }),
     );
@@ -544,9 +632,13 @@ export function makeBillboard(art: THREE.Texture, width = 7.5): THREE.Group {
  * everything, it just looks like a different Sunday.
  */
 export function makeATV(color: number): THREE.Group {
+  return cached(`atv:${color}`, () => bakeVehicle(buildATV(color)));
+}
+
+function buildATV(color: number): THREE.Group {
   const g = new THREE.Group();
-  const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.3 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x1f2127, roughness: 0.75 });
+  const paint = standard({ color, roughness: 0.4, metalness: 0.3 });
+  const dark = standard({ color: 0x1f2127, roughness: 0.75 });
 
   const body = new THREE.Mesh(roundedBox(1.02, 0.42, 1.55, 0.14, 6), paint);
   body.position.y = 0.62;
@@ -583,6 +675,29 @@ export function makeATV(color: number): THREE.Group {
     g.add(hub);
   }
 
+  // Mudguards over the front tyres and a brush guard on the nose. Free once it
+  // bakes, and they are most of what says cuatrimoto rather than go-kart.
+  for (const dz of [0.55, -0.55]) {
+    const guard = new THREE.Mesh(roundedBox(1.30, 0.10, 0.62, 0.06, 2), paint);
+    guard.position.set(0, 0.56, dz);
+    guard.castShadow = true;
+    g.add(guard);
+  }
+  const brush = new THREE.Mesh(roundedBox(0.72, 0.34, 0.06, 0.03, 2), dark);
+  brush.position.set(0, 0.62, 0.96);
+  g.add(brush);
+  for (const dx of [-0.30, 0.30]) {
+    const stay = new THREE.Mesh(roundedBox(0.05, 0.05, 0.26, 0.02, 1), dark);
+    stay.position.set(dx, 0.62, 0.85);
+    g.add(stay);
+  }
+  // Footwells either side of the seat.
+  for (const dx of [-0.44, 0.44]) {
+    const well = new THREE.Mesh(roundedBox(0.22, 0.05, 0.72, 0.02, 1), dark);
+    well.position.set(dx, 0.50, 0);
+    g.add(well);
+  }
+
   g.add(makeStandingRider(0, 1.02, -0.06, 0.9));
   return g;
 }
@@ -595,10 +710,15 @@ export function makeATV(color: number): THREE.Group {
  * way to a call.
  */
 export function makeFireTruck(): { group: THREE.Group; beacon: THREE.Mesh } {
+  const group = cached('bomba', () => buildFireTruck());
+  return { group, beacon: group.getObjectByName('beacon') as THREE.Mesh };
+}
+
+function buildFireTruck(): THREE.Group {
   const g = new THREE.Group();
-  const red = new THREE.MeshStandardMaterial({ color: 0xc62128, roughness: 0.4, metalness: 0.3 });
-  const trim = new THREE.MeshStandardMaterial({ color: 0x24262c, roughness: 0.7 });
-  const metal = new THREE.MeshStandardMaterial({ color: 0xb8bcc4, roughness: 0.35, metalness: 0.85 });
+  const red = standard({ color: 0xc62128, roughness: 0.4, metalness: 0.3 });
+  const trim = standard({ color: 0x24262c, roughness: 0.7 });
+  const metal = standard({ color: 0xb8bcc4, roughness: 0.35, metalness: 0.85 });
 
   const body = new THREE.Mesh(roundedBox(2.10, 1.30, 5.40, 0.10, 3), red);
   body.position.y = 1.30;
@@ -611,7 +731,7 @@ export function makeFireTruck(): { group: THREE.Group; beacon: THREE.Mesh } {
   cab.castShadow = true;
   g.add(cab);
   const screen = new THREE.Mesh(roundedBox(1.84, 0.60, 0.10, 0.04, 3),
-    new THREE.MeshStandardMaterial({
+    standard({
       color: 0x1a2029, roughness: 0.12, metalness: 0.5, transparent: true, opacity: 0.88,
     }));
   screen.position.set(0, 2.16, 2.58);
@@ -648,14 +768,19 @@ export function makeFireTruck(): { group: THREE.Group; beacon: THREE.Mesh } {
 
   const beacon = new THREE.Mesh(
     roundedBox(0.70, 0.14, 0.24, 0.05, 3),
+    // NOT from the shared cache. Police.ts animates this on the way to a call
+    // and the patrol light bars on their own schedule, and the two recipes are
+    // identical - so through the cache the bomba's beacon and every patrol's
+    // red light become one object fighting over one number.
     new THREE.MeshStandardMaterial({
       color: 0xff2a3a, emissive: 0xff2a3a, emissiveIntensity: 1.4, roughness: 0.3,
     }),
   );
+  beacon.name = 'beacon';
   beacon.position.set(0, 2.60, 1.70);
   g.add(beacon);
 
-  return { group: g, beacon };
+  return bakeVehicle(g, [beacon]);
 }
 
 /**
@@ -666,9 +791,13 @@ export function makeFireTruck(): { group: THREE.Group; beacon: THREE.Mesh } {
  * one from, so it is four shapes and no more.
  */
 export function makeScooter(color: number): THREE.Group {
+  return cached(`scooter:${color}`, () => bakeVehicle(buildScooter(color)));
+}
+
+function buildScooter(color: number): THREE.Group {
   const g = new THREE.Group();
-  const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.45 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x24262c, roughness: 0.7 });
+  const paint = standard({ color, roughness: 0.3, metalness: 0.45 });
+  const dark = standard({ color: 0x24262c, roughness: 0.7 });
 
   // Legshield: the tall panel between the rider's knees and the front wheel.
   const shield = new THREE.Mesh(roundedBox(0.44, 0.62, 0.16, 0.10, 6), paint);
@@ -699,7 +828,7 @@ export function makeScooter(color: number): THREE.Group {
   g.add(bar);
   const lamp = new THREE.Mesh(
     new THREE.CylinderGeometry(0.085, 0.085, 0.05, 12),
-    new THREE.MeshStandardMaterial({
+    standard({
       color: 0xf6f2e2, emissive: 0x3a3830, emissiveIntensity: 0.4, roughness: 0.2,
     }),
   );
@@ -735,10 +864,14 @@ export function makeScooter(color: number): THREE.Group {
  * long as a police car, with a push bar and a roof rack.
  */
 export function makeHummer(): { group: THREE.Group; lights: [THREE.Mesh, THREE.Mesh] } {
+  return withLights(cached('hummer', () => buildHummer()));
+}
+
+function buildHummer(): THREE.Group {
   const g = new THREE.Group();
-  const body = new THREE.MeshStandardMaterial({ color: 0x0f1013, roughness: 0.42, metalness: 0.5 });
-  const trim = new THREE.MeshStandardMaterial({ color: 0x2f3239, roughness: 0.65, metalness: 0.4 });
-  const glass = new THREE.MeshStandardMaterial({
+  const body = standard({ color: 0x0f1013, roughness: 0.42, metalness: 0.5 });
+  const trim = standard({ color: 0x2f3239, roughness: 0.65, metalness: 0.4 });
+  const glass = standard({
     color: 0x14181e, roughness: 0.12, metalness: 0.5, transparent: true, opacity: 0.88,
   });
 
@@ -795,17 +928,19 @@ export function makeHummer(): { group: THREE.Group; lights: [THREE.Mesh, THREE.M
 
   // Concealed strobes behind the screen rather than a light bar.
   const stripGeo = roundedBox(0.40, 0.10, 0.06, 0.02, 2);
-  const red = new THREE.Mesh(stripGeo, new THREE.MeshStandardMaterial({
+  const red = new THREE.Mesh(stripGeo, standard({
     color: 0xff2a3a, emissive: 0xff2a3a, emissiveIntensity: 1.2, roughness: 0.3,
   }));
+  red.name = 'lightA';
   red.position.set(-0.44, 1.90, 0.92);
-  const blue = new THREE.Mesh(stripGeo, new THREE.MeshStandardMaterial({
+  const blue = new THREE.Mesh(stripGeo, standard({
     color: 0x2a6cff, emissive: 0x2a6cff, emissiveIntensity: 1.2, roughness: 0.3,
   }));
+  blue.name = 'lightB';
   blue.position.set(0.44, 1.90, 0.92);
   g.add(red, blue);
 
-  return { group: g, lights: [red, blue] };
+  return bakeVehicle(g, [red, blue]);
 }
 
 /**
@@ -821,9 +956,9 @@ export function makePerson(shirt: number, trousers: number, seated = false): THR
 
 function buildPerson(shirt: number, trousers: number, seated = false): THREE.Group {
   const g = new THREE.Group();
-  const skinMat = new THREE.MeshStandardMaterial({ color: 0xa9713f, roughness: 0.85 });
-  const shirtMat = new THREE.MeshStandardMaterial({ color: shirt, roughness: 0.9 });
-  const legMat = new THREE.MeshStandardMaterial({ color: trousers, roughness: 0.9 });
+  const skinMat = standard({ color: 0xa9713f, roughness: 0.85 });
+  const shirtMat = standard({ color: shirt, roughness: 0.9 });
+  const legMat = standard({ color: trousers, roughness: 0.9 });
 
   const legLen = seated ? 0.34 : 0.72;
   const hip = seated ? 0.46 : 0.82;
@@ -884,8 +1019,8 @@ export function makeDominoTable(seed = 0): THREE.Group {
     n = (n * 1664525 + 1013904223) >>> 0;
     return n / 4294967296;
   };
-  const wood = new THREE.MeshStandardMaterial({ color: 0x8a6a44, roughness: 0.85 });
-  const plastic = new THREE.MeshStandardMaterial({ color: 0xd8dde2, roughness: 0.7 });
+  const wood = standard({ color: 0x8a6a44, roughness: 0.85 });
+  const plastic = standard({ color: 0xd8dde2, roughness: 0.7 });
 
   const top = new THREE.Mesh(roundedBox(1.0, 0.06, 1.0, 0.03, 4), plastic);
   top.position.y = 0.74;
@@ -948,7 +1083,7 @@ export function makeGarita(scale = 1): THREE.Group {
   finial.position.y = 4.35;
   g.add(finial);
   // Slit windows
-  const slit = new THREE.MeshStandardMaterial({ color: 0x14161a, roughness: 1 });
+  const slit = standard({ color: 0x14161a, roughness: 1 });
   for (let i = 0; i < 3; i++) {
     const s = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.9, 0.2), slit);
     const a = (i / 3) * Math.PI * 2;
@@ -988,7 +1123,7 @@ export function makeFort(): THREE.Group {
   g.add(tower);
   const lamp = new THREE.Mesh(
     new THREE.CylinderGeometry(2.0, 2.0, 2.4, 12),
-    new THREE.MeshStandardMaterial({ color: 0x1b2a3a, roughness: 0.3, metalness: 0.5 }),
+    standard({ color: 0x1b2a3a, roughness: 0.3, metalness: 0.5 }),
   );
   lamp.position.set(-14, 36.5, 0);
   g.add(lamp);
@@ -996,7 +1131,7 @@ export function makeFort(): THREE.Group {
 }
 
 export function makeAwning(width: number, color: number): THREE.Mesh {
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.85, side: THREE.DoubleSide });
+  const mat = standard({ color, roughness: 0.85, side: THREE.DoubleSide });
   const m = new THREE.Mesh(roundedBox(width, 0.11, 1.5, 0.045, 6), mat);
   m.rotation.x = -0.32;
   m.castShadow = true;
@@ -1017,7 +1152,7 @@ export function makeShopSign(text: string, bg: string, fg: string, width = 2.6):
   const key = `${text}|${bg}|${fg}`;
   let mat = SIGN_MATS.get(key);
   if (!mat) {
-    mat = new THREE.MeshStandardMaterial({ map: makeSignTexture(text, bg, fg), roughness: 0.8 });
+    mat = standard({ map: makeSignTexture(text, bg, fg), roughness: 0.8 });
     SIGN_MATS.set(key, mat);
   }
   return new THREE.Mesh(new THREE.PlaneGeometry(width, width * 0.25), mat);
@@ -1090,11 +1225,11 @@ function buildRival(look: RivalLook): THREE.Group {
   root.add(roll);
   roll.add(pitch);
 
-  const paint = new THREE.MeshStandardMaterial({
+  const paint = standard({
     color: look.bodyColor, roughness: 0.38, metalness: 0.28,
   });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.62 });
-  const kit = new THREE.MeshStandardMaterial({ color: look.kitColor, roughness: 0.72 });
+  const dark = standard({ color: 0x1a1c22, roughness: 0.62 });
+  const kit = standard({ color: look.kitColor, roughness: 0.72 });
 
   const wb = RIVAL_WHEELBASE[look.style];
   const fr = look.frontRadius;

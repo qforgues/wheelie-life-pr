@@ -863,3 +863,110 @@ One thing that only showed up in a screenshot: a helmet the same colour as the
 jersey merges into a single blob at any distance. The lid is painted to match
 the **bike** instead, which is how a kit is actually put together and costs
 nothing, because the paint material is already in the bake.
+
+## 48. The fence, and the ten hectares behind it
+
+The edge of the map was five invisible boxes, and it leaked. You could ride out
+of the plaza's opening to the sea, round the ends of the sea wall, and then all
+the way round the **outside** of the city on ten hectares of blank grass - the
+side walls stopped four metres past the plaza opening and nothing closed the
+flanks.
+
+A flood fill of the map found it in about a second. Riding to the corner of the
+map would have found it too, eventually, and much worse. `tools/edgecheck` runs
+that fill on every build now: it starts in the middle of the city, walks every
+open cell, and fails if it reaches ground it should not.
+
+Closing the leak with a taller invisible box would have fixed half of it. The
+other half is that the edge of the map read as **nothing** - a field, and then a
+wall you cannot see. So the boundary is a fence: chain link, barbed wire, posts
+every six metres, and a braced double gate across every road that runs into it.
+A street that ends at a locked gate is a place. A street that ends at nothing is
+a bug.
+
+Three things it taught:
+
+**The wire is a texture, not geometry.** Two and a half kilometres of fence is
+one alpha-tested quad per panel - two triangles - where modelled wire would be
+tens of thousands. Alpha **test**, not blend, so there is nothing to sort and no
+cost to having it in front of the whole city.
+
+**A square texture on a panel that is not square gives stretched diamonds.** The
+tile is drawn 1.2 x 2.6 to match the panel, so the diamonds come out square. And
+the barbed wire had to be drawn heavy: at 2.4 px the strands aliased away at any
+distance and the top fifth of the fence read as a gap above the mesh.
+
+**There was a hole in the floor down every road.** The grass is laid as bands
+between the road corridors, and the corridors are cut out of those bands in both
+axes *everywhere* - including out in the apron where the road stopped long ago.
+So every avenue left a six-metre slot of nothing running from the last junction
+to the horizon, and you saw the sky dome through it. Standing at the south gate
+it read as a pale blue river down the middle of the street. The roads now run
+out to the fence and the grass fills what is past them.
+
+## 49. 550 materials that were all the same material
+
+Chasing the fence's cost turned up something much bigger: the city held **617
+materials covering 67 distinct recipes**. 550 duplicates.
+
+After the cell bake a cell costs one draw call per distinct material in it. Two
+materials that are byte-for-byte identical but came from two different `new`
+calls are not untidiness, they are two draw calls where there should be one. A
+row of six buildings with a water tank on each was six identical navy materials
+and six draw calls, in every cell, forever. There were 278 copies of one shutter
+colour.
+
+`view/materials.ts` shares them by recipe. **617 -> 78**, and with the fence
+added on top the meshes in cull range fell by about a quarter:
+
+| where | before | after |
+| --- | --- | --- |
+| spawn | 1363 | 988 |
+| middle junction | 1980 | 1474 |
+| plaza | 895 | 746 |
+| against the fence | 770 | 553 |
+
+This is the same fault the textures had, one level up: `makeShopSign` painted a
+canvas per sign and handed three.js 180 uploads of one picture, `makeFacadeTexture`
+cloned per wall for 232. Both were fixed by caching on what the thing *is*
+rather than where it was asked for.
+
+One thing must never come from the cache: anything animated at runtime. The
+bomba's beacon is the same red at the same intensity as a patrol's light bar, so
+through the cache they became **one object with two things writing to it** - the
+fire truck's siren and every patrol's. `tools/vehiclecheck` asserts they are
+different objects, which is how that got caught.
+
+## 50. Every vehicle bakes now
+
+The traffic car has been built as one mesh per material from the start - seven
+draw calls whatever the part count. Nothing else was:
+
+| | before | after |
+| --- | --- | --- |
+| cuatrimoto | 19 | 7 |
+| chuma | 16 | 8 |
+| patrol | 12 | 9 |
+| ICE hummer | 23 | 6 |
+| la bomba | 25 | 6 |
+
+ICE puts **twelve** Hummers out. That was 276 draw calls of police in a frame
+the whole city renders in about 530.
+
+Baking also makes detail free, which is why this and the pass to make the
+vehicles look better are the same change: once a vehicle is baked, another
+mudguard or mirror in a material the model already uses costs triangles and
+nothing else. The car got a raked windscreen and backlight, wing mirrors, a
+grille and number plates for 288 triangles and no extra draw call. The plates
+are in the *wheel* material rather than given a pale one of their own, because a
+pale one would have been an eighth draw call on every car in the city.
+
+The patrol's light-bar spine and door stripes now take the car's own dark
+material instead of two near-blacks of their own - 0x1a1c22 and 0x14161c against
+the car's 0x22242a. Nobody has ever seen that difference at 30 mph, and each one
+was a whole extra draw call on every patrol.
+
+Baked vehicles are cloned from a cached prototype, so the light bars have to be
+found by name rather than held from the build. `npm run scene` checks every
+vehicle against a draw-call budget and checks all seven animated lights survive
+the bake and the clone - a rename would otherwise silently kill every siren.

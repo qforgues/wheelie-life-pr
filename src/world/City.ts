@@ -3,13 +3,14 @@ import { Traffic } from './Traffic';
 import type { CrashReason, GroundProvider } from '../sim/types';
 import type { SpawnPoint } from '../sim/BikeSim';
 import { bakeSubtree, mergeMeshes, roundedBox, scaleUV } from '../view/geometry';
+import { standard } from '../view/materials';
 import {
   CAR_COLORS, makeAwning, makeBillboard, makeDominoTable, makeFort, makeGarita,
   makeParkedCar, makePalm, makePerson, makePlanter,
   makeRailing, makeShopSign, makeStreetLamp, PROP_MATERIALS,
 } from './Props';
 import {
-  makeAbiertoBillboard, makeCobbleTexture, makeFacadeTexture, makeGrassTexture, makePiratasBillboard, makeFlagMuralTexture, makeHazardTexture, makeSidewalkTexture,
+  makeAbiertoBillboard, makeChainLinkTexture, makeCobbleTexture, makeFacadeTexture, makeGrassTexture, makePiratasBillboard, makeFlagMuralTexture, makeHazardTexture, makeSidewalkTexture,
 } from './textures';
 
 /**
@@ -95,6 +96,26 @@ const CULL_RADIUS = 320;
 const ALLEY_WIDTH = 6.5;
 /** How far the grass runs past the outermost road before the fog takes over. */
 const GROUND_APRON = 420;
+/**
+ * How far past the last road the edge of the map sits.
+ *
+ * The far side of the outermost building row, plus a little. The fence stands
+ * on this line and the roads run out to meet it - a road that stopped at the
+ * last junction and left the gate standing on its own in a field read as two
+ * unrelated things rather than the end of the street.
+ */
+const EDGE = LAYOUT.roadHalf + LAYOUT.sidewalk + LAYOUT.blockDepth + 4;
+/**
+ * The fence round the edge of the map.
+ *
+ * 2.6 m of chain link with barbed wire on top, which is what actually stands
+ * between a barrio and the empty lot behind it. Panels are one alpha-tested
+ * quad each - the wire is in the texture, not in geometry - so the whole
+ * two-and-a-half kilometres of it is a few hundred triangles.
+ */
+const FENCE_HEIGHT = 2.6;
+/** Metres of fence per texture tile. */
+const FENCE_TILE = 1.2;
 
 interface Box2 { minX: number; maxX: number; minZ: number; maxZ: number; }
 /** A "muerto" - the tall speed humps all over the island. Real geometry. */
@@ -110,7 +131,7 @@ export class City implements GroundProvider {
   private sidewalkTex!: THREE.CanvasTexture;
   /** Wall materials keyed `facadeUuid:brightness`, shared across every block. */
   private wallMats = new Map<string, THREE.MeshStandardMaterial>();
-  private roofMat = new THREE.MeshStandardMaterial({ color: 0x8f7358, roughness: 0.98 });
+  private roofMat = standard({ color: 0x8f7358, roughness: 0.98 });
 
   /**
    * Building shells, shared between every building of the same size.
@@ -143,7 +164,7 @@ export class City implements GroundProvider {
 
   /** Cap and cornice shells, shared the same way. */
   private caps = new Map<string, THREE.BufferGeometry>();
-  private capMat = new THREE.MeshStandardMaterial({ color: 0xe0d6c0, roughness: 0.96 });
+  private capMat = standard({ color: 0xe0d6c0, roughness: 0.96 });
 
   private cap(w: number, h: number, d: number, r: number): THREE.BufferGeometry {
     const key = `${w}|${h}|${d}|${r}`;
@@ -154,7 +175,28 @@ export class City implements GroundProvider {
     }
     return geo;
   }
+
+  /**
+   * A plain slab: the same rounded box at one segment instead of three.
+   *
+   * `cap` subdivides each face nine times so the fillet shades smoothly, which
+   * is right for a cornice you ride past at arm's length and 108 triangles for
+   * a block of wall. The muralla is 2.5 km of blocks. At three segments it came
+   * to 60,000 triangles - a third of what the whole city was drawing - for an
+   * edge nobody will ever be close enough to see rounded.
+   */
+  private slab(w: number, h: number, d: number): THREE.BufferGeometry {
+    const key = `slab|${w}|${h}|${d}`;
+    let geo = this.caps.get(key);
+    if (!geo) {
+      geo = roundedBox(w, h, d, 0.06, 1);
+      this.caps.set(key, geo);
+    }
+    return geo;
+  }
   private bumps: Bump[] = [];
+  /** One shared fence post, cloned a few hundred times. */
+  private posts: THREE.CylinderGeometry | null = null;
 
   /**
    * Scenery bucketed into square cells.
@@ -188,7 +230,7 @@ export class City implements GroundProvider {
     this.buildGround();
     this.buildBillboards();
     this.buildHeadland();
-    this.buildBounds();
+    this.buildFence();
     // Last, so anything added above is included in the bake.
     this.flushBlocks();
     this.root.add(this.traffic.root);
@@ -263,7 +305,7 @@ export class City implements GroundProvider {
    */
   private buildGround(): void {
     const tex = makeGrassTexture();
-    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
+    const mat = standard({ map: tex, roughness: 1 });
     const R = LAYOUT.roadHalf;
 
     // The bands between corridors, plus an apron running out past the edges so
@@ -300,6 +342,34 @@ export class City implements GroundProvider {
         tiles.push(m);
       }
     }
+    // The road corridors are cut out of those bands in BOTH axes, everywhere -
+    // including out in the apron, where the road has long since stopped. So
+    // every avenue left a six-metre slot of nothing running from the last cross
+    // street out to the horizon, and you saw the sky dome through the floor.
+    // Standing at the south gate it read as a pale blue river down the middle
+    // of the street. Fill the slots past each road's own ends.
+    const tile = (x0: number, x1: number, z0: number, z1: number) => {
+      const w = x1 - x0;
+      const d = z1 - z0;
+      if (w < 0.2 || d < 0.2 || z0 >= LAYOUT.plaza.zMin - 8) return;
+      const geo = new THREE.PlaneGeometry(w, d);
+      scaleUV(geo, w / 6, d / 6);
+      const m = new THREE.Mesh(geo, mat);
+      m.rotation.x = -Math.PI / 2;
+      m.position.set((x0 + x1) / 2, KERB_HEIGHT - 0.012, (z0 + z1) / 2);
+      tiles.push(m);
+    };
+    // Start each strip where the tarmac actually stops, which is out at the
+    // fence, not at the last junction.
+    for (const ax of LAYOUT.avenueX) {
+      tile(ax - R, ax + R, MAP.zMin - GROUND_APRON, MAP.zMin - EDGE);
+      tile(ax - R, ax + R, MAP.zMax + EDGE, MAP.zMax + GROUND_APRON);
+    }
+    for (const sz of LAYOUT.streetZ) {
+      tile(MAP.xMin - GROUND_APRON, MAP.xMin - EDGE, sz - R, sz + R);
+      tile(MAP.xMax + EDGE, MAP.xMax + GROUND_APRON, sz - R, sz + R);
+    }
+
     if (tiles.length) {
       const ground = mergeMeshes(tiles, mat);
       ground.castShadow = false;
@@ -359,11 +429,13 @@ export class City implements GroundProvider {
 
     // One material for every stretch of tarmac in the city; the tile rate is
     // baked into each mesh's UVs rather than cloned onto its own texture.
-    const roadMat = new THREE.MeshStandardMaterial({ map: cobble, roughness: 0.96 });
-    const walkMat = new THREE.MeshStandardMaterial({ map: walk, roughness: 0.95 });
+    const roadMat = standard({ map: cobble, roughness: 0.96 });
+    const walkMat = standard({ map: walk, roughness: 0.95 });
 
-    const lenZ = MAP.zMax - MAP.zMin;
-    const lenX = MAP.xMax - MAP.xMin;
+    // Roads run right out to the fence line, not just between the outermost
+    // junctions, so every one of them ends at a gate.
+    const lenZ = MAP.zMax - MAP.zMin + EDGE * 2;
+    const lenX = MAP.xMax - MAP.xMin + EDGE * 2;
     const midZ = (MAP.zMax + MAP.zMin) / 2;
     const midX = (MAP.xMax + MAP.xMin) / 2;
     const W = LAYOUT.roadHalf * 2;
@@ -465,7 +537,7 @@ export class City implements GroundProvider {
       pos.setZ(i, bumpProfile(along / bump.half) * bump.height);
     }
     geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 });
+    const mat = standard({ map: tex, roughness: 0.85 });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set(0, 0.004, bump.z);
@@ -691,7 +763,7 @@ export class City implements GroundProvider {
       const key = facade.uuid;
       let mat = this.wallMats.get(key);
       if (!mat) {
-        mat = new THREE.MeshStandardMaterial({ map: facade, roughness: 0.94 });
+        mat = standard({ map: facade, roughness: 0.94 });
         this.wallMats.set(key, mat);
       }
       return mat;
@@ -738,7 +810,7 @@ export class City implements GroundProvider {
     if (sizeX > 12 && sizeZ > 12) {
       const tank = new THREE.Mesh(
         new THREE.CylinderGeometry(0.55, 0.55, 1.1, 10),
-        new THREE.MeshStandardMaterial({ color: 0x2f4a6b, roughness: 0.8 }),
+        standard({ color: 0x2f4a6b, roughness: 0.8 }),
       );
       tank.position.set(x + sizeX * 0.22, height + 0.95, z - sizeZ * 0.2);
       tank.castShadow = true;
@@ -761,7 +833,7 @@ export class City implements GroundProvider {
     scaleUV(floorGeo, (p.xMax - p.xMin) / 2.5, (p.zMax - p.zMin) / 2.5);
     const floor = new THREE.Mesh(
       floorGeo,
-      new THREE.MeshStandardMaterial({
+      standard({
         map: this.sidewalkTex, roughness: 0.96, color: 0xcfc6b4,
       }),
     );
@@ -790,7 +862,7 @@ export class City implements GroundProvider {
     // The bluff dropping away to the water. Kept narrow so the sea reads.
     const bluff = new THREE.Mesh(
       new THREE.BoxGeometry(420, 26, 16),
-      new THREE.MeshStandardMaterial({ color: 0x7d6f56, roughness: 1 }),
+      standard({ color: 0x7d6f56, roughness: 1 }),
     );
     bluff.position.set(0, -13.1, LAYOUT.seaWallZ + 7.5);
     bluff.receiveShadow = true;
@@ -835,7 +907,7 @@ export class City implements GroundProvider {
     this.root.add(pole);
     const flag = new THREE.Mesh(
       new THREE.PlaneGeometry(3.2, 2.1),
-      new THREE.MeshStandardMaterial({
+      standard({
         map: makeFlagMuralTexture(), roughness: 0.9, side: THREE.DoubleSide,
       }),
     );
@@ -845,7 +917,7 @@ export class City implements GroundProvider {
     // The flag mural on the last wall before the plaza opens up.
     const mural = new THREE.Mesh(
       new THREE.PlaneGeometry(11, 6.9),
-      new THREE.MeshStandardMaterial({ map: makeFlagMuralTexture(), roughness: 0.95 }),
+      standard({ map: makeFlagMuralTexture(), roughness: 0.95 }),
     );
     mural.position.set(LAYOUT.roadHalf + LAYOUT.sidewalk - 0.06, 3.9, p.zMin - 14);
     mural.rotation.y = -Math.PI / 2;
@@ -875,14 +947,14 @@ export class City implements GroundProvider {
 
     const headland = new THREE.Mesh(
       new THREE.BoxGeometry(400, 14, 200),
-      new THREE.MeshStandardMaterial({ color: 0x64794a, roughness: 1 }),
+      standard({ color: 0x64794a, roughness: 1 }),
     );
     headland.position.set(-190, -2, 700);
     this.root.add(headland);
     // Cliff face under the fort so the headland doesn't float on the water.
     const cliff = new THREE.Mesh(
       new THREE.BoxGeometry(400, 16, 26),
-      new THREE.MeshStandardMaterial({ color: 0x8a7a60, roughness: 1 }),
+      standard({ color: 0x8a7a60, roughness: 1 }),
     );
     cliff.position.set(-190, -3, 600);
     this.root.add(cliff);
@@ -890,25 +962,209 @@ export class City implements GroundProvider {
     // A second, smaller island out on the water for depth.
     const isle = new THREE.Mesh(
       new THREE.BoxGeometry(260, 9, 90),
-      new THREE.MeshStandardMaterial({ color: 0x6a8450, roughness: 1 }),
+      standard({ color: 0x6a8450, roughness: 1 }),
     );
     isle.position.set(320, -3, 1120);
     this.root.add(isle);
   }
 
-  /** Invisible walls so you can't ride out of the slice into the void. */
-  /** Invisible walls just past the outermost roads, so you can't ride into the void. */
-  private buildBounds(): void {
-    const edge = LAYOUT.roadHalf + LAYOUT.sidewalk + LAYOUT.blockDepth + 4;
-    const x0 = MAP.xMin - edge, x1 = MAP.xMax + edge;
-    const z0 = MAP.zMin - edge, z1 = MAP.zMax + edge;
-    const T = 4;
-    this.colliders.push({ minX: x0 - T, maxX: x1 + T, minZ: z0 - T, maxZ: z0 });
-    this.colliders.push({ minX: x0 - T, maxX: x0, minZ: z0 - T, maxZ: z1 + T });
-    this.colliders.push({ minX: x1, maxX: x1 + T, minZ: z0 - T, maxZ: z1 + T });
-    // The far edge stops at the plaza, which has its own sea wall.
-    this.colliders.push({ minX: x0 - T, maxX: LAYOUT.plaza.xMin, minZ: z1, maxZ: z1 + T });
-    this.colliders.push({ minX: LAYOUT.plaza.xMax, maxX: x1 + T, minZ: z1, maxZ: z1 + T });
+  /**
+   * The fence round the edge of the map, and the thing that stops you leaving.
+   *
+   * The boundary used to be five invisible boxes, and it leaked. You could ride
+   * out of the plaza gap, round the ends of the sea wall, and then all the way
+   * round the OUTSIDE of the city on ten hectares of blank grass, because the
+   * side walls stopped four metres past the plaza opening and nothing closed
+   * the flanks. A flood fill of the map found it in a second; riding to the
+   * corner of the map would have found it eventually and much worse.
+   *
+   * Closing the leak with a taller invisible box would have fixed half of it
+   * and left the other half, which is that the edge of the map read as nothing
+   * at all - a field, and then a wall you cannot see. So the boundary is a
+   * fence now: chain link, barbed wire on top, and a gate across every road
+   * that runs into it. A street that ends at a locked gate is a place; a street
+   * that ends at nothing is a bug.
+   */
+  private buildFence(): void {
+    const x0 = MAP.xMin - EDGE, x1 = MAP.xMax + EDGE;
+    const z0 = MAP.zMin - EDGE, z1 = MAP.zMax + EDGE;
+    // The plaza keeps its opening to the sea. Wide enough to leave the garitas
+    // and the palms on the inside of it.
+    const gap = 34;
+
+    // ---- what actually stops the bike -------------------------------------
+    // Much thicker than the fence looks, so nothing tunnels through at speed.
+    const T = 6;
+    for (const w of [
+      { minX: x0 - T, maxX: x1 + T, minZ: z0 - T, maxZ: z0 },
+      { minX: x0 - T, maxX: x0, minZ: z0 - T, maxZ: z1 + T },
+      { minX: x1, maxX: x1 + T, minZ: z0 - T, maxZ: z1 + T },
+      { minX: x0 - T, maxX: -gap, minZ: z1, maxZ: z1 + T },
+      { minX: gap, maxX: x1 + T, minZ: z1, maxZ: z1 + T },
+      // The flanks of the plaza opening. Without these the gap was a way out
+      // to the side the moment you were past the north line.
+      { minX: -gap - T, maxX: -gap, minZ: z1, maxZ: LAYOUT.seaWallZ + T },
+      { minX: gap, maxX: gap + T, minZ: z1, maxZ: LAYOUT.seaWallZ + T },
+    ]) this.colliders.push(w);
+
+    // ---- the fence --------------------------------------------------------
+    const mesh = standard({
+      map: makeChainLinkTexture(),
+      transparent: false,
+      // Alpha TEST, not blend: nothing to sort, and it can sit in front of the
+      // whole city for free.
+      alphaTest: 0.5,
+      side: THREE.DoubleSide,
+      roughness: 0.75,
+      metalness: 0.35,
+      color: 0xd8dde2,
+    });
+    this.fenceRun(true, x0, z0, z1, LAYOUT.streetZ, mesh);
+    this.fenceRun(true, x1, z0, z1, LAYOUT.streetZ, mesh);
+    this.fenceRun(false, z0, x0, x1, LAYOUT.avenueX, mesh);
+    this.fenceRun(false, z1, x0, -gap, LAYOUT.avenueX, mesh);
+    this.fenceRun(false, z1, gap, x1, LAYOUT.avenueX, mesh);
+    // Flanks of the plaza opening, which no road crosses.
+    this.fenceRun(true, -gap, z1, LAYOUT.seaWallZ, [], mesh);
+    this.fenceRun(true, gap, z1, LAYOUT.seaWallZ, [], mesh);
+
+    // Scrub and palms on the far side, so what you see through the wire is
+    // land rather than a green plane running into the fog.
+    let seed = 771;
+    const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    for (let i = 0; i < 30; i++) {
+      // Kept near the fence, where they actually screen the view through it.
+      // Scattered over a hundred metres they were just more empty ground with
+      // trees in it.
+      const out = 10 + rnd() * 70;
+      const along = rnd();
+      const side = Math.floor(rnd() * 4);
+      const x = side === 0 ? x0 - out : side === 1 ? x1 + out : x0 + (x1 - x0) * along;
+      const z = side === 2 ? z0 - out : side === 3 ? z1 + out : z0 + (z1 - z0) * along;
+      const palm = makePalm(6.5 + rnd() * 4, i);
+      palm.position.set(x, 0, z);
+      this.blockAdd(palm);
+    }
+  }
+
+  /**
+   * One straight run of fence, with a gate wherever a road meets it.
+   *
+   * `alongZ` says which way the run goes; `offset` is the fixed coordinate.
+   * Panels go into the scenery cells like everything else, so the far side of
+   * the city costs nothing to have.
+   */
+  private fenceRun(
+    alongZ: boolean, offset: number, from: number, to: number,
+    crossings: readonly number[], mesh: THREE.Material,
+  ): void {
+    const gates = crossings.filter((c) => c > from + 4 && c < to - 4);
+    const half = LAYOUT.roadHalf + 1.4;
+    const spans: Array<[number, number]> = [];
+    let cursor = from;
+    for (const c of gates) {
+      if (c - half > cursor) spans.push([cursor, c - half]);
+      cursor = c + half;
+    }
+    if (to > cursor) spans.push([cursor, to]);
+
+    for (const [a, b] of spans) {
+      // Split so each piece sits in one scenery cell and is culled with it.
+      // Divided EXACTLY rather than rounded to a shared length: rounding the
+      // length while spacing the centres evenly leaves a gap you can see
+      // through at every joint, and a fence is not worth a hole.
+      const n = Math.max(1, Math.round((b - a) / 24));
+      const len = (b - a) / n;
+      for (let i = 0; i < n; i++) this.fencePanel(alongZ, offset, a + len * (i + 0.5), len, mesh);
+      // Posts. Every six metres - a real run is spaced at four, but this is
+      // two and a half kilometres of fence and a post is twenty-four triangles
+      // where a panel is two. They are what stops the wire reading as a decal.
+      for (let p = a; p <= b + 0.01; p += 6) this.fencePost(alongZ, offset, Math.min(p, b), 0.05);
+    }
+    for (const c of gates) this.fenceGate(alongZ, offset, c, half, mesh);
+  }
+
+  /** One panel: two triangles, with the wire in the texture. */
+  private fencePanel(
+    alongZ: boolean, offset: number, centre: number, len: number, mesh: THREE.Material,
+  ): void {
+    const geo = new THREE.PlaneGeometry(len, FENCE_HEIGHT);
+    scaleUV(geo, len / FENCE_TILE, 1);
+    const m = new THREE.Mesh(geo, mesh);
+    if (alongZ) {
+      m.position.set(offset, FENCE_HEIGHT / 2, centre);
+      m.rotation.y = Math.PI / 2;
+    } else {
+      m.position.set(centre, FENCE_HEIGHT / 2, offset);
+    }
+    this.blockAdd(m);
+  }
+
+  /** A galvanised post. Six sides is plenty at the edge of the world. */
+  private fencePost(alongZ: boolean, offset: number, at: number, extra: number): void {
+    const geo = this.posts ?? (this.posts = new THREE.CylinderGeometry(
+      0.045, 0.05, FENCE_HEIGHT + 0.1, 6,
+    ));
+    const m = new THREE.Mesh(geo, PROP_MATERIALS.chrome);
+    const y = (FENCE_HEIGHT + 0.1) / 2 + extra - 0.05;
+    if (alongZ) m.position.set(offset, y, at);
+    else m.position.set(at, y, offset);
+    m.castShadow = true;
+    this.blockAdd(m);
+  }
+
+  /**
+   * A gate across a road: two leaves, chained shut, with a diagonal brace.
+   *
+   * The brace is the whole point. A flat rectangle of chain link across a
+   * street reads as a rendering mistake; a braced frame with a gap down the
+   * middle reads as somebody's gate, and tells you the road ended on purpose.
+   */
+  private fenceGate(
+    alongZ: boolean, offset: number, centre: number, half: number, mesh: THREE.Material,
+  ): void {
+    const h = FENCE_HEIGHT + 0.5;
+    const leaf = half - 0.12;
+    for (const side of [-1, 1]) {
+      // The leaf itself.
+      const geo = new THREE.PlaneGeometry(leaf, h);
+      scaleUV(geo, leaf / FENCE_TILE, 1);
+      const panel = new THREE.Mesh(geo, mesh);
+      const at = centre + side * (leaf / 2 + 0.1);
+      if (alongZ) {
+        panel.position.set(offset, h / 2, at);
+        panel.rotation.y = Math.PI / 2;
+      } else {
+        panel.position.set(at, h / 2, offset);
+      }
+      this.blockAdd(panel);
+
+      // Frame: two uprights, a top rail, and the diagonal.
+      const frame = (len: number, along: number, y: number, tilt: number, vertical: boolean) => {
+        const bar = new THREE.Mesh(
+          this.slab(vertical ? 0.07 : len, vertical ? len : 0.07, 0.07),
+          PROP_MATERIALS.chrome,
+        );
+        if (alongZ) {
+          bar.position.set(offset, y, along);
+          bar.rotation.y = Math.PI / 2;
+          bar.rotation.x = tilt;
+        } else {
+          bar.position.set(along, y, offset);
+          bar.rotation.z = tilt;
+        }
+        this.blockAdd(bar);
+      };
+      frame(h, centre + side * 0.12, h / 2, 0, true);
+      frame(h, centre + side * (leaf + 0.1), h / 2, 0, true);
+      frame(leaf, at, h - 0.05, 0, false);
+      frame(leaf, at, 0.06, 0, false);
+      // The diagonal, corner to corner.
+      const diag = Math.hypot(leaf, h);
+      frame(diag, at, h / 2, side * Math.atan2(h, leaf) * (alongZ ? 1 : -1), false);
+    }
+    // Posts either side, taller than the run.
+    for (const side of [-1, 1]) this.fencePost(alongZ, offset, centre + side * half, 0.55);
   }
 
   // -------------------------------------------------------- GroundProvider

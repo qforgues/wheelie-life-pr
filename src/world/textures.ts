@@ -715,3 +715,105 @@ function drawStar(
   ctx.closePath();
   ctx.fill();
 }
+
+/**
+ * Chain link, drawn as one tile of diamond mesh with a strand of barbed wire
+ * along the top.
+ *
+ * The fence round the edge of the map is two and a half kilometres long, so it
+ * has to be a texture and not geometry: one alpha-tested quad per panel is two
+ * triangles, where wire modelled as boxes would be tens of thousands. Alpha
+ * TEST rather than blend, so there is no sorting to get wrong and no cost to
+ * having it in front of the whole city.
+ *
+ * The tile covers 1.2 m of fence, and the top eighth is the barbed wire, which
+ * is why the panel geometry uses the same proportion.
+ */
+export function makeChainLinkTexture(): THREE.CanvasTexture {
+  // The canvas is the SHAPE of a panel, not a square. A square tile stretched
+  // over a 1.2 x 2.6 m panel gives diamonds twice as tall as they are wide,
+  // which reads as netting rather than chain link. 256 px across 1.2 m is
+  // 213 px/m, so the height follows from the panel height.
+  const S = 256;
+  const H = Math.round(S * (2.6 / 1.2));
+  const [c, ctx] = makeCanvas(S, H);
+  ctx.clearRect(0, 0, S, H);
+
+  // Barbed wire lives along the top; the mesh fills the rest.
+  const top = H * 0.15;
+  const cell = S / 8;
+  ctx.strokeStyle = '#b9c0c6';
+  ctx.lineWidth = 3.0;
+  ctx.lineCap = 'square';
+  // Two sets of diagonals make the diamonds. Drawn well past the edges so the
+  // tile joins itself cleanly when it repeats.
+  // Drawn at 45 degrees on a square-pixel canvas, so the diamonds come out
+  // square. Extended well past both edges so the tile joins itself when it
+  // repeats along the run.
+  const span = H - top;
+  for (let i = -24; i <= 24; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * cell, top);
+    ctx.lineTo(i * cell + span, H);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(i * cell, top);
+    ctx.lineTo(i * cell - span, H);
+    ctx.stroke();
+  }
+  // A darker second pass one pixel down reads as the wire having a round
+  // section rather than being a flat line.
+  ctx.strokeStyle = 'rgba(60, 68, 76, 0.55)';
+  ctx.lineWidth = 1.4;
+  for (let i = -24; i <= 24; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * cell + 1.4, top + 1.4);
+    ctx.lineTo(i * cell + 1.4 + span, H + 1.4);
+    ctx.stroke();
+  }
+
+  // The arms that carry the wire, leaning out from each post, then the top
+  // rail, then three strands.
+  //
+  // These are drawn heavy on purpose. At 2.4 px they aliased away at any
+  // distance and the top fifth of the fence read as a gap above the mesh
+  // rather than as barbed wire - which made the whole thing look broken.
+  ctx.strokeStyle = '#9aa2a9';
+  ctx.lineWidth = 5;
+  for (let i = 0; i <= 2; i++) {
+    const x = (i * S) / 2;
+    ctx.beginPath();
+    ctx.moveTo(x, top);
+    ctx.lineTo(x + 18, 4);
+    ctx.stroke();
+  }
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.moveTo(0, top);
+  ctx.lineTo(S, top);
+  ctx.stroke();
+  ctx.strokeStyle = '#a4acb3';
+  ctx.lineWidth = 4.5;
+  for (const y of [top * 0.66, top * 0.40, top * 0.14]) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + 6);
+    ctx.lineTo(S, y);
+    ctx.stroke();
+    // Barbs, every sixth of a tile.
+    for (let x = 8; x < S; x += S / 6) {
+      ctx.beginPath();
+      ctx.moveTo(x - 7, y - 7);
+      ctx.lineTo(x + 7, y + 7);
+      ctx.moveTo(x + 7, y - 7);
+      ctx.lineTo(x - 7, y + 7);
+      ctx.stroke();
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.anisotropy = ANISOTROPY;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
