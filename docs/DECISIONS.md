@@ -1006,3 +1006,55 @@ The lesson is the one this project keeps relearning in different clothes: a
 random pick out of a good list is not the same as a good pick. It was true of
 the billboards that only ever showed one of two designs, and of the seven riders
 who turned out on five corners.
+
+## 52. What the console has to hold
+
+"let's see how it looks on the xbox." Before handing it over, the numbers that
+white-screened it last time, measured again:
+
+    distinct geometries    2370   (3459 before the first Xbox fix, 1061 after)
+    vertex + index memory  24.3 MB   (32 MB before, 9.6 MB after)
+    distinct textures        23   (232 at the worst)
+
+Textures were fine. **Geometry was at 24.3 MB against the 32 MB that killed it
+before** - most of that from the map Justin asked to make bigger, not from any
+one change, but it is the number that broke the console and it was creeping back
+up. Two things were paying for nothing at all:
+
+**Five megabytes of zeroes.** `bakeSubtree` gives every geometry in a bucket a
+uv attribute so they all agree on their attributes - including buckets whose
+material has no texture in it at all. Only 429 of 2330 buffers were mapped; the
+other 1900 carried two floats per vertex of zeroes, uploaded and held for the
+life of the scene. "All of them have none" is just as valid an agreement, and
+free.
+
+**Caps on cylinders nobody can see.** Ironwork was 7.3 MB and 137,000 triangles
+- the single biggest block in the city, bigger than the buildings. A baluster's
+top and bottom are inside the rails; a rail's ends are inside the posts; a palm
+trunk is eight segments stacked into each other. Every one of those caps was
+geometry that cannot be looked at. Open-ended cylinders, and a couple of sides
+off the ones that were at twelve:
+
+| | before | after |
+| --- | --- | --- |
+| ironwork | 7.3 MB / 137k tris | 2.4 MB / 71k |
+| palm trunks | 3.2 MB / 92k tris | 1.6 MB / 73k |
+| **whole city** | **24.3 MB** | **15.3 MB** |
+
+37% off, and nothing looks different. Both of these had been there since long
+before the map grew - the map growing is just what made them matter.
+
+## 53. El Morro was standing on the city
+
+Found while checking the above: riding up the middle avenue to the plaza, which
+is the best view in the game, put a sixteen-metre **brown wall** across the
+entire screen.
+
+The headland is a 400 m box centred at x = -190, so it reached x = +10 - across
+the middle avenue - and the cliff face under it was at z = 600, which is the top
+cross street. The fort had been standing on the north end of the city since the
+headland was built, and nobody had ridden up there to look.
+
+Moved west and north of the sea wall. What is there now: the flag mural, la
+monoestrellada on its pole, the road sign, the garitas, the domino tables, the
+plaza opening out to the water, and El Morro on its own headland across it.

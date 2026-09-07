@@ -105,7 +105,10 @@ function buildPalm(height = 7, seed = 0): THREE.Group {
     const h = height / segs;
     const r0 = 0.19 - (i / segs) * 0.09;
     const r1 = 0.19 - ((i + 1) / segs) * 0.09;
-    const seg = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, h * 1.02, 12), SHARED.trunk);
+    // Eight sides, open-ended: the segments stack into each other so the caps
+    // are buried, and a palm trunk at eight sides is a palm trunk. Trunks were
+    // 3.2 MB and 92,000 triangles.
+    const seg = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, h * 1.02, 8, 1, true), SHARED.trunk);
     const t = i / segs;
     seg.position.set(lean * t * t * height * 0.25, y + h / 2, 0);
     seg.rotation.z = -lean * t * 0.25;
@@ -190,7 +193,11 @@ function buildRailing(length: number, height = 0.85, spacing = 0.16): THREE.Grou
   const g = new THREE.Group();
   const parts: THREE.Mesh[] = [];
 
-  const railGeo = new THREE.CylinderGeometry(0.022, 0.022, length, 8);
+  // Open-ended, six sides. A baluster's top and bottom are inside the rails and
+  // a rail's ends are inside the posts, so every one of those caps is geometry
+  // nobody can ever see - and ironwork was 7.3 MB and 137,000 triangles, the
+  // single biggest block in the city.
+  const railGeo = new THREE.CylinderGeometry(0.022, 0.022, length, 6, 1, true);
   for (const y of [height, height * 0.52, 0.03]) {
     const rail = new THREE.Mesh(railGeo, SHARED.iron);
     rail.rotation.x = Math.PI / 2;
@@ -198,14 +205,15 @@ function buildRailing(length: number, height = 0.85, spacing = 0.16): THREE.Grou
     parts.push(rail);
   }
   const count = Math.max(2, Math.round(length / spacing));
-  const barGeo = new THREE.CylinderGeometry(0.013, 0.013, height, 6);
+  const barGeo = new THREE.CylinderGeometry(0.013, 0.013, height, 5, 1, true);
   for (let i = 0; i <= count; i++) {
     const bar = new THREE.Mesh(barGeo, SHARED.iron);
     bar.position.set(0, height / 2, -length / 2 + (i / count) * length);
     parts.push(bar);
   }
   // Slightly heavier posts at each end.
-  const postGeo = new THREE.CylinderGeometry(0.024, 0.024, height + 0.08, 8);
+  // The posts keep their caps - the tops of those are the one bit you see.
+  const postGeo = new THREE.CylinderGeometry(0.024, 0.024, height + 0.08, 6);
   for (const z of [-length / 2, length / 2]) {
     const post = new THREE.Mesh(postGeo, SHARED.iron);
     post.position.set(0, (height + 0.08) / 2, z);

@@ -945,9 +945,21 @@ export class City implements GroundProvider {
     }
   }
 
+  /**
+   * El Morro on its headland, across the water to the north-west.
+   *
+   * It used to sit ON the city. The headland box spans 400 m and was centred at
+   * x=-190, so it reached x=+10 - straight across the middle avenue - and the
+   * cliff face under it was at z=600, which is the top cross street. Riding up
+   * the middle avenue to the plaza, which is the best view in the game, put a
+   * sixteen-metre brown wall across the whole screen.
+   *
+   * Everything here now starts well west of the plaza and well north of the sea
+   * wall, so it is what it was always meant to be: something across the water.
+   */
   private buildHeadland(): void {
     const fort = makeFort();
-    fort.position.set(-165, 5, 690);
+    fort.position.set(-250, 5, 780);
     fort.rotation.y = 0.3;
     fort.scale.setScalar(1.5);
     this.root.add(fort);
@@ -956,14 +968,14 @@ export class City implements GroundProvider {
       new THREE.BoxGeometry(400, 14, 200),
       standard({ color: 0x64794a, roughness: 1 }),
     );
-    headland.position.set(-190, -2, 700);
+    headland.position.set(-250, -2, 800);
     this.root.add(headland);
     // Cliff face under the fort so the headland doesn't float on the water.
     const cliff = new THREE.Mesh(
       new THREE.BoxGeometry(400, 16, 26),
       standard({ color: 0x8a7a60, roughness: 1 }),
     );
-    cliff.position.set(-190, -3, 600);
+    cliff.position.set(-250, -3, 700);
     this.root.add(cliff);
 
     // A second, smaller island out on the water for depth.

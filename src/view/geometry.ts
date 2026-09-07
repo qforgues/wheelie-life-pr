@@ -159,6 +159,19 @@ export function splitByGroup(geo: THREE.BufferGeometry): Array<{
  *
  * The subtree is consumed: only the returned meshes should be added back.
  */
+/**
+ * Does this material actually sample a UV coordinate?
+ *
+ * If nothing in it reads a texture then a uv attribute is two floats per vertex
+ * of zeroes, uploaded and held for the life of the scene.
+ */
+function samplesUV(mat: THREE.Material): boolean {
+  const m = mat as THREE.MeshStandardMaterial;
+  return !!(m.map || m.normalMap || m.roughnessMap || m.metalnessMap
+    || m.emissiveMap || m.aoMap || m.alphaMap || m.bumpMap || m.displacementMap
+    || m.lightMap || m.envMap);
+}
+
 export function bakeSubtree(root: THREE.Object3D): THREE.Mesh[] {
   root.updateMatrixWorld(true);
   const buckets = new Map<THREE.Material, THREE.BufferGeometry[]>();
@@ -176,10 +189,19 @@ export function bakeSubtree(root: THREE.Object3D): THREE.Mesh[] {
       for (const name of Object.keys(g.attributes)) {
         if (name !== 'position' && name !== 'normal' && name !== 'uv') g.deleteAttribute(name);
       }
-      // Everything in a bucket must agree on which attributes it has.
-      if (!g.attributes.uv) {
-        const count = g.attributes.position.count;
-        g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(count * 2), 2));
+      // Everything in a bucket must agree on which attributes it has - but
+      // "all of them have none" is just as valid an agreement as "all of them
+      // have one", and much cheaper. Only a material that actually samples a
+      // texture needs uvs; padding the rest with zeroes cost 4 MB of the
+      // city's 24, held for the life of the scene, on a console with a hard
+      // memory ceiling that has already been hit once.
+      if (samplesUV(mat)) {
+        if (!g.attributes.uv) {
+          const count = g.attributes.position.count;
+          g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(count * 2), 2));
+        }
+      } else if (g.attributes.uv) {
+        g.deleteAttribute('uv');
       }
       if (!g.attributes.normal) g.computeVertexNormals();
       const list = buckets.get(mat) ?? [];
