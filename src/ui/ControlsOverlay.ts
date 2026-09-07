@@ -69,6 +69,7 @@ export class ControlsOverlay {
   private mirrors: MirrorMount = 'corners';
   private aim: MirrorAim = { ...DEFAULT_AIM };
   private aimSide: 'L' | 'R' = 'L';
+  private peekTimer = 0;
   private onMirrors: ((m: MirrorMount) => void) | null = null;
   private onAim: ((aim: MirrorAim) => void) | null = null;
   private gpsEl!: HTMLElement;
@@ -255,6 +256,7 @@ export class ControlsOverlay {
         this.aim[yKey] = clampAim(this.aim[yKey] + dy * 0.14);
       }
       this.onAim?.({ ...this.aim });
+      this.peekAtMirrors();
     });
     this.renderMirrors();
 
@@ -316,6 +318,21 @@ export class ControlsOverlay {
     this.mirrors = mount;
     this.aim = { ...aim };
     this.renderMirrors();
+  }
+
+  /**
+   * Fades the card down for a moment so the mirrors behind it are visible.
+   *
+   * Aiming a mirror you cannot see is guesswork, and the card covers exactly
+   * the corners the mirrors live in. The controls stay clickable throughout -
+   * only the opacity changes - so you can keep nudging and watch it move.
+   */
+  private peekAtMirrors(): void {
+    this.root.classList.add('is-peeking');
+    clearTimeout(this.peekTimer);
+    this.peekTimer = setTimeout(() => {
+      this.root.classList.remove('is-peeking');
+    }, 1600) as unknown as number;
   }
 
   private renderMirrors(): void {

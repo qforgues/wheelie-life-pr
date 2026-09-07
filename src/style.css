@@ -776,3 +776,15 @@ body.is-console .debug-gui { display: none !important; }
   background: rgba(94, 219, 233, 0.16);
   color: var(--pr-cyan);
 }
+
+/* While trimming a mirror, drop the card out of the way so you can see it.
+   Pointer events stay on so you can keep nudging and watch it move. */
+.overlay.is-peeking .overlay-card {
+  opacity: 0.18;
+  transition: opacity 120ms ease-out;
+}
+.overlay.is-peeking .overlay-card .opt,
+.overlay.is-peeking .overlay-card .aim {
+  opacity: 1;
+}
+.overlay-card { transition: opacity 320ms ease-in; }

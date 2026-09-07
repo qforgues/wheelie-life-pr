@@ -240,13 +240,20 @@ export class Mirrors {
     // Mounted out at the bars, ahead of the rider and above the tank - which is
     // where they live on a real bike, and far enough forward that the view is
     // the street rather than the back of the rider's own jacket.
-    this.camera.position.set(
-      x + Math.sin(yaw) * 0.72,
-      y + 1.34,
-      z + Math.cos(yaw) * 0.72,
+    const cx = x + Math.sin(yaw) * 0.72;
+    const cz = z + Math.cos(yaw) * 0.72;
+    this.camera.position.set(cx, y + 1.34, cz);
+
+    // Aimed with lookAt at a point down the road BEHIND the bike, rather than
+    // by setting an Euler angle. A three.js camera looks along its own -Z and
+    // the bike faces +Z, so `yaw + PI` - the intuitive "turn it around" - aims
+    // it straight down the road ahead, and the mirrors showed the view in
+    // front. A target you can name cannot be off by half a turn.
+    this.camera.lookAt(
+      cx - Math.sin(yaw) * 20,
+      y + 1.05,
+      cz - Math.cos(yaw) * 20,
     );
-    // Behind, not in front.
-    this.camera.rotation.set(0, yaw + Math.PI, 0, 'YXZ');
     this.camera.fov = MIRROR_FOV / 2;
     this.camera.aspect = 2.5;
     this.camera.updateProjectionMatrix();
