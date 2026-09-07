@@ -32,6 +32,17 @@ const stamp = [
 ].join('');
 const BUILD_ID = `${pkg.version}+${stamp}.${shortSha()}`;
 
+/**
+ * What a dev server calls itself.
+ *
+ * `shortSha()` runs once, when this config is loaded - so a dev server left
+ * running while work carries on reports the commit it was STARTED at, forever.
+ * That looked exactly like a caching problem: force refresh, disable cache,
+ * still the old id, because the server itself was stale rather than the browser.
+ * Dev builds now say so out loud.
+ */
+const DEV_BUILD_ID = `${pkg.version}+dev.${shortSha()}`;
+
 function versionManifest(): Plugin {
   return {
     name: 'wheelie-version-manifest',
@@ -43,16 +54,44 @@ function versionManifest(): Plugin {
   };
 }
 
-export default defineConfig({
+/**
+ * Serves a LIVE version.json while developing.
+ *
+ * Without it the dev server answers /version.json with index.html, so the
+ * update check quietly does nothing and there is no way to tell from inside the
+ * game that the server has fallen behind. This recomputes the sha per request,
+ * so a dev server running behind HEAD raises UPDATE READY - which is exactly
+ * what it should be telling you.
+ */
+function devVersion(): Plugin {
+  return {
+    name: 'wheelie-dev-version',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/version.json', (_req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({
+          build: `${pkg.version}+dev.${shortSha()}`,
+          at: new Date().toISOString(),
+        }));
+      });
+    },
+  };
+}
+
+export default defineConfig(({ command }) => ({
   base: './',
   // three/examples/jsm/* resolves `three` separately from the pre-bundled copy
   // in dev, which loads two instances and breaks instanceof across them.
   resolve: { dedupe: ['three'] },
-  define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
-  plugins: [versionManifest()],
+  define: {
+    __BUILD_ID__: JSON.stringify(command === 'serve' ? DEV_BUILD_ID : BUILD_ID),
+  },
+  plugins: [versionManifest(), devVersion()],
   server: { host: true, port: 5173 },
   build: {
     target: 'es2022',
     sourcemap: true,
   },
-});
+}));

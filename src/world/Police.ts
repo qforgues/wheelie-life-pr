@@ -520,19 +520,31 @@ export class Police {
       const dz = p.tz - p.z;
       const d = Math.hypot(dx, dz);
       if (d > 0.001) {
-        // Turn toward the target at a limited rate rather than snapping to it.
-        // This is what stops them behaving like a magnet: a patrol committed to
-        // a line has to come round again, and you can be gone by then.
-        const want = Math.atan2(dx, dz);
-        let turn = want - p.yaw;
-        while (turn > Math.PI) turn -= Math.PI * 2;
-        while (turn < -Math.PI) turn += Math.PI * 2;
-        const maxTurn = TURN_RATE * dt;
-        p.yaw += Math.max(-maxTurn, Math.min(maxTurn, turn));
-
         const step = Math.min(d, speed * dt);
-        const nx = p.x + Math.sin(p.yaw) * step;
-        const nz = p.z + Math.cos(p.yaw) * step;
+        let nx: number;
+        let nz: number;
+
+        if (p.chasing) {
+          // Turn toward the target at a limited rate rather than snapping to
+          // it. This is what stops them behaving like a magnet: a patrol
+          // committed to a line has to come round again, and you can be gone.
+          const want = Math.atan2(dx, dz);
+          let turn = want - p.yaw;
+          while (turn > Math.PI) turn -= Math.PI * 2;
+          while (turn < -Math.PI) turn += Math.PI * 2;
+          const maxTurn = TURN_RATE * dt;
+          p.yaw += Math.max(-maxTurn, Math.min(maxTurn, turn));
+          nx = p.x + Math.sin(p.yaw) * step;
+          nz = p.z + Math.cos(p.yaw) * step;
+        } else {
+          // A car on its beat drives straight at its waypoint, and every
+          // waypoint is a junction on the grid - so it stays on the road by
+          // construction. Turn-rate limiting these made them cut every corner
+          // and sail off into the buildings.
+          p.yaw = Math.atan2(dx, dz);
+          nx = p.x + (dx / d) * step;
+          nz = p.z + (dz / d) * step;
+        }
 
         // Driving flat out at a moving target means sooner or later they put it
         // into a building. Cheap to check, and it is the most satisfying thing
@@ -627,18 +639,39 @@ export class Police {
   private wander(p: Patrol): { x: number; z: number } {
     const av: readonly number[] = LAYOUT.avenueX;
     const st: readonly number[] = LAYOUT.streetZ;
-    const ai = av.indexOf(snap(p.x, av));
-    const si = st.indexOf(snap(p.z, st));
+    const ROAD = LAYOUT.roadHalf + 1;
+
+    const ax = snap(p.x, av);
+    const sz = snap(p.z, st);
+    const ai = av.indexOf(ax);
+    const si = st.indexOf(sz);
+    const onAvenue = Math.abs(p.x - ax) < ROAD;
+    const onStreet = Math.abs(p.z - sz) < ROAD;
+
     this.wanderSeed = (this.wanderSeed * 1664525 + 1013904223) >>> 0;
     const roll = this.wanderSeed / 4294967296;
-    // Turn or carry on, one block at a time.
-    if (roll < 0.5) {
-      const step = roll < 0.25 ? 1 : -1;
-      return { x: av[clampIndex(ai + step, av.length)], z: st[si] ?? p.z };
+    const dir = roll < 0.5 ? 1 : -1;
+
+    // Every waypoint must share a road with where the car is standing, so the
+    // straight line to it runs ALONG that road. Returning a junction the car
+    // was not lined up with sent it diagonally across the block - which is the
+    // patrols driving through buildings.
+    if (onAvenue && onStreet) {
+      // At a junction: turn onto the cross street, or carry on up the avenue.
+      return roll < 0.5
+        ? { x: ax, z: st[clampIndex(si + (roll < 0.25 ? 1 : -1), st.length)] }
+        : { x: av[clampIndex(ai + (roll < 0.75 ? 1 : -1), av.length)], z: sz };
     }
-    const step = roll < 0.75 ? 1 : -1;
-    return { x: av[ai] ?? p.x, z: st[clampIndex(si + step, st.length)] };
+    if (onAvenue) return { x: ax, z: st[clampIndex(si + dir, st.length)] };
+    if (onStreet) return { x: av[clampIndex(ai + dir, av.length)], z: sz };
+
+    // Off the grid entirely, which only happens to a car coming back from a
+    // chase it broke off mid-block. Head for the nearest junction and pick the
+    // beat up from there.
+    return { x: ax, z: sz };
   }
+
+
 
   /**
    * The next intersection on a Manhattan route toward the target.

@@ -554,3 +554,27 @@ exactly as the report said.
 The horizontal flip on top is separate and was already right: it is what turns
 a rear-facing camera into a mirror, so the outer edge of the glass looks wide
 and the inner edge looks back along your own bike.
+
+## 31. Patrols were driving through buildings, for two separate reasons
+
+Reported from riding: "cops occasionally patrol off road and disappear into
+buildings."
+
+**One:** the turn-rate limit added to stop chasers tracking like a magnet was
+being applied to cruising cars too, so every beat patrol cut every corner.
+
+**Two, and the bigger one:** `wander()` returned a *junction* as the waypoint,
+but a car mid-block is not standing on a junction - so the straight line to it
+ran diagonally across the block. Every waypoint must now share a road with where
+the car actually is, so the line to it runs **along** that road.
+
+Cars on a beat drive straight at their waypoint (no turn limiting), which keeps
+them on the centreline by construction. Chasers keep the turn limit, because
+missing you is the point of it.
+
+Verified: 9 cars, 5 minutes, 10,800 samples, **worst 0.000 m off road**.
+
+A note on the testing, because it cost two rounds: the first version of this
+test used the ICE tier, which `alwaysHunting` - so its patrols were chasing, and
+going off-road was *correct*. The test now asserts `chasers === 0` and fails
+loudly rather than quietly measuring the wrong thing.

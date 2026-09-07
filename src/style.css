@@ -811,3 +811,7 @@ body.is-console .debug-gui { display: none !important; }
 /* The controller line and the button under it are one block, not two. */
 .overlay-device { margin: 10px 0 0; line-height: 1.4; }
 .overlay-device + .overlay-go { margin-top: 14px; }
+
+/* A dev build says so, in a colour you cannot read as "shipped". */
+.overlay-version b.is-dev { color: #ffb020; }
+.overlay-version b.is-dev::after { content: ' · DEV SERVER'; opacity: 0.75; font-size: 0.85em; }

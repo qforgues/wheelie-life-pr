@@ -177,7 +177,11 @@ export class ControlsOverlay {
       e.preventDefault();
       this.pick(card.dataset.bike as BikeId);
     });
-    this.root.querySelector('[data-el="version"]')!.textContent = BUILD_ID;
+    const versionEl = this.root.querySelector('[data-el="version"]')!;
+    versionEl.textContent = BUILD_ID;
+    // A dev build is marked so nobody mistakes a stale dev server for the real
+    // thing - which is exactly what happened once, and looked like a cache bug.
+    if (BUILD_ID.includes('+dev.')) versionEl.classList.add('is-dev');
     // A controller cannot ask the browser for a hard reload, so the game does
     // it: drop every cache and come back on a URL the cache has never seen.
     this.root.querySelector('[data-el="refresh"]')!
