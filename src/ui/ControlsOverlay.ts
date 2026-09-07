@@ -5,6 +5,9 @@ import type { Progress } from '../game/Progress';
 import { money, SCANNER_PRICE } from '../game/Progress';
 import { TRAFFIC_LABELS, TRAFFIC_ORDER, type TrafficSpeed } from '../world/Traffic';
 import { POLICE_BLURBS, POLICE_LABELS, POLICE_ORDER, type PoliceStyle } from '../world/Police';
+import {
+  ORIENTATION_BLURBS, ORIENTATION_LABELS, ORIENTATION_ORDER, type MapOrientation,
+} from './Minimap';
 import { BUILD_ID } from '../core/version';
 import { hardReload } from '../core/UpdateWatcher';
 
@@ -37,6 +40,10 @@ export class ControlsOverlay {
   private policeBlurbEl!: HTMLElement;
   private police: PoliceStyle = 'professional';
   private onPolice: ((p: PoliceStyle) => void) | null = null;
+  private gpsEl!: HTMLElement;
+  private gpsBlurbEl!: HTMLElement;
+  private orientation: MapOrientation = 'north';
+  private onOrientation: ((o: MapOrientation) => void) | null = null;
 
   constructor(private onDismiss: () => void) {
     this.root = document.createElement('div');
@@ -64,6 +71,11 @@ export class ControlsOverlay {
           <div class="opt-choices" data-el="police"></div>
         </div>
         <p class="opt-blurb" data-el="policeBlurb"></p>
+        <div class="opt">
+          <span class="opt-label">GPS</span>
+          <div class="opt-choices" data-el="gps"></div>
+        </div>
+        <p class="opt-blurb" data-el="gpsBlurb"></p>
         <div class="upgrade" data-el="scanner"></div>
         <table class="overlay-table">
           <thead><tr><th>Action</th><th>Xbox</th><th>Keyboard</th></tr></thead>
@@ -145,6 +157,18 @@ export class ControlsOverlay {
     });
     this.renderPolice();
 
+    this.gpsEl = this.root.querySelector('[data-el="gps"]')!;
+    this.gpsBlurbEl = this.root.querySelector('[data-el="gpsBlurb"]')!;
+    this.gpsEl.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-gps]');
+      if (!b) return;
+      e.stopPropagation();
+      this.orientation = b.dataset.gps as MapOrientation;
+      this.renderGps();
+      this.onOrientation?.(this.orientation);
+    });
+    this.renderGps();
+
     this.trafficEl = this.root.querySelector('[data-el="traffic"]')!;
     this.trafficEl.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>('[data-traffic]');
@@ -187,6 +211,25 @@ export class ControlsOverlay {
         : `<button class="bike-buy" data-buy-scanner type="button" ${afford ? '' : 'disabled'}>
              BUY · ${money(SCANNER_PRICE)}
            </button>`}`;
+  }
+
+  /** Called when the GPS orientation changes. */
+  onOrientationPicked(fn: (o: MapOrientation) => void): void {
+    this.onOrientation = fn;
+  }
+
+  setOrientationValue(o: MapOrientation): void {
+    this.orientation = o;
+    this.renderGps();
+  }
+
+  private renderGps(): void {
+    this.gpsEl.innerHTML = ORIENTATION_ORDER
+      .map((o) => `<button type="button" data-gps="${o}"
+             class="opt-btn${o === this.orientation ? ' is-on' : ''}"
+             aria-pressed="${o === this.orientation}">${ORIENTATION_LABELS[o]}</button>`)
+      .join('');
+    this.gpsBlurbEl.textContent = ORIENTATION_BLURBS[this.orientation];
   }
 
   /** Called when the police difficulty changes. */

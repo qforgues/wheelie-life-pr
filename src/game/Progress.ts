@@ -1,6 +1,7 @@
 import { STARTER_BIKE, type BikeId } from '../sim/tuning';
 import { isTrafficSpeed, type TrafficSpeed } from '../world/Traffic';
 import { isPoliceStyle, type PoliceStyle } from '../world/Police';
+import { isOrientation, type MapOrientation } from '../ui/Minimap';
 
 /**
  * Money and what you own.
@@ -20,6 +21,7 @@ export interface SaveData {
   traffic: TrafficSpeed;
   scanner: boolean;
   police: PoliceStyle;
+  mapOrientation: MapOrientation;
 }
 
 /**
@@ -47,6 +49,8 @@ export class Progress {
   scanner = false;
   /** How hard la policía plays. Justin's call, saved between sessions. */
   police: PoliceStyle = 'professional';
+  /** Whether the GPS keeps the city still or the rider still. */
+  mapOrientation: MapOrientation = 'north';
 
   /** Set for one frame after a payout, for the HUD toast. */
   lastPayout = 0;
@@ -129,6 +133,11 @@ export class Progress {
     this.save();
   }
 
+  setMapOrientation(o: MapOrientation): void {
+    this.mapOrientation = o;
+    this.save();
+  }
+
   /** Wipes back to a fresh save. Exposed in the tuning panel for testing. */
   reset(): void {
     this.money = 0;
@@ -138,6 +147,7 @@ export class Progress {
     this.traffic = 'regular';
     this.scanner = false;
     this.police = 'professional';
+    this.mapOrientation = 'north';
     this.save();
   }
 
@@ -162,6 +172,7 @@ export class Progress {
       if (isTrafficSpeed(d.traffic)) this.traffic = d.traffic;
       if (typeof d.scanner === 'boolean') this.scanner = d.scanner;
       if (isPoliceStyle(d.police)) this.police = d.police;
+      if (isOrientation(d.mapOrientation)) this.mapOrientation = d.mapOrientation;
     } catch {
       /* no save, or storage is unavailable - start fresh */
     }
@@ -177,6 +188,7 @@ export class Progress {
         traffic: this.traffic,
         scanner: this.scanner,
         police: this.police,
+        mapOrientation: this.mapOrientation,
       };
       localStorage.setItem(KEY, JSON.stringify(data));
     } catch {

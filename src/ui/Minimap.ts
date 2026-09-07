@@ -14,6 +14,30 @@ import { LAYOUT, MAP } from '../world/City';
 /** Metres from the rider to the edge of the map view. */
 const RANGE = 210;
 
+/**
+ * Which thing stays still.
+ *
+ * `north` keeps the city fixed and turns the arrow - easier to build a mental
+ * picture of where you are. `track` keeps the arrow fixed and turns the city, so
+ * "left on the map" is always "left on the screen" - easier to follow a turn.
+ * Both are legitimate and people are strongly divided, so it is a setting.
+ */
+export type MapOrientation = 'north' | 'track';
+
+export const ORIENTATION_ORDER: MapOrientation[] = ['north', 'track'];
+export const ORIENTATION_LABELS: Record<MapOrientation, string> = {
+  north: 'MAP FIXED',
+  track: 'ARROW FIXED',
+};
+export const ORIENTATION_BLURBS: Record<MapOrientation, string> = {
+  north: 'North stays up. The arrow turns as you do.',
+  track: 'You stay pointing up. The city turns around you.',
+};
+
+export function isOrientation(v: unknown): v is MapOrientation {
+  return v === 'north' || v === 'track';
+}
+
 export interface MapBlip {
   x: number;
   z: number;
@@ -47,7 +71,10 @@ export class Minimap {
    * @param yaw  rider heading; 0 faces +Z, which is "up" on this map.
    * @param blips cops and points of interest, in world coordinates.
    */
-  draw(x: number, z: number, yaw: number, blips: MapBlip[], heat: number): void {
+  draw(
+    x: number, z: number, yaw: number, blips: MapBlip[], heat: number,
+    orientation: MapOrientation = 'north',
+  ): void {
     const c = this.ctx;
     const s = this.size;
     if (this.root.clientWidth && this.root.clientWidth !== s) this.resize();
@@ -59,9 +86,17 @@ export class Minimap {
     const pz = (wz: number) => half - (wz - z) * scale;
 
     c.clearRect(0, 0, s, s);
-
     c.fillStyle = 'rgba(12, 16, 24, 0.72)';
     c.fillRect(0, 0, s, s);
+
+    c.save();
+    if (orientation === 'track') {
+      // Turn the city so the rider's heading points up. A canvas rotation of
+      // -yaw sends the heading (sin yaw, -cos yaw) onto (0, -1).
+      c.translate(half, half);
+      c.rotate(-yaw);
+      c.translate(-half, -half);
+    }
 
     // Roads. Two passes so the casing reads as a kerb at any zoom.
     const roadPx = Math.max(3, LAYOUT.roadHalf * 2 * scale);
@@ -89,9 +124,11 @@ export class Minimap {
     c.fillRect(px(p.xMin), pz(p.zMax), (p.xMax - p.xMin) * scale, (p.zMax - p.zMin) * scale);
 
     for (const b of blips) {
+      // Cull in world space: once the map can rotate, a canvas-space bounds
+      // check is measuring the wrong rectangle.
+      if (Math.hypot(b.x - x, b.z - z) > RANGE * 1.5) continue;
       const bx = px(b.x);
       const bz = pz(b.z);
-      if (bx < -8 || bx > s + 8 || bz < -8 || bz > s + 8) continue;
       c.beginPath();
       c.arc(bx, bz, b.kind === 'cop' ? 4.5 : 3.5, 0, Math.PI * 2);
       c.fillStyle = b.kind === 'cop' ? '#ff4d5a' : '#e0a13a';
@@ -102,11 +139,15 @@ export class Minimap {
         c.stroke();
       }
     }
+    c.restore();
 
-    // The rider: a triangle pointing where they are actually looking.
+    // The rider. With the map fixed the arrow turns; with the arrow fixed the
+    // map already turned, so it just points up.
     c.save();
     c.translate(half, half);
-    c.rotate(-yaw);
+    // Canvas rotate(yaw) sends (0,-1) to (sin yaw, -cos yaw), which is the
+    // heading. Negating it here is what made the arrow swing the wrong way.
+    if (orientation === 'north') c.rotate(yaw);
     c.beginPath();
     c.moveTo(0, -7.5);
     c.lineTo(5, 6);
@@ -119,6 +160,19 @@ export class Minimap {
     c.lineWidth = 1.2;
     c.stroke();
     c.restore();
+
+    // With the city turning, north needs marking or you lose your bearings.
+    if (orientation === 'track') {
+      c.save();
+      c.translate(half, half);
+      c.rotate(-yaw);
+      c.fillStyle = 'rgba(255,255,255,0.75)';
+      c.font = `bold ${Math.round(s * 0.075)}px ui-monospace, monospace`;
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText('N', 0, -half + s * 0.085);
+      c.restore();
+    }
 
     // Heat ring: the border goes red as the police interest rises.
     if (heat > 0) {

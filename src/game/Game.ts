@@ -173,6 +173,9 @@ export class Game {
     this.overlay = new ControlsOverlay(() => this.onRide());
     this.city.traffic.setSpeed(this.progress.traffic);
     this.overlay.setTrafficValue(this.progress.traffic);
+    this.overlay.setOrientationValue(this.progress.mapOrientation);
+    this.overlay.onOrientationPicked((o) => this.progress.setMapOrientation(o));
+
     this.police.setStyle(this.progress.police);
     this.overlay.setPoliceValue(this.progress.police);
     this.overlay.onPolicePicked((style) => {
@@ -553,7 +556,9 @@ export class Game {
     this.audio.resumeIfNeeded();
 
     if (this.blobShadow.visible) this.placeBlobShadow(state);
-    this.minimap.draw(state.x, state.z, state.yaw, this.blips, this.heat);
+    this.minimap.draw(
+      state.x, state.z, state.yaw, this.blips, this.heat, this.progress.mapOrientation,
+    );
     this.renderer.render(this.scene, this.chase.camera);
   }
 }

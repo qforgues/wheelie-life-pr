@@ -383,3 +383,27 @@ to be readable from a long way off.
 
 The scanner is **$6,000**, between the YZ250F and the Ducati. It reveals patrols
 on the GPS - it has never gated whether police exist.
+
+## 21. The GPS arrow was rotating backwards
+
+World heading is `(sin yaw, cos yaw)` and the minimap draws +Z up with the
+canvas Y axis inverted, so the heading on the canvas is `(sin yaw, -cos yaw)`.
+A canvas `rotate(θ)` sends the arrow's tip `(0, -1)` to `(sin θ, -cos θ)`, so θ
+must be `+yaw`. The code had `-yaw`: turn right, arrow swings left.
+
+Found by riding, not by testing - it is the kind of sign error that looks
+perfectly reasonable in the source and is obvious the moment you steer.
+
+Verified by transforming the tip through the real canvas matrix at north, east,
+south and west and comparing against `(sin yaw, -cos yaw)` - exact at all four.
+A pixel-based probe was tried first and was worse than useless: it looked for
+the cyan pixel furthest from centre, and on this arrow the *rear corners* are
+further out (7.81) than the tip (7.5), so it measured the tail.
+
+## 22. Which thing stays still is a setting
+
+**MAP FIXED** keeps the city still and turns the arrow: better for building a
+picture of where you are. **ARROW FIXED** keeps the rider upright and turns the
+city, so "left on the map" is always "left on the screen": better for following
+a turn. People are genuinely split on this, so it is a toggle rather than a
+decision, and north gets marked with an N when the city is the thing rotating.
