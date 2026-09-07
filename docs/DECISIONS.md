@@ -1432,3 +1432,25 @@ lets the fallback script face stand.
 Clean: no vulnerabilities in prod or dev, no secrets or key files tracked, cache
 headers right, map sealed on all four sides, console build 10.9 MB against a
 13 MB budget. The only host the page talks to is Google Fonts.
+
+## 70. Public repo, maps back on
+
+The source map came off because the repository was private and a 3 MB map beside
+a 0.76 MB bundle published the whole source on a public URL every deploy.
+
+The repo is public now, so the map gives away nothing that is not already given
+away — and it buys back the one thing that is genuinely hard on this project: a
+**readable stack trace off the Xbox**. Justin's console is the machine we cannot
+attach a debugger to, and an unreadable minified trace from it has already cost
+real time. Players never download it; a browser only fetches a `.map` with
+devtools open. `SOURCEMAP=0` leaves it out of a build.
+
+For the record, what actually blocks the first paint now:
+
+    preconnect   a hint — never blocks
+    preload      off the critical path, swapped to a stylesheet on load
+    our own CSS  local, 20 KB, same origin — blocks, and should
+    module JS    deferred by spec — never blocks
+
+**Nothing external stands between the console and the game.** That is the rule,
+and it is worth restating because the font link broke it for a day.

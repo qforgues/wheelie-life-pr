@@ -111,22 +111,19 @@ export default defineConfig(({ command }) => ({
   build: {
     target: 'es2022',
     /**
-     * No source map on a published build.
+     * Source maps on, because the repo is public and the console is not.
      *
-     * It was on, and it was three of the three point eight megabytes we deploy
-     * - a map is bigger than the bundle it maps. Players never download it
-     * (browsers only fetch a .map with devtools open), so the cost was not
-     * bandwidth: it was that **the repository is private and the source map
-     * published the whole source anyway**, on a public URL, every deploy.
+     * They were turned off when the repository was private: a 3 MB map beside a
+     * 0.76 MB bundle published the whole source on a public URL every deploy.
+     * The repo is public now, so the map gives away nothing that is not already
+     * given away - and it buys the one thing that is genuinely hard here, which
+     * is a readable stack trace off the Xbox. Justin's console is the machine we
+     * cannot attach a debugger to, and an unreadable minified trace from it has
+     * cost this project real time.
      *
-     * The debugging value is real and we have needed it, so it is one env var
-     * away rather than deleted:
-     *
-     *     SOURCEMAP=1 npm run deploy:live
-     *
-     * Turn it on when something has to be chased on the console, and turn it
-     * off again after.
+     * Players never download it: a browser only fetches a .map with devtools
+     * open. Set SOURCEMAP=0 to leave it out of a build.
      */
-    sourcemap: process.env.SOURCEMAP === '1',
+    sourcemap: process.env.SOURCEMAP !== '0',
   },
 }));
