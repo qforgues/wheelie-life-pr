@@ -323,6 +323,7 @@ canvas:active { cursor: grabbing; }
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
   padding: 12px 12px 13px;
   text-align: left;
   cursor: pointer;
@@ -375,6 +376,8 @@ canvas:active { cursor: grabbing; }
   opacity: 0.75;
 }
 .bike-buy {
+  display: inline-block;
+  width: auto;
   font-family: var(--hud-font);
   font-size: 11px;
   letter-spacing: 0.12em;

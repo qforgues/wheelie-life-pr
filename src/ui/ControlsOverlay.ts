@@ -73,6 +73,14 @@ export class ControlsOverlay {
       if ((e.target as HTMLElement).closest('[data-buy]')) this.tryBuy(id);
       else this.pick(id);
     });
+    // The card is a div now, so it needs its own keyboard activation.
+    this.bikePick.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const card = (e.target as HTMLElement).closest<HTMLElement>('.bike');
+      if (!card || (e.target as HTMLElement).closest('[data-buy]')) return;
+      e.preventDefault();
+      this.pick(card.dataset.bike as BikeId);
+    });
     this.root.querySelector('[data-el="go"]')!.addEventListener('click', () => this.hide());
     this.root.querySelector('[data-el="diag"]')!
       .addEventListener('click', (e) => { e.stopPropagation(); this.onDiag?.(); });
@@ -139,15 +147,20 @@ export class ControlsOverlay {
         : afford
           ? `<button class="bike-buy" data-buy type="button">BUY · ${money(v.price)}</button>`
           : `<span class="bike-price">${money(v.price)}</span>`;
+      // A div, not a button. The card contains a BUY button, and a button
+      // inside a button is invalid HTML - the parser closes the outer one and
+      // hoists the inner out as a sibling, which turned BUY into its own grid
+      // cell and wrapped the third bike onto a second row.
       return `
-        <button class="bike${this.selected === id ? ' is-on' : ''}${owned ? '' : ' is-locked'}"
-                data-bike="${id}" type="button">
+        <div class="bike${this.selected === id ? ' is-on' : ''}${owned ? '' : ' is-locked'}"
+             data-bike="${id}" role="button" tabindex="0"
+             aria-pressed="${this.selected === id}">
           <span class="bike-swatch" style="--paint:#${paint}"></span>
           <span class="bike-name">${v.displayName}</span>
           <span class="bike-tag">${v.tagline}</span>
           <span class="bike-char">${v.character}</span>
           <span class="bike-foot">${status}</span>
-        </button>`;
+        </div>`;
     }).join('');
 
     const sel = BIKE_VISUALS[this.selected];
