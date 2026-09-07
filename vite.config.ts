@@ -89,7 +89,25 @@ export default defineConfig(({ command }) => ({
     __BUILD_ID__: JSON.stringify(command === 'serve' ? DEV_BUILD_ID : BUILD_ID),
   },
   plugins: [versionManifest(), devVersion()],
-  server: { host: true, port: 5173 },
+  /**
+   * Our own ports, and a hard failure if we cannot have them.
+   *
+   * 5173 is Vite's default, so every Vite project on this machine wants it -
+   * and Save'n'Make had already taken it. Two servers ended up bound to the
+   * same port on different stacks (one on IPv6 loopback, one on everything),
+   * macOS resolved localhost to ::1 first, and going to :5173 for the game
+   * quietly served the other app instead. Nothing errored anywhere.
+   *
+   * Both of ours are 417x now, and `strictPort` means a clash is a startup
+   * failure you can read rather than a wrong page you have to notice. `host`
+   * binds every interface, not just IPv6 loopback - which is separately what
+   * stopped Safari loading localhost at all.
+   *
+   *   4173  npm run beta   the built game, what gets tested before deploying
+   *   4174  npm run dev    hot reload while working
+   */
+  server: { host: '0.0.0.0', port: 4174, strictPort: true },
+  preview: { host: '0.0.0.0', port: 4173, strictPort: true },
   build: {
     target: 'es2022',
     sourcemap: true,

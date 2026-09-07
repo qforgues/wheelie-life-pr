@@ -1191,3 +1191,26 @@ than letting the clock run out underneath you. `npm run rivals` parks the bike
 on a rider for four seconds after a race and fails if they solidify, and checks
 they do come back once you ride away - a grace that never expires would be a
 different bug.
+
+## 59. Our ports are 417x
+
+"when I go to 5173 I see the Save to Make app" - and he did.
+
+5173 is Vite's default, so every Vite project on the machine wants it.
+Save'n'Make's dev server had been on it since 08:48. A wheelie-life dev server
+started at 09:18 and **also** bound to 5173, because the two ended up on
+different stacks: Save'n'Make on `[::1]:5173`, ours on `*:5173`. macOS resolves
+`localhost` to `::1` first, so going to :5173 for the game served the other app.
+Neither server complained. Nothing in either log said a word.
+
+This is the third time ports have cost an afternoon here - "how can it play on
+4173 and 5173 and I'm still on 708d4ad", then "should I be testing on 4 or
+5173". So they are ours now and they are next to each other:
+
+    4173   npm run beta    the built game — what gets tested before a deploy
+    4174   npm run dev     hot reload while working
+
+`strictPort` turns a clash into a startup failure you can read, instead of a
+wrong page you have to happen to notice. `host: '0.0.0.0'` binds every interface
+rather than IPv6 loopback only, which is separately what stopped Safari loading
+localhost at all a while back - same root cause, different symptom.
