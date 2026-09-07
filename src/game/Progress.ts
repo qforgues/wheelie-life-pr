@@ -1,6 +1,7 @@
 import { STARTER_BIKE, type BikeId } from '../sim/tuning';
 import { isTrafficSpeed, type TrafficSpeed } from '../world/Traffic';
 import { isPoliceStyle, type PoliceStyle } from '../world/Police';
+import { isRivalCount, type RivalCount } from '../world/Rivals';
 import { isOrientation, type MapOrientation } from '../ui/Minimap';
 import { DEFAULT_AIM, isMirrorMount, type MirrorAim, type MirrorMount } from '../view/Mirrors';
 import { UPGRADES, UPGRADE_IDS, nextLevel, type UpgradeId, type UpgradeLevels } from './Upgrades';
@@ -24,6 +25,7 @@ export interface SaveData {
   /** Legacy: replaced by the levelled scanner upgrade. */
   scanner?: boolean;
   police: PoliceStyle;
+  rivals: RivalCount;
   mapOrientation: MapOrientation;
   mirrors: MirrorMount;
   mirrorAim: MirrorAim;
@@ -51,6 +53,8 @@ export class Progress {
   /** Shows patrols on the GPS. Justin asked for this as a purchase. */
   /** How hard la policía plays. Justin's call, saved between sessions. */
   police: PoliceStyle = 'professional';
+  /** Other riders out on the street. */
+  rivals: RivalCount = 'few';
   /** Whether the GPS keeps the city still or the rider still. */
   mapOrientation: MapOrientation = 'north';
   /** Where the mirrors hang, and the rider's trim on them. */
@@ -123,6 +127,11 @@ export class Progress {
 
   setTraffic(t: TrafficSpeed): void {
     this.traffic = t;
+    this.save();
+  }
+
+  setRivals(r: RivalCount): void {
+    this.rivals = r;
     this.save();
   }
 
@@ -202,6 +211,7 @@ export class Progress {
     this.bestScore = 0;
     this.traffic = 'regular';
     this.police = 'professional';
+    this.rivals = 'few';
     this.mapOrientation = 'north';
     this.mirrors = 'corners';
     this.mirrorAim = { ...DEFAULT_AIM };
@@ -230,6 +240,7 @@ export class Progress {
       if (isTrafficSpeed(d.traffic)) this.traffic = d.traffic;
       const legacyScanner = d.scanner === true;
       if (isPoliceStyle(d.police)) this.police = d.police;
+      if (isRivalCount(d.rivals)) this.rivals = d.rivals;
       if (isOrientation(d.mapOrientation)) this.mapOrientation = d.mapOrientation;
       if (isMirrorMount(d.mirrors)) this.mirrors = d.mirrors;
       if (d.upgrades && typeof d.upgrades === 'object') {
@@ -271,6 +282,7 @@ export class Progress {
         bestScore: this.bestScore,
         traffic: this.traffic,
         police: this.police,
+        rivals: this.rivals,
         mapOrientation: this.mapOrientation,
         mirrors: this.mirrors,
         mirrorAim: this.mirrorAim,

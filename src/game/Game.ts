@@ -9,6 +9,7 @@ import { BIKES, TRICKS, cloneTuning, type BikeId } from '../sim/tuning';
 import { BIKE_VISUALS } from '../view/bikeVisuals';
 import { City } from '../world/City';
 import { Police } from '../world/Police';
+import { Rivals } from '../world/Rivals';
 import {
   Minimap, ORIENTATION_LABELS, ORIENTATION_ORDER, type MapBlip,
 } from '../ui/Minimap';
@@ -100,6 +101,7 @@ export class Game {
   /** Fake contact shadow, shown only when real shadow mapping is off. */
   private blobShadow: THREE.Mesh;
   private police = new Police();
+  private rivals = new Rivals();
   private minimap = new Minimap();
   private blips: MapBlip[] = [];
   private heat = 0;
@@ -133,7 +135,11 @@ export class Game {
     this.city = new City();
     this.scene.add(this.city.root);
     this.scene.add(this.police.root);
-    this.city.extraCollider = (x, z, r) => this.police.hits(x, z, r);
+    this.scene.add(this.rivals.root);
+    // Another rider is as solid as anything else in the road. You can split
+    // past one - the box is bike-shaped, not car-shaped - but you cannot ride
+    // through them.
+    this.city.extraCollider = (x, z, r) => this.police.hits(x, z, r) || this.rivals.hits(x, z, r);
     // Patrols crash into the same things the player does - but not into each
     // other, and never into themselves.
     this.police.obstacleTest = (x, z, r) => this.city.blocked(x, z, r);
@@ -210,6 +216,12 @@ export class Game {
     });
 
     this.applyPlates();
+    this.rivals.setCount(this.progress.rivals);
+    this.overlay.setRivalsValue(this.progress.rivals);
+    this.overlay.onRivalsPicked((r) => {
+      this.rivals.setCount(r);
+      this.progress.setRivals(r);
+    });
     this.police.setStyle(this.progress.police);
     this.overlay.setPoliceValue(this.progress.police);
     this.overlay.onPolicePicked((style) => {
@@ -422,7 +434,21 @@ export class Game {
     } else {
       this.sirenTimer = 0;
     }
-    // What the scanner shows depends on how much of one you own.
+    // Los Piratas. They ride the same grid, they are up on the back wheel most
+    // of the time, and coming alongside one gets you a shout.
+    const rivals = this.rivals.update(dt, st.x, st.z);
+    if (rivals.hail) {
+      this.hud.showToast(
+        rivals.hail.wheelie > 5
+          ? `${rivals.hail.name} — ${rivals.hail.wheelie.toFixed(0)} m AND COUNTING`
+          : `${rivals.hail.name} — ${rivals.hail.line}`,
+        2.2,
+      );
+      this.voice.say(rivals.hail.line, 'es');
+    }
+
+    // What the scanner shows depends on how much of one you own. Rivals are on
+    // the map whatever you own: they are not hiding from you.
     const mode = scannerMode(this.progress.scannerLevel);
     this.blips = mode === 'none'
       ? []
@@ -434,6 +460,7 @@ export class Game {
           // Level three adds which way each one is pointing.
           heading: mode === 'heading' ? b.yaw : undefined,
         }));
+    for (const b of rivals.blips) this.blips.push({ x: b.x, z: b.z, kind: 'rival' });
 
     const state = this.sim.state;
     const blocked = this.overlay.isVisible;
@@ -577,6 +604,7 @@ export class Game {
     if (this.tracker.active) this.tracker.endRun();
     const s = this.sim.state;
     this.sim.reset(this.city.respawnFor(s.x, s.z));
+    this.rivals.clearAround(this.sim.state.x, this.sim.state.z);
     this.bikeView.endCrash();
     this.voice.stop();
     this.snapPose();

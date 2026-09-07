@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { makePoliceCar, makeHummer, makeFireTruck, CAR_HALF } from './Props';
 import { LAYOUT } from './City';
+import { junctionByIndex, stepToward, wanderFrom } from './grid';
 
 /**
  * La policía.
@@ -340,7 +341,7 @@ export class Police {
       const { group, lights } = this.tuning.riotGear
         ? makeHummer()
         : makePoliceCar(false);
-      const start = this.junctionByIndex(i);
+      const start = junctionByIndex(i);
       group.position.set(start.x, 0, start.z);
       this.root.add(group);
       this.patrols.push({
@@ -350,14 +351,6 @@ export class Police {
         active: true, chasing: false, wrecked: 0, smoke: null,
       });
     }
-  }
-
-  /** Spreads the shift across the grid so they don't all start on one corner. */
-  private junctionByIndex(i: number): { x: number; z: number } {
-    const av = LAYOUT.avenueX;
-    const st = LAYOUT.streetZ;
-    // Stride by a coprime-ish step so successive patrols land far apart.
-    return { x: av[(i * 2 + 1) % av.length], z: st[(i * 3 + 2) % st.length] };
   }
 
   get styleName(): PoliceStyle {
@@ -786,80 +779,12 @@ export class Police {
    * a reason not to.
    */
   private wander(p: Patrol): { x: number; z: number } {
-    const av: readonly number[] = LAYOUT.avenueX;
-    const st: readonly number[] = LAYOUT.streetZ;
-    const ROAD = LAYOUT.roadHalf + 1;
-
-    const ax = snap(p.x, av);
-    const sz = snap(p.z, st);
-    const ai = av.indexOf(ax);
-    const si = st.indexOf(sz);
-    const onAvenue = Math.abs(p.x - ax) < ROAD;
-    const onStreet = Math.abs(p.z - sz) < ROAD;
-
     this.wanderSeed = (this.wanderSeed * 1664525 + 1013904223) >>> 0;
-    const roll = this.wanderSeed / 4294967296;
-    const dir = roll < 0.5 ? 1 : -1;
-
-    // Every waypoint must share a road with where the car is standing, so the
-    // straight line to it runs ALONG that road. Returning a junction the car
-    // was not lined up with sent it diagonally across the block - which is the
-    // patrols driving through buildings.
-    if (onAvenue && onStreet) {
-      // At a junction: turn onto the cross street, or carry on up the avenue.
-      return roll < 0.5
-        ? { x: ax, z: st[clampIndex(si + (roll < 0.25 ? 1 : -1), st.length)] }
-        : { x: av[clampIndex(ai + (roll < 0.75 ? 1 : -1), av.length)], z: sz };
-    }
-    if (onAvenue) return { x: ax, z: st[clampIndex(si + dir, st.length)] };
-    if (onStreet) return { x: av[clampIndex(ai + dir, av.length)], z: sz };
-
-    // Off the grid entirely, which only happens to a car coming back from a
-    // chase it broke off mid-block. Head for the nearest junction and pick the
-    // beat up from there.
-    return { x: ax, z: sz };
+    return wanderFrom(p.x, p.z, this.wanderSeed / 4294967296);
   }
 
-
-
-  /**
-   * The next intersection on a Manhattan route toward the target.
-   *
-   * Close the larger axis gap first, which on a grid is both the shortest route
-   * and the one that looks like a driver making a decision.
-   */
   private stepToward(x: number, z: number, tx: number, tz: number): { x: number; z: number } {
-    const ax = snap(x, LAYOUT.avenueX);
-    const sz = snap(z, LAYOUT.streetZ);
-    const tax = snap(tx, LAYOUT.avenueX);
-    const tsz = snap(tz, LAYOUT.streetZ);
-    const ROAD = LAYOUT.roadHalf + 1;
-
-    const onAvenue = Math.abs(x - ax) < ROAD;
-    const onStreet = Math.abs(z - sz) < ROAD;
-
-    // Sharing a road with the rider means driving straight at them. Routing to
-    // the nearest junction instead was why patrols used to stall a block away
-    // and never actually arrive.
-    if (onAvenue && Math.abs(tx - ax) < ROAD) return { x: ax, z: tz };
-    if (onStreet && Math.abs(tz - sz) < ROAD) return { x: tx, z: sz };
-
-    // Otherwise take a leg that gets us onto one of their roads. At a junction
-    // both legs are legal, so skip the one we are already standing on -
-    // re-picking it is what left patrols parked at a corner.
-    const legs: Array<{ x: number; z: number }> = [];
-    if (onAvenue) legs.push({ x: ax, z: tsz });
-    if (onStreet) legs.push({ x: tax, z: sz });
-
-    let best: { x: number; z: number } | null = null;
-    let bestDist = Infinity;
-    for (const leg of legs) {
-      if (Math.hypot(leg.x - x, leg.z - z) < 3) continue;
-      const remaining = Math.abs(tx - leg.x) + Math.abs(tz - leg.z);
-      if (remaining < bestDist) { bestDist = remaining; best = leg; }
-    }
-    // Off the grid entirely (shouldn't happen): head for their junction.
-    return best ?? { x: tax, z: tsz };
+    return stepToward(x, z, tx, tz);
   }
 
   /**
@@ -883,21 +808,3 @@ export class Police {
     return false;
   }
 }
-
-/** Keeps a grid index in range by bouncing off the edge rather than wrapping. */
-function clampIndex(i: number, len: number): number {
-  if (i < 0) return 1 % len;
-  if (i >= len) return Math.max(0, len - 2);
-  return i;
-}
-
-function snap(v: number, list: readonly number[]): number {
-  let best = list[0];
-  let dist = Math.abs(v - best);
-  for (const c of list) {
-    const d = Math.abs(v - c);
-    if (d < dist) { dist = d; best = c; }
-  }
-  return best;
-}
-

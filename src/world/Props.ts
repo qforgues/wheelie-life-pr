@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { makePalmFrondTexture, makeSignTexture } from './textures';
-import { mergeMeshes, roundedBox } from '../view/geometry';
+import { bakeSubtree, mergeMeshes, roundedBox } from '../view/geometry';
 
 /** Street furniture. Everything here is cheap boxes and cylinders, lit well. */
 
@@ -1024,3 +1024,251 @@ export function makeShopSign(text: string, bg: string, fg: string, width = 2.6):
 }
 
 export const PROP_MATERIALS = SHARED;
+
+/**
+ * Somebody else out riding.
+ *
+ * Not the player's bike. BikeView builds a fully articulated machine with a
+ * jointed rider on it, which is right for the one you are sat on and far too
+ * much for four more of them down the street - so this is a silhouette: the
+ * stance, the paint and the wheelie, at about a twentieth of the cost.
+ *
+ * Built with the REAR CONTACT PATCH at the local origin and +Z forward, exactly
+ * like BikeView, so `pitch.rotation.x = -angle` lofts the front wheel about the
+ * point it actually pivots on.
+ *
+ * Three materials for the whole rider and bike - paint, dark, and kit - so the
+ * frame bakes down to three meshes plus a wheel each end. The rider is in full
+ * moto-X gear including a lid, which is both what people actually wear here and
+ * the reason no skin material is needed.
+ */
+export interface RivalLook {
+  /** Silhouette family, shared with the player's bikes. */
+  style: 'dirt' | 'mini' | 'sport';
+  bodyColor: number;
+  /** Helmet and jersey. */
+  kitColor: number;
+  frontRadius: number;
+  rearRadius: number;
+  hipHeight: number;
+  seatZ: number;
+}
+
+export interface RivalModel {
+  group: THREE.Group;
+  /** Rotate about X to loft the front wheel. */
+  pitch: THREE.Group;
+  /** Rotate about Z to lean. */
+  roll: THREE.Group;
+  front: THREE.Mesh;
+  rear: THREE.Mesh;
+}
+
+/** Wheelbase by family (m), off the real bikes. */
+const RIVAL_WHEELBASE = { dirt: 1.475, mini: 1.200, sport: 1.488 } as const;
+
+export function makeRivalBike(look: RivalLook): RivalModel {
+  const key = `rival:${look.style}:${look.bodyColor}:${look.kitColor}`;
+  const proto = cached(key, () => buildRival(look));
+  const group = proto.clone(true);
+  // clone() preserves names, which is how the moving parts are found again.
+  return {
+    group,
+    pitch: group.getObjectByName('pitch') as THREE.Group,
+    roll: group.getObjectByName('roll') as THREE.Group,
+    front: group.getObjectByName('front') as THREE.Mesh,
+    rear: group.getObjectByName('rear') as THREE.Mesh,
+  };
+}
+
+function buildRival(look: RivalLook): THREE.Group {
+  const root = new THREE.Group();
+  const roll = new THREE.Group();
+  roll.name = 'roll';
+  const pitch = new THREE.Group();
+  pitch.name = 'pitch';
+  root.add(roll);
+  roll.add(pitch);
+
+  const paint = new THREE.MeshStandardMaterial({
+    color: look.bodyColor, roughness: 0.38, metalness: 0.28,
+  });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.62 });
+  const kit = new THREE.MeshStandardMaterial({ color: look.kitColor, roughness: 0.72 });
+
+  const wb = RIVAL_WHEELBASE[look.style];
+  const fr = look.frontRadius;
+  const rr = look.rearRadius;
+  const seatY = look.hipHeight - 0.10;
+  const sport = look.style === 'sport';
+
+  // ---- frame, in a scratch group that gets baked flat ---------------------
+  const body = new THREE.Group();
+  const add = (
+    geo: THREE.BufferGeometry, mat: THREE.Material,
+    x: number, y: number, z: number, rx = 0,
+  ) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    m.rotation.x = rx;
+    body.add(m);
+  };
+
+  // Engine and swingarm: the mass low down, which is most of the read from
+  // behind.
+  add(roundedBox(0.30, 0.34, 0.44, 0.07, 2), dark, 0, rr + 0.16, wb * 0.42);
+  for (const dx of [-0.11, 0.11]) {
+    add(roundedBox(0.05, 0.09, wb * 0.44, 0.02, 1), dark, dx, rr + 0.05, wb * 0.20, -0.07);
+  }
+  // Exhaust down the right side, which is where it is on all three of them.
+  add(new THREE.CylinderGeometry(0.05, 0.055, 0.52, 7), dark,
+    sport ? 0 : 0.14, rr + (sport ? -0.05 : 0.30), sport ? 0.10 : 0.04, Math.PI / 2 - 0.12);
+
+  // Tank and bodywork.
+  add(roundedBox(0.28, 0.26, 0.58, 0.10, 2), paint, 0, seatY + 0.10, look.seatZ + 0.42);
+  // A dirt bike wears shrouds either side of the tank; a sportbike wears a
+  // fairing that is one shape. Same triangles, different silhouette.
+  if (sport) {
+    add(roundedBox(0.34, 0.30, 0.40, 0.12, 2), paint, 0, seatY + 0.06, wb - 0.22);
+  } else {
+    for (const dx of [-0.16, 0.16]) {
+      add(roundedBox(0.05, 0.24, 0.44, 0.03, 1), paint, dx, seatY + 0.06, look.seatZ + 0.50);
+    }
+  }
+  // Seat and tail.
+  add(roundedBox(0.24, 0.09, 0.56, 0.04, 2), dark, 0, seatY, look.seatZ + 0.02);
+  add(roundedBox(0.22, 0.14, 0.30, 0.06, 2), paint, 0, seatY + 0.06, look.seatZ - 0.34);
+
+  // Forks up to the bars, raked back.
+  const rake = sport ? 0.42 : 0.48;
+  const forkLen = look.hipHeight - fr + 0.24;
+  for (const dx of [-0.12, 0.12]) {
+    add(new THREE.CylinderGeometry(0.032, 0.038, forkLen, 6), dark,
+      dx, fr + forkLen * 0.46, wb - forkLen * 0.22 * Math.sin(rake), rake);
+  }
+  const barY = fr + forkLen * 0.92;
+  const barZ = wb - forkLen * 0.44 * Math.sin(rake);
+  const bars = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.019, 0.66, 6), dark);
+  bars.rotation.z = Math.PI / 2;
+  bars.position.set(0, barY, barZ);
+  body.add(bars);
+  // Front fender on the dirt bikes, a headlight nacelle on the street ones.
+  add(sport ? roundedBox(0.22, 0.16, 0.20, 0.07, 2) : roundedBox(0.24, 0.05, 0.46, 0.02, 1),
+    paint, 0, sport ? barY - 0.10 : fr + 0.30, sport ? barZ + 0.16 : wb - 0.06);
+
+  // Number plate on the tail. Body-coloured rather than pale, because a fourth
+  // material here is a fourth draw call on every rival in the scene, and a
+  // race plate is usually the team colour anyway.
+  add(roundedBox(0.20, 0.16, 0.03, 0.01, 1), paint, 0, seatY - 0.02, look.seatZ - 0.50);
+
+  // ---- rider, in full gear ------------------------------------------------
+  // Cranked forward on a sportbike, sat up on a dirt bike, which is the single
+  // clearest tell of what somebody is riding.
+  const lean = sport ? 0.40 : 0.16;
+  const hipZ = look.seatZ + 0.04;
+  const hipY = look.hipHeight;
+  const chest = 0.36;
+  const chestY = hipY + Math.cos(lean) * chest;
+  const chestZ = hipZ + Math.sin(lean) * chest;
+
+  // Rotation about X by a POSITIVE angle tips the top of a part toward +Z,
+  // which is forward - so leaning onto the tank is +lean. Negating it, which is
+  // what the first pass did, sat every rider back off the bars like a deck
+  // chair, and on the Ducati that is 23 degrees the wrong way.
+  add(roundedBox(0.32, 0.46, 0.23, 0.10, 2), kit,
+    0, (hipY + chestY) / 2, (hipZ + chestZ) / 2, lean);
+  // Shoulder yoke. A jersey and a roost deflector are wider across the top than
+  // the chest, and without it the torso reads as a fridge.
+  add(roundedBox(0.40, 0.13, 0.24, 0.06, 2), kit,
+    0, chestY - 0.06, chestZ - Math.sin(lean) * 0.04, lean);
+  // Thighs down to the pegs, shins tucked under.
+  for (const dx of [-0.12, 0.12]) {
+    add(new THREE.CapsuleGeometry(0.075, 0.30, 2, 6), dark,
+      dx, hipY - 0.12, hipZ + 0.16, Math.PI / 2.4);
+    add(new THREE.CapsuleGeometry(0.065, 0.26, 2, 6), dark,
+      dx * 1.15, hipY - 0.36, hipZ + 0.08, 0.25);
+  }
+  // Arms out to the bars. One capsule each: at this size an elbow is a lie
+  // nobody can see.
+  for (const dx of [-0.17, 0.17]) {
+    const sx = dx;
+    const sy = chestY - 0.04;
+    const sz = chestZ;
+    const ex = dx * 1.6;
+    const ey = barY + 0.03;
+    const ez = barZ - 0.04;
+    const len = Math.hypot(ex - sx, ey - sy, ez - sz);
+    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, Math.max(0.05, len - 0.11), 2, 6), kit);
+    arm.position.set((sx + ex) / 2, (sy + ey) / 2, (sz + ez) / 2);
+    arm.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(ex - sx, ey - sy, ez - sz).normalize(),
+    );
+    body.add(arm);
+  }
+
+  // Moto-X lid: shell, chin bar, peak.
+  //
+  // Painted to match the BIKE rather than the jersey. That is how a kit is
+  // actually put together, and it is doing real work here: a helmet the same
+  // colour as the shirt merged into one solid blob at any distance, which is
+  // what the first pass looked like from behind. It also costs nothing - the
+  // paint material is already in the bake.
+  const headY = chestY + 0.26;
+  const headZ = chestZ + Math.sin(lean) * 0.20;
+  const shell = new THREE.Mesh(new THREE.SphereGeometry(0.135, 9, 7), paint);
+  shell.position.set(0, headY, headZ);
+  body.add(shell);
+  add(roundedBox(0.20, 0.13, 0.14, 0.05, 2), paint, 0, headY - 0.06, headZ + 0.12, lean);
+  const peak = new THREE.Mesh(roundedBox(0.25, 0.025, 0.21, 0.012, 1), paint);
+  peak.position.set(0, headY + 0.09, headZ + 0.17);
+  peak.rotation.x = 0.34;
+  body.add(peak);
+  // Visor slot, dark, so the lid has a front - and a neck under it, so the head
+  // is a separate thing from the shoulders.
+  add(roundedBox(0.17, 0.07, 0.03, 0.01, 1), dark, 0, headY + 0.005, headZ + 0.135);
+  add(new THREE.CylinderGeometry(0.055, 0.06, 0.10, 6), dark,
+    0, headY - 0.145, headZ - Math.sin(lean) * 0.04);
+
+  // Bake the lot down: three meshes, whatever the part count above grows to.
+  for (const baked of bakeSubtree(body)) pitch.add(baked);
+
+  // ---- wheels, which are the only things left moving ----------------------
+  const front = rivalWheel(fr, sport ? 0.13 : 0.115, dark);
+  front.name = 'front';
+  front.position.set(0, fr, wb);
+  pitch.add(front);
+  const rear = rivalWheel(rr, sport ? 0.20 : 0.145, dark);
+  rear.name = 'rear';
+  rear.position.set(0, rr, 0);
+  pitch.add(rear);
+
+  return root;
+}
+
+/**
+ * One mesh, one material, one draw call per wheel.
+ *
+ * The player's wheels are laced and knobbled by Wheel.ts because they are a
+ * metre from the camera. These are seen from across a junction, where a tyre
+ * and a hint of a hub is the whole of it.
+ */
+function rivalWheel(radius: number, width: number, mat: THREE.Material): THREE.Mesh {
+  const parts: THREE.Mesh[] = [];
+  const tyre = new THREE.Mesh(new THREE.TorusGeometry(radius - width * 0.34, width * 0.34, 5, 12), mat);
+  tyre.rotation.y = Math.PI / 2;
+  parts.push(tyre);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.52, radius * 0.52, width * 0.5, 10), mat);
+  hub.rotation.z = Math.PI / 2;
+  parts.push(hub);
+  // Three arms, so a stationary wheel still reads as stopped and a turning one
+  // as turning.
+  for (let i = 0; i < 3; i++) {
+    const arm = new THREE.Mesh(roundedBox(0.02, radius * 1.5, width * 0.42, 0.008, 1), mat);
+    arm.rotation.z = (i / 3) * Math.PI;
+    parts.push(arm);
+  }
+  const wheel = mergeMeshes(parts, mat);
+  wheel.castShadow = true;
+  return wheel;
+}

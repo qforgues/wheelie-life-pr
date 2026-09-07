@@ -812,3 +812,54 @@ ICE turns up in big black wagons rather than patrol cars: squarer, taller, half
 again as long, push bar and roof rack, strobes behind the screen instead of a
 light bar. Which unit is coming has to be readable from the end of a street,
 because it changes whether running is worth trying.
+
+## 47. Los Piratas
+
+Justin picked the rival riders off the list first and he was right to. The city
+had traffic, police, pedestrians and dominoes in it and not one other person
+doing the thing the game is about.
+
+Seven riders on the same grid the police use, in the three bikes the player can
+buy, with three temperaments: a hooligan who is up on the wheel constantly, a
+racer who only does it flat out, and a learner who pops it for a second and puts
+it down. They are up on the back wheel **37% of the time**, and coming alongside
+one gets you their name and a shout.
+
+Not a wheelie battle yet - no wagers, no scoring against them. First they have
+to exist, have names, and be worth riding over to.
+
+**They cost seven draw calls and 5,200 triangles across the whole crew**, all
+passes counted, because they are a silhouette and not a second BikeView. Five
+meshes each: paint, dark, kit, and a wheel at each end. The rider is in full
+moto-X gear including a lid, which is what people wear here and also why no skin
+material is needed.
+
+Three things needed measuring, and a headless harness (`npm run rivals`) found
+all three. It is in `npm run check` now.
+
+**They were riding on the pavement.** The lane offset is 4.3 m right of the
+centreline - between the traffic and the kerb, which is where you actually ride
+past a line of cars and the only choice that leaves the whole middle of the road
+to the player. But a waypoint counts as reached within three metres, and setting
+off from wherever that was carries the error down the whole next block. Three
+metres of drift is invisible on a patrol; with 4.3 m of lane offset on top it
+put a wheel 7.2 m out. They now land exactly on the junction before setting off
+from it, which costs a fifth of a second at a corner where the bike is turning
+anyway. The harness fails the build if anyone gets past the kerb line.
+
+**Seven riders turned out on five corners.** `av[(i * 2 + 1) % 5]` paired with
+`st[(i * 3 + 2) % 5]` looks like it spreads them across twenty-five junctions
+and does not: both indices are driven by `i mod 5`, so only five pairs exist.
+Numbering the junctions and striding by 7 - coprime with 25 - uses all of them.
+The police shift had the same bug for as long as it has existed.
+
+**Every rider was leaning backwards.** Rotating about X by a positive angle tips
+the top of a part toward +Z, which is forward, so leaning onto the tank is
+`+lean`. Negating it sat them back off the bars like a deck chair, 23 degrees
+the wrong way on the Ducati. Fourth time this project has been caught by an axis
+sign, after the mirrors twice and the minimap.
+
+One thing that only showed up in a screenshot: a helmet the same colour as the
+jersey merges into a single blob at any distance. The lid is painted to match
+the **bike** instead, which is how a kit is actually put together and costs
+nothing, because the paint material is already in the bake.

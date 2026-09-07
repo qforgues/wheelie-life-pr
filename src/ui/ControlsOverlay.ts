@@ -6,6 +6,7 @@ import { money } from '../game/Progress';
 import { UPGRADES, UPGRADE_IDS, nextLevel, type UpgradeId } from '../game/Upgrades';
 import { TRAFFIC_LABELS, TRAFFIC_ORDER, type TrafficSpeed } from '../world/Traffic';
 import { POLICE_BLURBS, POLICE_LABELS, POLICE_ORDER, type PoliceStyle } from '../world/Police';
+import { RIVAL_BLURBS, RIVAL_LABELS, RIVAL_ORDER, type RivalCount } from '../world/Rivals';
 import {
   ORIENTATION_BLURBS, ORIENTATION_LABELS, ORIENTATION_ORDER, type MapOrientation,
 } from './Minimap';
@@ -88,6 +89,11 @@ export class ControlsOverlay {
   private onTraffic: ((t: TrafficSpeed) => void) | null = null;
   private tuneshopEl!: HTMLElement;
   private onUpgrade: (() => void) | null = null;
+  private rivalsEl!: HTMLElement;
+  private rivalsBlurbEl!: HTMLElement;
+  private rivals: RivalCount = 'few';
+  private onRivals: ((r: RivalCount) => void) | null = null;
+
   private policeEl!: HTMLElement;
   private policeBlurbEl!: HTMLElement;
   private police: PoliceStyle = 'professional';
@@ -127,6 +133,11 @@ export class ControlsOverlay {
           <span class="opt-label">TRAFFIC</span>
           <div class="opt-choices" data-el="traffic"></div>
         </div>
+        <div class="opt">
+          <span class="opt-label">RIVALS</span>
+          <div class="opt-choices" data-el="rivals"></div>
+        </div>
+        <p class="opt-blurb" data-el="rivalsBlurb"></p>
         <div class="opt">
           <span class="opt-label">POLICÍA</span>
           <div class="opt-choices" data-el="police"></div>
@@ -251,6 +262,15 @@ export class ControlsOverlay {
       }
     });
 
+
+    this.rivalsEl = this.root.querySelector('[data-el="rivals"]')!;
+    this.rivalsBlurbEl = this.root.querySelector('[data-el="rivalsBlurb"]')!;
+    this.rivalsEl.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-rivals]');
+      if (!b) return;
+      this.setRivals(b.dataset.rivals as RivalCount);
+    });
+    this.renderRivals();
 
     this.policeEl = this.root.querySelector('[data-el="police"]')!;
     this.policeBlurbEl = this.root.querySelector('[data-el="policeBlurb"]')!;
@@ -458,6 +478,31 @@ export class ControlsOverlay {
              aria-pressed="${o === this.orientation}">${ORIENTATION_LABELS[o]}</button>`)
       .join('');
     this.gpsBlurbEl.textContent = ORIENTATION_BLURBS[this.orientation];
+  }
+
+  /** Called when the number of other riders changes. */
+  onRivalsPicked(fn: (r: RivalCount) => void): void {
+    this.onRivals = fn;
+  }
+
+  setRivalsValue(r: RivalCount): void {
+    this.rivals = r;
+    this.renderRivals();
+  }
+
+  private setRivals(r: RivalCount): void {
+    this.rivals = r;
+    this.renderRivals();
+    this.onRivals?.(r);
+  }
+
+  private renderRivals(): void {
+    this.rivalsEl.innerHTML = RIVAL_ORDER
+      .map((r) => `<button type="button" data-rivals="${r}"
+             class="opt-btn${r === this.rivals ? ' is-on' : ''}"
+             aria-pressed="${r === this.rivals}">${RIVAL_LABELS[r]}</button>`)
+      .join('');
+    this.rivalsBlurbEl.textContent = RIVAL_BLURBS[this.rivals];
   }
 
   /** Called when the police difficulty changes. */

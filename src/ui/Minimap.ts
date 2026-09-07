@@ -43,7 +43,7 @@ export function isOrientation(v: unknown): v is MapOrientation {
 export interface MapBlip {
   x: number;
   z: number;
-  kind: 'cop' | 'patrol' | 'poi';
+  kind: 'cop' | 'patrol' | 'poi' | 'rival';
   /** Set only by the top scanner: which way the car is pointing. */
   heading?: number;
 }
@@ -146,8 +146,12 @@ export class Minimap {
       // distinguishable at a glance - that is the whole value of the scanner.
       c.beginPath();
       c.arc(bx, bz, b.kind === 'cop' ? 4.5 : 3.2, 0, Math.PI * 2);
+      // Rivals are green - the one colour on this map that is not police and
+      // not a place. Somebody else riding is information you always want, so
+      // unlike the cops it does not wait on a scanner.
       c.fillStyle = b.kind === 'cop' ? '#ff4d5a'
-        : b.kind === 'patrol' ? '#5a8bd6' : '#e0a13a';
+        : b.kind === 'patrol' ? '#5a8bd6'
+          : b.kind === 'rival' ? '#3fd07a' : '#e0a13a';
       c.fill();
       if (b.kind === 'cop') {
         c.strokeStyle = 'rgba(255,255,255,0.9)';
