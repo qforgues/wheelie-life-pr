@@ -1,0 +1,16 @@
+# Cloudflare static-asset caching.
+#
+# The whole "clear the cache on the Xbox" problem is caused by a stale
+# index.html: it is the one file whose name never changes, so a cached copy
+# keeps pointing at the old bundle forever. Everything Vite emits under
+# /assets/ is content-hashed and can be cached hard and permanently; index.html
+# and version.json must always be revalidated.
+
+/index.html
+  Cache-Control: no-cache, must-revalidate
+
+/version.json
+  Cache-Control: no-store
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

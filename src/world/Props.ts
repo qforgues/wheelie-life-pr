@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { makePalmFrondTexture, makeSignTexture } from './textures';
 import { mergeMeshes, roundedBox } from '../view/geometry';
 
@@ -236,76 +237,129 @@ export function makePlanter(seed = 0): THREE.Group {
  * thing on screen once the bike was rounded. Built now as a proper silhouette:
  * sill, body, tapered greenhouse, arches and bumpers.
  */
-export function makeParkedCar(color: number): THREE.Group {
-  const g = new THREE.Group();
-  const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.28, metalness: 0.5 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x22242a, roughness: 0.7 });
+/**
+ * A car, baked down to one mesh per material.
+ *
+ * Built naively this is ~19 meshes, which was fine while cars were scenery.
+ * Now that traffic drives there can be sixteen of them on screen and that is
+ * 300 draw calls the Xbox does not have. The shapes are merged once, cached,
+ * and shared by every car; only the paint material differs, so a full street of
+ * traffic costs seven draw calls each and almost no extra memory.
+ */
+interface CarParts {
+  paint: THREE.BufferGeometry;
+  glass: THREE.BufferGeometry;
+  dark: THREE.BufferGeometry;
+  tyre: THREE.BufferGeometry;
+  rim: THREE.BufferGeometry;
+  head: THREE.BufferGeometry;
+  tail: THREE.BufferGeometry;
+}
 
-  // Lower sill, wider than the body so the car sits on its wheels properly.
-  const sill = new THREE.Mesh(roundedBox(1.76, 0.34, 3.94, 0.12, 6), paint);
-  sill.position.y = 0.5;
-  sill.castShadow = true;
-  sill.receiveShadow = true;
-  g.add(sill);
+let CAR_PARTS: CarParts | null = null;
+const CAR_PAINT = new Map<number, THREE.MeshStandardMaterial>();
+const CAR_HEAD = new THREE.MeshStandardMaterial({
+  color: 0xf6f2e2, emissive: 0x2a2a24, roughness: 0.15, metalness: 0.3,
+});
+const CAR_TAIL = new THREE.MeshStandardMaterial({ color: 0xa8202a, roughness: 0.3 });
+const CAR_DARK = new THREE.MeshStandardMaterial({ color: 0x22242a, roughness: 0.7 });
 
-  // Main body.
-  const body = new THREE.Mesh(roundedBox(1.72, 0.60, 4.12, 0.26, 10), paint);
-  body.position.y = 0.78;
-  body.castShadow = true;
-  body.receiveShadow = true;
-  g.add(body);
-
-  // Greenhouse, set in and tapered toward the roof.
-  const cabin = new THREE.Mesh(roundedBox(1.56, 0.50, 2.05, 0.30, 10), SHARED.glassCool);
-  cabin.position.set(0, 1.24, -0.16);
-  cabin.castShadow = true;
-  g.add(cabin);
-  const roof = new THREE.Mesh(roundedBox(1.34, 0.16, 1.55, 0.12, 8), paint);
-  roof.position.set(0, 1.46, -0.22);
-  roof.castShadow = true;
-  g.add(roof);
-
-  // Wheels, tucked into dark arches.
-  const tyreGeo = new THREE.TorusGeometry(0.24, 0.10, 12, 28);
-  const rimGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.17, 20);
-  const archGeo = roundedBox(0.30, 0.46, 0.78, 0.16, 6);
-  for (const [dx, dz] of [[-0.83, 1.36], [0.83, 1.36], [-0.83, -1.36], [0.83, -1.36]]) {
-    const tyre = new THREE.Mesh(tyreGeo, SHARED.tyre);
-    tyre.rotation.y = Math.PI / 2;
-    tyre.position.set(dx, 0.34, dz);
-    tyre.castShadow = true;
-    g.add(tyre);
-    const rim = new THREE.Mesh(rimGeo, SHARED.chrome);
-    rim.rotation.z = Math.PI / 2;
-    rim.position.set(dx, 0.34, dz);
-    g.add(rim);
-    const arch = new THREE.Mesh(archGeo, dark);
-    arch.position.set(dx * 0.98, 0.56, dz);
-    g.add(arch);
-  }
-
-  // Lights and bumpers.
-  const headGeo = roundedBox(0.40, 0.15, 0.10, 0.05, 5);
-  const headMat = new THREE.MeshStandardMaterial({
-    color: 0xf6f2e2, emissive: 0x2a2a24, roughness: 0.15, metalness: 0.3,
+/** Merges a set of positioned geometries into one, consuming the inputs. */
+function bake(parts: Array<[THREE.BufferGeometry, THREE.Matrix4]>): THREE.BufferGeometry {
+  const geos = parts.map(([g, m]) => {
+    const c = g.clone();
+    c.applyMatrix4(m);
+    c.clearGroups();
+    for (const name of Object.keys(c.attributes)) {
+      if (name !== 'position' && name !== 'normal' && name !== 'uv') c.deleteAttribute(name);
+    }
+    return c;
   });
-  const tailMat = new THREE.MeshStandardMaterial({ color: 0xa8202a, roughness: 0.3 });
-  for (const dx of [-0.56, 0.56]) {
-    const head = new THREE.Mesh(headGeo, headMat);
-    head.position.set(dx, 0.86, 2.06);
-    g.add(head);
-    const tail = new THREE.Mesh(headGeo, tailMat);
-    tail.position.set(dx, 0.88, -2.06);
-    g.add(tail);
-  }
-  for (const dz of [2.03, -2.03]) {
-    const bumper = new THREE.Mesh(roundedBox(1.70, 0.22, 0.20, 0.09, 6), dark);
-    bumper.position.set(0, 0.56, dz);
-    g.add(bumper);
+  const merged = mergeGeometries(geos, false)!;
+  for (const g of geos) g.dispose();
+  return merged;
+}
+
+const at = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0): THREE.Matrix4 =>
+  new THREE.Matrix4().compose(
+    new THREE.Vector3(x, y, z),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)),
+    new THREE.Vector3(1, 1, 1),
+  );
+
+function carParts(): CarParts {
+  if (CAR_PARTS) return CAR_PARTS;
+
+  const wheels: Array<[number, number]> = [[-0.83, 1.36], [0.83, 1.36], [-0.83, -1.36], [0.83, -1.36]];
+  const tyreGeo = new THREE.TorusGeometry(0.24, 0.10, 10, 22);
+  const rimGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.17, 16);
+  const archGeo = roundedBox(0.30, 0.46, 0.78, 0.16, 6);
+  const headGeo = roundedBox(0.40, 0.15, 0.10, 0.05, 5);
+
+  CAR_PARTS = {
+    // Lower sill, main body and roof all take the paint.
+    paint: bake([
+      [roundedBox(1.76, 0.34, 3.94, 0.12, 6), at(0, 0.5, 0)],
+      [roundedBox(1.72, 0.60, 4.12, 0.26, 10), at(0, 0.78, 0)],
+      [roundedBox(1.34, 0.16, 1.55, 0.12, 8), at(0, 1.46, -0.22)],
+    ]),
+    glass: bake([[roundedBox(1.56, 0.50, 2.05, 0.30, 10), at(0, 1.24, -0.16)]]),
+    dark: bake([
+      ...wheels.map(([dx, dz]) => [archGeo, at(dx * 0.98, 0.56, dz)] as [THREE.BufferGeometry, THREE.Matrix4]),
+      ...[2.03, -2.03].map((dz) =>
+        [roundedBox(1.70, 0.22, 0.20, 0.09, 6), at(0, 0.56, dz)] as [THREE.BufferGeometry, THREE.Matrix4]),
+    ]),
+    tyre: bake(wheels.map(([dx, dz]) =>
+      [tyreGeo, at(dx, 0.34, dz, 0, Math.PI / 2, 0)] as [THREE.BufferGeometry, THREE.Matrix4])),
+    rim: bake(wheels.map(([dx, dz]) =>
+      [rimGeo, at(dx, 0.34, dz, 0, 0, Math.PI / 2)] as [THREE.BufferGeometry, THREE.Matrix4])),
+    head: bake([-0.56, 0.56].map((dx) =>
+      [headGeo, at(dx, 0.86, 2.06)] as [THREE.BufferGeometry, THREE.Matrix4])),
+    tail: bake([-0.56, 0.56].map((dx) =>
+      [headGeo, at(dx, 0.88, -2.06)] as [THREE.BufferGeometry, THREE.Matrix4])),
+  };
+
+  tyreGeo.dispose();
+  rimGeo.dispose();
+  archGeo.dispose();
+  headGeo.dispose();
+  return CAR_PARTS;
+}
+
+/** Half the car's length and width, for collision boxes. Front is +Z. */
+export const CAR_HALF = { x: 0.95, z: 2.15 };
+
+export function makeCar(color: number): THREE.Group {
+  const parts = carParts();
+  let paint = CAR_PAINT.get(color);
+  if (!paint) {
+    paint = new THREE.MeshStandardMaterial({ color, roughness: 0.28, metalness: 0.5 });
+    CAR_PAINT.set(color, paint);
   }
 
+  const g = new THREE.Group();
+  const add = (geo: THREE.BufferGeometry, mat: THREE.Material, shadow = true) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.castShadow = shadow;
+    m.receiveShadow = shadow;
+    g.add(m);
+  };
+  add(parts.paint, paint);
+  add(parts.glass, SHARED.glassCool);
+  add(parts.dark, CAR_DARK);
+  add(parts.tyre, SHARED.tyre);
+  add(parts.rim, SHARED.chrome);
+  add(parts.head, CAR_HEAD, false);
+  add(parts.tail, CAR_TAIL, false);
   return g;
 }
+
+/** Kept for the cars sitting against the kerb. Same model, it just isn't moving. */
+export function makeParkedCar(color: number): THREE.Group {
+  return makeCar(color);
+}
+
+export const CAR_COLORS = [0xd8453f, 0xf0f0f0, 0x2c3e6b, 0x2f7a4a, 0x1a1a1e, 0xd8a021];
 
 /** The garita - the domed sentry box on the fort walls. Pure PR silhouette. */
 export function makeGarita(scale = 1): THREE.Group {

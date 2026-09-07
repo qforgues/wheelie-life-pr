@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Loop } from '../core/Loop';
 import { createRenderer, guardContext } from '../core/RenderGuard';
+import { UpdateWatcher } from '../core/UpdateWatcher';
 import { QualityGovernor, applyQuality, initialTier } from '../core/Quality';
 import { InputManager } from '../input/InputManager';
 import { BikeSim } from '../sim/BikeSim';
@@ -8,7 +9,7 @@ import { BIKES, TRICKS, cloneTuning, type BikeId } from '../sim/tuning';
 import { BIKE_VISUALS } from '../view/bikeVisuals';
 import { City } from '../world/City';
 import { buildSky, buildEnvironment, type SkyRig } from '../world/Sky';
-import { setAnisotropy } from '../world/textures';
+import { makeBlobShadowTexture, setAnisotropy } from '../world/textures';
 import { BikeView } from '../view/BikeView';
 import { CAMERA_LABELS } from '../view/ChaseCamera';
 import { ChaseCamera } from '../view/ChaseCamera';
@@ -87,6 +88,12 @@ export class Game {
   private headVec = new THREE.Vector3();
   /** True between `webglcontextlost` and `webglcontextrestored`. */
   private contextLost = false;
+  /** Fake contact shadow, shown only when real shadow mapping is off. */
+  private blobShadow: THREE.Mesh;
+  private updates = new UpdateWatcher(() => {
+    this.overlay.showUpdate();
+    this.hud.showUpdate();
+  });
 
   constructor(container: HTMLElement) {
     // ---- renderer --------------------------------------------------------
@@ -121,6 +128,20 @@ export class Game {
     this.bikeView = new BikeView(tuning, BIKE_VISUALS[this.bikeId]);
     this.scene.add(this.bikeView.root, this.bikeView.detached);
 
+    // Sits just above the road, always flat, never rotating with the bike.
+    this.blobShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        map: makeBlobShadowTexture(),
+        transparent: true,
+        depthWrite: false,
+        opacity: 0.9,
+      }),
+    );
+    this.blobShadow.rotation.x = -Math.PI / 2;
+    this.blobShadow.renderOrder = -1;
+    this.scene.add(this.blobShadow);
+
     // ---- camera ----------------------------------------------------------
     this.chase = new ChaseCamera(innerWidth / innerHeight);
     this.snapPose();
@@ -134,11 +155,19 @@ export class Game {
     // budget and it is better to lose shadows than to lose the frame rate.
     this.quality = new QualityGovernor(tier, (settings, t) => {
       applyQuality(settings, this.renderer, this.sky.sun, this.scene.fog as THREE.Fog);
+      this.blobShadow.visible = !settings.shadows;
       this.hud.showToast(`GRAPHICS: ${t.toUpperCase()}`, 2);
     });
     applyQuality(this.quality.settings, this.renderer, this.sky.sun, this.scene.fog as THREE.Fog);
+    this.blobShadow.visible = !this.quality.settings.shadows;
 
     this.overlay = new ControlsOverlay(() => this.onRide());
+    this.city.traffic.setSpeed(this.progress.traffic);
+    this.overlay.setTrafficValue(this.progress.traffic);
+    this.overlay.onTrafficPicked((t) => {
+      this.city.traffic.setSpeed(t);
+      this.progress.setTraffic(t);
+    });
     container.appendChild(this.overlay.root);
 
     this.diagnostics = new Diagnostics(this.input, () => ({
@@ -174,6 +203,10 @@ export class Game {
   }
 
   start(): void {
+    // Never reload underneath a wheelie. A new build raises a flag on the HUD
+    // and the menu; installing it is always the player's decision.
+    this.updates.start();
+
     // A lost context leaves a live HUD over a blank canvas, which is exactly
     // how this failed on the Xbox. Stop the clock, say so on screen, and pick
     // back up if the browser gives the GPU back.
@@ -233,6 +266,7 @@ export class Game {
   // ------------------------------------------------------------------ update
 
   private fixedUpdate(dt: number): void {
+    this.city.update(dt);
     const frame = this.input.update();
 
     // Any real input dismisses the card and unlocks audio (browsers need the
@@ -391,6 +425,27 @@ export class Game {
 
   // ------------------------------------------------------------------ render
 
+  /**
+   * Puts the fake shadow under the contact patches.
+   *
+   * It shrinks and slides back as the front wheel lifts, which is the whole
+   * point: the shadow leaving the front tyre is the clearest read the player
+   * gets on how far over they are when shadow mapping is off.
+   */
+  private placeBlobShadow(state: BikeState): void {
+    const lift = Math.max(0, Math.min(1, state.pitch / 1.1));
+    const len = 2.1 - lift * 1.1;
+    const back = lift * 0.45;
+    this.blobShadow.position.set(
+      state.x - Math.sin(state.yaw) * back,
+      0.015,
+      state.z - Math.cos(state.yaw) * back,
+    );
+    this.blobShadow.rotation.z = -state.yaw;
+    this.blobShadow.scale.set(0.95, len, 1);
+    (this.blobShadow.material as THREE.MeshBasicMaterial).opacity = 0.9 - lift * 0.25;
+  }
+
   private render(dt: number, alpha: number): void {
     // No context, no draw - but the HUD and diagnostics are DOM and keep
     // updating below, so the screen still says what is wrong.
@@ -447,6 +502,7 @@ export class Game {
     this.debug.update(dt);
     this.audio.resumeIfNeeded();
 
+    if (this.blobShadow.visible) this.placeBlobShadow(state);
     this.renderer.render(this.scene, this.chase.camera);
   }
 }

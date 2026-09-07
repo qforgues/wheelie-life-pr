@@ -1,4 +1,5 @@
 import type { BikeState } from '../sim/types';
+import { hardReload } from '../core/UpdateWatcher';
 import type { BikeTuning } from '../sim/tuning';
 import type { WheelieTracker } from '../game/WheelieTracker';
 import { TRICKS } from '../sim/tuning';
@@ -36,6 +37,7 @@ export class Hud {
   private cashValue!: HTMLElement;
   private banner!: HTMLElement;
   private toast!: HTMLElement;
+  private updateChip!: HTMLElement;
   private toastTimer = 0;
   /** Set by the game when a crash starts, so the banner and the spoken call
    *  are the same line. */
@@ -83,12 +85,16 @@ export class Hud {
 
       <div class="hud-banner" data-el="banner"></div>
       <div class="hud-toast" data-el="toast"></div>
+      <button class="hud-update" data-el="updateChip" type="button" hidden>
+        UPDATE READY<small>open the menu to install</small>
+      </button>
     `;
 
     for (const el of this.root.querySelectorAll<HTMLElement>('[data-el]')) {
       (this as unknown as Record<string, HTMLElement>)[el.dataset.el!] = el;
     }
     this.tachBar = this.root.querySelector('.hud-tach')!;
+    this.updateChip.addEventListener('click', () => { void hardReload(); });
   }
 
   /** Money on hand, written by the game each frame. */
@@ -143,6 +149,18 @@ export class Hud {
       this.toastTimer -= dt;
       if (this.toastTimer <= 0) this.toast.classList.remove('is-visible');
     }
+  }
+
+  /**
+   * Raises the "a new build is live" chip and leaves it there.
+   *
+   * Deliberately not a toast: this one must not time out, because the whole
+   * point is that the player installs it when *they* are ready. Clicking works
+   * on a mouse; on a controller the menu carries the same button, which is what
+   * the small print says.
+   */
+  showUpdate(): void {
+    this.updateChip.hidden = false;
   }
 
   showToast(text: string, seconds = 2.4): void {

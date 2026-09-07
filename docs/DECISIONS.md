@@ -212,3 +212,60 @@ Three supporting choices, all "never show a white screen again":
 
 Anything that still escapes - no WebGL2 at all, for instance, which three.js has
 required since r163 - now paints a readable message instead of nothing.
+
+## 14. Traffic is dumb on purpose
+
+Sixteen cars drive the avenue, eight per lane, wrapping round when they run off
+the end. Each one holds its lane at a constant speed with a small per-car pace
+multiplier so the line doesn't move like a train.
+
+No lane changes, no braking, no following distance. That is a choice, not a
+shortcut: traffic that reacts unpredictably makes a crash feel like the game's
+fault rather than yours, and threading a gap is only a skill if the gap is
+readable before you commit to it.
+
+Speed is a menu setting - **off / slow / regular / fast** - because Justin asked
+for the toggle, and because learning to hold a wheelie is hard enough without a
+Corolla in the way. Regular is 11 m/s, about 25 mph. The setting is saved.
+
+Traffic advances on the **fixed physics step**, not the render frame, so a car's
+drawn position and the box `collide()` tests can never disagree.
+
+The car model is baked down to one mesh per material (19 meshes -> 7) and every
+car shares those geometries, so a full street of traffic costs about 110 draw
+calls rather than 300.
+
+## 15. Beta is localhost. Live is the Xbox. Sign-off is the gate.
+
+`npm run deploy` no longer deploys. It runs the checks, builds, and prints how
+to try the result on localhost. Publishing is `npm run deploy:live`, which only
+runs when a human passes `--live`.
+
+Alongside it, every build now carries an identity - `0.1.0+20260906.14d4e28` -
+stamped into the bundle by Vite *and* written to `version.json` by the same
+build, so the two can never disagree. The menu shows it, which is how Justin can
+say which version he is actually testing.
+
+A running game polls that manifest and, when it differs, raises a flag on the
+HUD and the menu. **It never reloads itself.** Nobody gets rebooted out of a
+wheelie; the player installs when they choose. Because Vite fingerprints every
+asset, the old build keeps working indefinitely.
+
+### The cache problem, and the actual fix
+
+`index.html` is the one file whose name never changes, so a cached copy pins the
+whole game to an old bundle. `public/_headers` now marks it `no-cache`,
+`version.json` `no-store`, and the content-hashed `/assets/*` immutable.
+
+That only helps the *next* load, so the game can also do a hard refresh itself:
+**Force refresh** on the menu clears Cache Storage, drops any service worker and
+reloads through a URL the cache has never seen. A controller cannot ask the
+browser for Ctrl+Shift+R, so the game has to own it.
+
+## 16. A fake contact shadow when the real ones are off
+
+The `low` tier turns shadow mapping off, which is right for the Xbox but leaves
+the bike reading as though it floats. One 128px alpha blob under the contact
+patches puts it back. It shrinks and slides rearward as the front lifts, which
+is deliberate: the shadow leaving the front tyre is the clearest read on how far
+over you are, and that matters most on the tier that has no other shadow.

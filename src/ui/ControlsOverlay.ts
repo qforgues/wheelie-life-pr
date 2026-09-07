@@ -3,6 +3,9 @@ import { BIKE_VISUALS } from '../view/bikeVisuals';
 import { BIKES, type BikeId } from '../sim/tuning';
 import type { Progress } from '../game/Progress';
 import { money } from '../game/Progress';
+import { TRAFFIC_LABELS, TRAFFIC_ORDER, type TrafficSpeed } from '../world/Traffic';
+import { BUILD_ID } from '../core/version';
+import { hardReload } from '../core/UpdateWatcher';
 
 /**
  * The keyboard/pad mapping card. Shown on first load, dismissed with H or any
@@ -23,6 +26,10 @@ export class ControlsOverlay {
   private hintEl!: HTMLElement;
 
   private onDiag: (() => void) | null = null;
+  private trafficEl!: HTMLElement;
+  private updateBar!: HTMLElement;
+  private traffic: TrafficSpeed = 'regular';
+  private onTraffic: ((t: TrafficSpeed) => void) | null = null;
 
   constructor(private onDismiss: () => void) {
     this.root = document.createElement('div');
@@ -40,6 +47,11 @@ export class ControlsOverlay {
         </div>
         <div class="bike-pick" data-el="bikePick"></div>
         <p class="garage-hint" data-el="garageHint"></p>
+
+        <div class="opt">
+          <span class="opt-label">TRAFFIC</span>
+          <div class="opt-choices" data-el="traffic"></div>
+        </div>
         <table class="overlay-table">
           <thead><tr><th>Action</th><th>Xbox</th><th>Keyboard</th></tr></thead>
           <tbody data-el="tableBody"></tbody>
@@ -50,11 +62,20 @@ export class ControlsOverlay {
           <p><b>Listen.</b> When the tail starts scraping you are one heartbeat from looping it.</p>
           <p><b>Tricks:</b> once the front is up, hold a trick button to get a knee on the seat or stand right up. Standing scores most and is hardest to hold.</p>
         </div>
+        <div class="update-bar" data-el="updateBar" hidden>
+          <span>A newer version is ready. You can keep riding this one.</span>
+          <button class="update-go" data-el="update" type="button">UPDATE NOW</button>
+        </div>
+
         <button class="overlay-go" data-el="go">RIDE</button>
         <button class="overlay-diag" data-el="diag" type="button">Diagnostics</button>
         <p class="overlay-foot">
           View toggles this card · D-pad up shows diagnostics · Menu resets
           <br>On a keyboard: H · D · P for the tuning panel · R to reset
+        </p>
+        <p class="overlay-version">
+          VERSION <b data-el="version"></b>
+          <button class="overlay-refresh" data-el="refresh" type="button">Force refresh</button>
         </p>
       </div>
     `;
@@ -81,6 +102,24 @@ export class ControlsOverlay {
       e.preventDefault();
       this.pick(card.dataset.bike as BikeId);
     });
+    this.root.querySelector('[data-el="version"]')!.textContent = BUILD_ID;
+    // A controller cannot ask the browser for a hard reload, so the game does
+    // it: drop every cache and come back on a URL the cache has never seen.
+    this.root.querySelector('[data-el="refresh"]')!
+      .addEventListener('click', (e) => { e.stopPropagation(); void hardReload(); });
+    this.updateBar = this.root.querySelector('[data-el="updateBar"]')!;
+    this.root.querySelector('[data-el="update"]')!
+      .addEventListener('click', (e) => { e.stopPropagation(); void hardReload(); });
+
+    this.trafficEl = this.root.querySelector('[data-el="traffic"]')!;
+    this.trafficEl.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-traffic]');
+      if (!b) return;
+      e.stopPropagation();
+      this.setTraffic(b.dataset.traffic as TrafficSpeed);
+    });
+    this.renderTraffic();
+
     this.root.querySelector('[data-el="go"]')!.addEventListener('click', () => this.hide());
     this.root.querySelector('[data-el="diag"]')!
       .addEventListener('click', (e) => { e.stopPropagation(); this.onDiag?.(); });
@@ -93,6 +132,36 @@ export class ControlsOverlay {
    *  readout on a console without remembering the D-pad shortcut. */
   onDiagnostics(fn: () => void): void {
     this.onDiag = fn;
+  }
+
+  /** Called when the traffic setting changes. */
+  onTrafficPicked(fn: (t: TrafficSpeed) => void): void {
+    this.onTraffic = fn;
+  }
+
+  /** Sets the toggle without firing the callback, for restoring a saved value. */
+  setTrafficValue(t: TrafficSpeed): void {
+    this.traffic = t;
+    this.renderTraffic();
+  }
+
+  private setTraffic(t: TrafficSpeed): void {
+    this.traffic = t;
+    this.renderTraffic();
+    this.onTraffic?.(t);
+  }
+
+  private renderTraffic(): void {
+    this.trafficEl.innerHTML = TRAFFIC_ORDER
+      .map((t) => `<button type="button" data-traffic="${t}"
+             class="opt-btn${t === this.traffic ? ' is-on' : ''}"
+             aria-pressed="${t === this.traffic}">${TRAFFIC_LABELS[t]}</button>`)
+      .join('');
+  }
+
+  /** Raises the update banner on the menu. Never reloads on its own. */
+  showUpdate(): void {
+    this.updateBar.hidden = false;
   }
 
   /** Called when a bike card is chosen. */

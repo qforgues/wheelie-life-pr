@@ -1,9 +1,10 @@
 import * as THREE from 'three';
+import { Traffic } from './Traffic';
 import type { CrashReason, GroundProvider } from '../sim/types';
 import type { SpawnPoint } from '../sim/BikeSim';
 import { roundedBox, scaleUV } from '../view/geometry';
 import {
-  makeAwning, makeFort, makeGarita, makeParkedCar, makePalm, makePlanter,
+  CAR_COLORS, makeAwning, makeFort, makeGarita, makeParkedCar, makePalm, makePlanter,
   makeRailing, makeShopSign, makeStreetLamp, PROP_MATERIALS,
 } from './Props';
 import {
@@ -51,12 +52,16 @@ export class City implements GroundProvider {
   private roofMat = new THREE.MeshStandardMaterial({ color: 0x8f7358, roughness: 0.98 });
   private bumps: Bump[] = [];
 
+  /** Moving cars. Owned here so `collide` can see them without extra plumbing. */
+  readonly traffic = new Traffic();
+
   constructor() {
     this.buildRoads();
     this.buildBlocks();
     this.buildPlaza();
     this.buildHeadland();
     this.buildBounds();
+    this.root.add(this.traffic.root);
   }
 
   // ---------------------------------------------------------------- terrain
@@ -268,8 +273,7 @@ export class City implements GroundProvider {
 
     // A handful of cars parked against the kerb - obstacles, not traffic.
     if (rnd() > 0.84 && width > 13) {
-      const colors = [0xd8453f, 0xf0f0f0, 0x2c3e6b, 0x2f7a4a, 0x1a1a1e, 0xd8a021];
-      const car = makeParkedCar(colors[Math.floor(rnd() * colors.length)]);
+      const car = makeParkedCar(CAR_COLORS[Math.floor(rnd() * CAR_COLORS.length)]);
       const cx = side * (LAYOUT.roadHalf - 1.05);
       car.position.set(cx, 0, z + width / 2);
       this.root.add(car);
@@ -554,6 +558,11 @@ export class City implements GroundProvider {
     return best;
   }
 
+  /** Advance anything in the city that moves. Called on the fixed step. */
+  update(dt: number): void {
+    this.traffic.update(dt);
+  }
+
   frictionAt(x: number, _z: number): number {
     const ax = Math.abs(x);
     const onPavement = ax > LAYOUT.roadHalf && ax < LAYOUT.roadHalf + LAYOUT.sidewalk;
@@ -567,7 +576,7 @@ export class City implements GroundProvider {
         return 'impact';
       }
     }
-    return null;
+    return this.traffic.hits(x, z, r) ? 'impact' : null;
   }
 
   /**

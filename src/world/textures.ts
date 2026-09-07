@@ -343,6 +343,28 @@ export function makeSignTexture(text: string, bg: string, fg: string): THREE.Can
 }
 
 /** Vertical sky gradient baked into a texture, used on a big inverted sphere. */
+/**
+ * A soft round blob, used as a fake contact shadow.
+ *
+ * The low quality tier turns real shadow mapping off, which is the right call
+ * on the Xbox - but without any shadow at all the bike reads as floating a foot
+ * above the road, and the sense of where the wheels are is most of what selling
+ * a wheelie depends on. One 128px alpha blob costs nothing and puts it back.
+ */
+export function makeBlobShadowTexture(): THREE.CanvasTexture {
+  const S = 128;
+  const [canvas, ctx] = makeCanvas(S, S);
+  const g = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  g.addColorStop(0, 'rgba(0,0,0,0.55)');
+  g.addColorStop(0.55, 'rgba(0,0,0,0.28)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, S, S);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 export function makeSkyTexture(): THREE.CanvasTexture {
   const W = 64, H = 512;
   const [canvas, ctx] = makeCanvas(W, H);

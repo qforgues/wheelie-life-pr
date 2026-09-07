@@ -1,4 +1,5 @@
 import { STARTER_BIKE, type BikeId } from '../sim/tuning';
+import { isTrafficSpeed, type TrafficSpeed } from '../world/Traffic';
 
 /**
  * Money and what you own.
@@ -15,6 +16,7 @@ export interface SaveData {
   owned: BikeId[];
   lastBike: BikeId;
   bestScore: number;
+  traffic: TrafficSpeed;
 }
 
 const KEY = 'wheelie-life:save:v1';
@@ -29,6 +31,8 @@ export class Progress {
   owned = new Set<BikeId>([STARTER_BIKE]);
   lastBike: BikeId = STARTER_BIKE;
   bestScore = 0;
+  /** Justin's call every session, so it is remembered rather than re-picked. */
+  traffic: TrafficSpeed = 'regular';
 
   /** Set for one frame after a payout, for the HUD toast. */
   lastPayout = 0;
@@ -78,12 +82,18 @@ export class Progress {
     this.save();
   }
 
+  setTraffic(t: TrafficSpeed): void {
+    this.traffic = t;
+    this.save();
+  }
+
   /** Wipes back to a fresh save. Exposed in the tuning panel for testing. */
   reset(): void {
     this.money = 0;
     this.owned = new Set<BikeId>([STARTER_BIKE]);
     this.lastBike = STARTER_BIKE;
     this.bestScore = 0;
+    this.traffic = 'regular';
     this.save();
   }
 
@@ -105,6 +115,7 @@ export class Progress {
       if (typeof d.bestScore === 'number' && Number.isFinite(d.bestScore)) {
         this.bestScore = Math.max(0, d.bestScore);
       }
+      if (isTrafficSpeed(d.traffic)) this.traffic = d.traffic;
     } catch {
       /* no save, or storage is unavailable - start fresh */
     }
@@ -117,6 +128,7 @@ export class Progress {
         owned: [...this.owned],
         lastBike: this.lastBike,
         bestScore: this.bestScore,
+        traffic: this.traffic,
       };
       localStorage.setItem(KEY, JSON.stringify(data));
     } catch {

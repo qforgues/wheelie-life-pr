@@ -193,53 +193,28 @@ npm run typecheck
 
 ## Environments
 
-| | Where | Notes |
+| | Where | Command |
 |---|---|---|
-| **Beta** | `npm run dev` → `localhost:5173` | Hot reload, tuning panel, full quality |
-| **Live** | https://wheelie-life-pr.quentin-forgues.workers.dev | Cloudflare Workers static assets. This is the URL the Xbox loads. |
+| **Beta** | `http://localhost:4173` | `npm run beta` |
+| **Live** | `https://wheelie-life-pr.quentin-forgues.workers.dev` | `npm run deploy:live` |
 
-```bash
-npm run check     # typecheck + build + physics harness on every bike
-npm run deploy    # runs check, then ships to live
-```
+`npm run deploy` deliberately does **not** publish. It runs the checks, builds,
+and tells you how to try it on localhost. Live is what Justin loads on the Xbox,
+so it only changes after a sign-off.
 
-`deploy` will not ship if the health check fails.
+### Versions and updates
 
-### Playing it on Xbox
+Every build is stamped `<version>+<date>.<git sha>`, shown at the bottom of the
+menu. A running game checks the deployed `version.json` and raises **UPDATE
+READY** on the HUD and the menu when a newer build exists - it never reloads
+itself. The player installs from the menu when they are ready.
 
-Xbox is the only console target. Microsoft Edge is a free, installable app on
-Xbox One and Series X|S and can browse to any URL, so this build runs there
-as-is.
+**Stuck on an old cached build?** Add a query string the browser has never seen:
 
-To play:
+    https://wheelie-life-pr.quentin-forgues.workers.dev/?v=2
 
-1. Open **Edge** on the Xbox (install it from the Store if it isn't there).
-2. Go to the live URL above.
-3. Pick a bike on the start card, then press **RIDE**.
-
-**The controller input mode has to follow the menu.** `navigator.gamepadInput\
-Emulation` decides whether the console's browser drives its own cursor or hands
-raw Gamepad API input to the page:
-
-- **Start card up → `mouse`.** The controller works the card, and pressing RIDE
-  is a real user gesture — which is the only thing that can unlock the audio
-  context, since gamepad input is not a user activation in Chromium.
-- **Riding → `gamepad`.** The page gets the sticks and triggers directly.
-
-Setting `gamepad` once at startup, which is the obvious thing to do, breaks the
-console completely: there is no pointer, so the bike picker and the RIDE button
-become unreachable and audio can never start.
-
-Console-specific handling:
-
-- **TV overscan.** Anything within ~5% of a TV's panel edge can be cut off, and
-  the browser gives no way to detect it. Console builds pull the HUD inside a
-  safe margin and scale the type up for couch viewing distance.
-- **Quality.** Console browsers start one tier down and drop further on their
-  own if the frame rate can't hold. See `src/core/Quality.ts`.
-- **No rumble.** The Gamepad haptics API isn't available in the Xbox browser, so
-  the balance rumble channel is desktop-only there.
-- **Diagnostics.** **D-pad up**, or the button on the start card, shows what the
-  page actually got: renderer, gamepad id, input mode, audio state, frame rate,
-  and live stick and trigger values. It also opens itself on an uncaught error.
-  This is the only way to see what a console is doing without a devtools window.
+That is a different URL as far as the HTTP cache is concerned, so `index.html`
+is fetched fresh. Once loaded, **Force refresh** at the bottom of the menu does
+the same thing from inside the game - it clears Cache Storage, drops any service
+worker and reloads on a cache-busted URL. Use that instead of hunting for a hard
+reload the controller cannot perform.
