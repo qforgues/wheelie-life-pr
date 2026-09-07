@@ -604,3 +604,33 @@ the boot carries a cuff and a strap in the bike's accent colour.
   cylinder banks were buried behind the tank. Cam covers out on the flanks, the
   round clutch cover every Ducati has on its right, and the radiator filling the
   gap under the steering head - which on a naked bike is most of what you see.
+
+## 34. Upgrades, and why levels must not stack
+
+Four parts, three levels each, bought per bike. They exist to give money a second
+job: the only thing to save for was the next bike, so once you owned the Ducati
+earning stopped meaning anything.
+
+The first version applied every level owned, in order - so three engine levels
+were 1.12 x 1.22 x 1.35, **84%** more torque from a part labelled "+35%". A
+fully built Grom then looped out under its own power **0.6 seconds** after you
+touched the throttle, with the rider sat neutral. Thirty-six thousand dollars to
+make the bike unrideable.
+
+Only the highest level of each part applies now. A level is the state the part
+is in, not a purchase added to the last one - which is also how anyone reads
+the labels.
+
+Each part had to buy something you can *measure*, and each had to cost
+something:
+
+| build | 0-30 | max lean | trade |
+|---|---|---|---|
+| stock | 2.12 s | 45° | |
+| engine 3 | **1.43 s** | 45° | loops at 2.2 s if you are lazy with it |
+| weight 3 | 1.72 s | 45° | lean 32° -> 35°, but nothing steadies it |
+| tyres 3 | 2.12 s | **60°** | no straight-line gain at all |
+
+Tyres originally changed nothing measurable - grip is not what limits a Grom off
+the line - so a £5,200 part bought a number nobody could feel. They now buy lean
+angle before the bike lets go, which is what grip actually gives you.

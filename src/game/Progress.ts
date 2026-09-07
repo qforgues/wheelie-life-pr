@@ -3,6 +3,7 @@ import { isTrafficSpeed, type TrafficSpeed } from '../world/Traffic';
 import { isPoliceStyle, type PoliceStyle } from '../world/Police';
 import { isOrientation, type MapOrientation } from '../ui/Minimap';
 import { DEFAULT_AIM, isMirrorMount, type MirrorAim, type MirrorMount } from '../view/Mirrors';
+import { UPGRADES, UPGRADE_IDS, nextLevel, type UpgradeId, type UpgradeLevels } from './Upgrades';
 
 /**
  * Money and what you own.
@@ -25,6 +26,8 @@ export interface SaveData {
   mapOrientation: MapOrientation;
   mirrors: MirrorMount;
   mirrorAim: MirrorAim;
+  /** Upgrade levels owned, per bike. */
+  upgrades: Partial<Record<BikeId, UpgradeLevels>>;
 }
 
 /**
@@ -57,6 +60,8 @@ export class Progress {
   /** Where the mirrors hang, and the rider's trim on them. */
   mirrors: MirrorMount = 'corners';
   mirrorAim: MirrorAim = { ...DEFAULT_AIM };
+  /** What is bolted to each bike. Money's second job. */
+  upgrades: Partial<Record<BikeId, UpgradeLevels>> = {};
 
   /** Set for one frame after a payout, for the HUD toast. */
   lastPayout = 0;
@@ -149,6 +154,41 @@ export class Progress {
     this.save();
   }
 
+  /** Levels owned of one part on one bike. */
+  levelOf(bike: BikeId, id: UpgradeId): number {
+    return this.upgrades[bike]?.[id] ?? 0;
+  }
+
+  /** All the levels bolted to a bike, for applying to its tuning. */
+  levelsFor(bike: BikeId): UpgradeLevels {
+    return this.upgrades[bike] ?? {};
+  }
+
+  /**
+   * Buys the next level of one part. Returns false if it is maxed or you
+   * cannot afford it.
+   */
+  buyUpgrade(bike: BikeId, id: UpgradeId): boolean {
+    const owned = this.levelOf(bike, id);
+    const next = nextLevel(id, owned);
+    if (!next || !this.canAfford(next.price)) return false;
+    this.money -= next.price;
+    const forBike = this.upgrades[bike] ?? (this.upgrades[bike] = {});
+    forBike[id] = owned + 1;
+    this.save();
+    return true;
+  }
+
+  /** What has been sunk into a bike, for the garage to show. */
+  investedIn(bike: BikeId): number {
+    let total = 0;
+    for (const id of UPGRADE_IDS) {
+      const owned = this.levelOf(bike, id);
+      for (let i = 0; i < owned; i++) total += UPGRADES[id].levels[i].price;
+    }
+    return total;
+  }
+
   setMirrorAim(aim: MirrorAim): void {
     const c = (v: number) => Math.max(-1, Math.min(1, v));
     this.mirrorAim = { lx: c(aim.lx), ly: c(aim.ly), rx: c(aim.rx), ry: c(aim.ry) };
@@ -167,6 +207,7 @@ export class Progress {
     this.mapOrientation = 'north';
     this.mirrors = 'corners';
     this.mirrorAim = { ...DEFAULT_AIM };
+    this.upgrades = {};
     this.save();
   }
 
@@ -193,6 +234,21 @@ export class Progress {
       if (isPoliceStyle(d.police)) this.police = d.police;
       if (isOrientation(d.mapOrientation)) this.mapOrientation = d.mapOrientation;
       if (isMirrorMount(d.mirrors)) this.mirrors = d.mirrors;
+      if (d.upgrades && typeof d.upgrades === 'object') {
+        // Clamp anything a hand-edited save might contain.
+        const clean: Partial<Record<BikeId, UpgradeLevels>> = {};
+        for (const [bike, levels] of Object.entries(d.upgrades)) {
+          const out: UpgradeLevels = {};
+          for (const id of UPGRADE_IDS) {
+            const n = (levels as UpgradeLevels)[id];
+            if (typeof n === 'number' && n > 0) {
+              out[id] = Math.min(Math.floor(n), UPGRADES[id].levels.length);
+            }
+          }
+          clean[bike as BikeId] = out;
+        }
+        this.upgrades = clean;
+      }
       const a = d.mirrorAim as unknown as Record<string, unknown> | undefined;
       if (a && ['lx', 'ly', 'rx', 'ry'].every((k) => typeof a[k] === 'number')) {
         this.mirrorAim = d.mirrorAim as MirrorAim;
@@ -215,6 +271,7 @@ export class Progress {
         mapOrientation: this.mapOrientation,
         mirrors: this.mirrors,
         mirrorAim: this.mirrorAim,
+        upgrades: this.upgrades,
       };
       localStorage.setItem(KEY, JSON.stringify(data));
     } catch {

@@ -3,6 +3,7 @@ import { BIKE_VISUALS } from '../view/bikeVisuals';
 import { BIKES, type BikeId } from '../sim/tuning';
 import type { Progress } from '../game/Progress';
 import { money, SCANNER_PRICE } from '../game/Progress';
+import { UPGRADES, UPGRADE_IDS, nextLevel, type UpgradeId } from '../game/Upgrades';
 import { TRAFFIC_LABELS, TRAFFIC_ORDER, type TrafficSpeed } from '../world/Traffic';
 import { POLICE_BLURBS, POLICE_LABELS, POLICE_ORDER, type PoliceStyle } from '../world/Police';
 import {
@@ -87,6 +88,8 @@ export class ControlsOverlay {
   private onTraffic: ((t: TrafficSpeed) => void) | null = null;
   private scannerEl!: HTMLElement;
   private onScanner: (() => void) | null = null;
+  private tuneshopEl!: HTMLElement;
+  private onUpgrade: (() => void) | null = null;
   private policeEl!: HTMLElement;
   private policeBlurbEl!: HTMLElement;
   private police: PoliceStyle = 'professional';
@@ -154,6 +157,7 @@ export class ControlsOverlay {
           </div>
         </div>
         <p class="opt-blurb" data-el="mirrorBlurb"></p>
+        <div class="tuneshop" data-el="tuneshop"></div>
         <div class="upgrade" data-el="scanner"></div>
         <table class="overlay-table">
           <thead><tr><th>Action</th><th>Xbox</th><th>Keyboard</th></tr></thead>
@@ -217,6 +221,17 @@ export class ControlsOverlay {
     this.updateBar = this.root.querySelector('[data-el="updateBar"]')!;
     this.root.querySelector('[data-el="update"]')!
       .addEventListener('click', (e) => { e.stopPropagation(); void hardReload(); });
+
+    this.tuneshopEl = this.root.querySelector('[data-el="tuneshop"]')!;
+    this.tuneshopEl.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-upgrade]');
+      if (!b || !this.progress) return;
+      e.stopPropagation();
+      if (this.progress.buyUpgrade(this.selected, b.dataset.upgrade as UpgradeId)) {
+        this.renderGarage();
+        this.onUpgrade?.();
+      }
+    });
 
     this.scannerEl = this.root.querySelector('[data-el="scanner"]')!;
     this.scannerEl.addEventListener('click', (e) => {
@@ -313,6 +328,60 @@ export class ControlsOverlay {
    *  readout on a console without remembering the D-pad shortcut. */
   onDiagnostics(fn: () => void): void {
     this.onDiag = fn;
+  }
+
+  /** Called after an upgrade is bought, so the bike can pick it up at once. */
+  onUpgradeBought(fn: () => void): void {
+    this.onUpgrade = fn;
+  }
+
+  /**
+   * The tuning shop for whichever bike is selected.
+   *
+   * Deliberately sits under the garage rather than behind another screen: the
+   * point of upgrades is that you can see what your money would do to the bike
+   * you are looking at.
+   */
+  private renderTuneshop(): void {
+    const p = this.progress;
+    if (!p) return;
+    if (!p.has(this.selected)) {
+      this.tuneshopEl.innerHTML = '';
+      this.tuneshopEl.hidden = true;
+      return;
+    }
+    this.tuneshopEl.hidden = false;
+    const invested = p.investedIn(this.selected);
+    const bike = BIKE_VISUALS[this.selected].displayName;
+
+    this.tuneshopEl.innerHTML = `
+      <div class="tuneshop-head">
+        <span class="opt-label">TUNING · ${bike}</span>
+        ${invested > 0 ? `<span class="tuneshop-spent">${money(invested)} fitted</span>` : ''}
+      </div>
+      <div class="tuneshop-grid">
+        ${UPGRADE_IDS.map((id) => {
+          const kind = UPGRADES[id];
+          const owned = p.levelOf(this.selected, id);
+          const next = nextLevel(id, owned);
+          const pips = kind.levels
+            .map((_, i) => `<i class="${i < owned ? 'is-on' : ''}"></i>`).join('');
+          const action = !next
+            ? '<span class="tuneshop-max">MAXED</span>'
+            : p.canAfford(next.price)
+              ? `<button class="bike-buy" data-upgrade="${id}" type="button">${money(next.price)}</button>`
+              : `<span class="bike-price">${money(next.price)}</span>`;
+          return `
+            <div class="tunepart${next ? '' : ' is-max'}">
+              <div class="tunepart-top">
+                <b>${kind.name}</b>
+                <span class="pips">${pips}</span>
+              </div>
+              <span class="tunepart-blurb">${next ? next.blurb : kind.summary}</span>
+              <div class="tunepart-foot">${action}</div>
+            </div>`;
+        }).join('')}
+      </div>`;
   }
 
   /** Called after the police scanner is bought, so the HUD can update cash. */
@@ -496,6 +565,7 @@ export class ControlsOverlay {
     if (!p || !this.bikePick) return;
     this.cashEl.textContent = money(p.money);
     this.renderScanner();
+    this.renderTuneshop();
 
     this.bikePick.innerHTML = (Object.keys(BIKES) as BikeId[]).map((id) => {
       const v = BIKE_VISUALS[id];

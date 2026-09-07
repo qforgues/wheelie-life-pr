@@ -857,3 +857,58 @@ body.is-console .debug-gui { display: none !important; }
   text-align: right;
 }
 .bike.is-locked .bike-stats u { background: rgba(255, 255, 255, 0.4); }
+
+/* ------------------------------------------------------- the tuning shop -- */
+.tuneshop { margin-top: 14px; }
+.tuneshop-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.tuneshop-spent {
+  font-size: calc(11px * var(--hud-scale));
+  color: #6ee7a8;
+  letter-spacing: 0.06em;
+}
+.tuneshop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+.tunepart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 11px;
+  border: 2px solid rgba(255, 255, 255, 0.13);
+  border-radius: 3px;
+  text-align: left;
+}
+.tunepart.is-max { border-color: rgba(110, 231, 168, 0.45); }
+.tunepart-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tunepart-top b {
+  font-size: calc(11px * var(--hud-scale));
+  letter-spacing: 0.12em;
+}
+.pips { display: flex; gap: 3px; }
+.pips i {
+  width: 9px;
+  height: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
+}
+.pips i.is-on { background: var(--pr-cyan); border-color: var(--pr-cyan); }
+.tunepart-blurb {
+  font-size: calc(10.5px * var(--hud-scale));
+  line-height: 1.45;
+  opacity: 0.7;
+  min-height: 2.9em;
+}
+.tunepart-foot { margin-top: auto; }
+.tuneshop-max {
+  font-size: calc(10px * var(--hud-scale));
+  letter-spacing: 0.14em;
+  color: #6ee7a8;
+  font-weight: 700;
+}

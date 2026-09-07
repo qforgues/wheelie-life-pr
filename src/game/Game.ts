@@ -25,6 +25,7 @@ import { DebugPanel } from '../ui/DebugPanel';
 import { Diagnostics } from '../ui/Diagnostics';
 import { WheelieTracker } from './WheelieTracker';
 import { Progress, money } from './Progress';
+import { applyUpgrades } from './Upgrades';
 import type { BikeState } from '../sim/types';
 
 /** The handful of fields that need interpolating between physics steps. */
@@ -142,7 +143,9 @@ export class Game {
     // Boot into whatever they last rode, which on a fresh save is the Grom -
     // the free starter the interview asked for.
     this.bikeId = this.progress.lastBike;
-    const tuning = cloneTuning(BIKES[this.bikeId]);
+    const tuning = applyUpgrades(
+      cloneTuning(BIKES[this.bikeId]), this.progress.levelsFor(this.bikeId),
+    );
     this.sim = new BikeSim(tuning, this.city, this.city.spawn);
     this.bikeView = new BikeView(tuning, BIKE_VISUALS[this.bikeId]);
     this.scene.add(this.bikeView.root, this.bikeView.detached);
@@ -234,6 +237,11 @@ export class Game {
     this.overlay.onBikePicked((id) => this.setBike(id));
     this.overlay.onDiagnostics(() => this.diagnostics.toggle());
     this.overlay.onScannerBought(() => { this.hud.cash = this.progress.money; });
+    this.overlay.onUpgradeBought(() => {
+      this.hud.cash = this.progress.money;
+      // Rebuild on the current bike so the new part is live immediately.
+      this.applyTuning();
+    });
 
     this.input.attach(this.renderer.domElement);
     // Start card up: let the console's own cursor drive it. See setGamepadEmulation.
@@ -291,7 +299,7 @@ export class Game {
     if (!this.progress.has(id)) return;   // can't ride what you haven't bought
     this.progress.setLastBike(id);
     this.bikeId = id;
-    const tuning = cloneTuning(BIKES[id]);
+    const tuning = applyUpgrades(cloneTuning(BIKES[id]), this.progress.levelsFor(id));
 
     this.scene.remove(this.bikeView.root, this.bikeView.detached);
     this.bikeView.dispose();
@@ -514,6 +522,14 @@ export class Game {
    * and a bust that ends the session would be the one thing in this game that
    * stops you riding.
    */
+  /** Re-applies the current bike's tuning after an upgrade, without a rebuild. */
+  private applyTuning(): void {
+    const tuning = applyUpgrades(
+      cloneTuning(BIKES[this.bikeId]), this.progress.levelsFor(this.bikeId),
+    );
+    this.sim.setTuning(tuning);
+  }
+
   private onBusted(): void {
     const fine = this.progress.fine();
     this.audio.handcuffs();
