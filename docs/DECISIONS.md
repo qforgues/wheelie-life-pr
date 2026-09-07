@@ -1454,3 +1454,47 @@ For the record, what actually blocks the first paint now:
 
 **Nothing external stands between the console and the game.** That is the rule,
 and it is worth restating because the font link broke it for a day.
+
+## 71. The Xbox was never getting the console build
+
+Justin was still getting the white screen. The diagnostics panel in a video of
+his TV said everything in six lines:
+
+    device      desktop / other
+    renderer    WebGL2 · CONTEXT LOST
+    GPU         context lost — waiting for the browser to give it back
+    screen      1152×567 @ 1.50x
+    fps         4 · quality high
+    scene       6 calls · 0k tris
+
+**`device: desktop / other`, and `quality high`.** Whatever that browser's user
+agent says, it does not contain "xbox" — so every bit of work done to give the
+console a lighter build had been going to a machine that never asked for it. It
+got the full desktop build: pixel ratio 1.5, 2048 shadow maps, 1350 m of fog,
+antialiasing, **and the post-processing chain with its full-screen buffer and
+bloom mip chain**. Four frames a second, then the GPU gave up.
+
+The lesson is not "widen the regex". It is that **sniffing a user agent for a
+brand name is guessing, and it guessed wrong on the one machine in the world
+this game has to run on.**
+
+So the machine tells us instead:
+
+  * **Losing the context is remembered.** It writes `low` to localStorage and
+    the next load builds the console version. Straight to the bottom, not one
+    tier down - a lost context is not a machine struggling, it is a machine that
+    has already given up, and stepping gradually means two more bad loads before
+    it settles.
+  * **It reloads itself.** Five seconds after a loss, if the browser has not
+    handed the GPU back, it comes back on lower graphics. Once per session, so a
+    bug cannot turn into a loop. A white screen with a live HUD over it is not
+    something a nine year old should have to diagnose.
+  * **The post chain is freed the instant the tier drops**, by the governor as
+    well as by a loss. It is the largest thing the renderer holds and the
+    likeliest reason we are there at all.
+  * **A desktop now has to look like one.** Four cores or four gigabytes of
+    `deviceMemory` starts at medium instead of high.
+  * `?tier=low` still forces it by hand, and still beats everything above.
+
+The UA test stays, because when it matches it is right. It is just no longer the
+only thing standing between Justin and a white screen.

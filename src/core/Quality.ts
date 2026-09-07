@@ -45,27 +45,85 @@ export const TIERS: Record<QualityTier, QualitySettings> = {
 
 const ORDER: QualityTier[] = ['high', 'medium', 'low'];
 
+/**
+ * Where a device that has already failed gets remembered.
+ *
+ * This is the important one. The Xbox reports itself as `desktop / other` -
+ * whatever its user agent says, it is not the string we were testing for - so
+ * it was handed the full desktop build, post-processing chain and all, and lost
+ * the WebGL context at four frames a second. **Sniffing the user agent for a
+ * brand name is guessing, and it guessed wrong on the one machine that matters.**
+ *
+ * So the machine tells us instead. Lose a context or fail to hold a frame rate
+ * and the tier that did it is written down; the next load starts below it and
+ * stays there. A device only has to fail once, ever.
+ */
+const SAFE_KEY = 'wheelie-life:tier';
+
+export function rememberTier(tier: QualityTier): void {
+  try {
+    localStorage.setItem(SAFE_KEY, tier);
+  } catch {
+    /* private window, no storage - it will just have to fail again */
+  }
+}
+
+export function forgetTier(): void {
+  try {
+    localStorage.removeItem(SAFE_KEY);
+  } catch { /* nothing to forget */ }
+}
+
+function remembered(): QualityTier | null {
+  try {
+    const v = localStorage.getItem(SAFE_KEY);
+    return v === 'low' || v === 'medium' || v === 'high' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The tier below this one, or the same one if there is nothing below. */
+export function lowerTier(tier: QualityTier): QualityTier {
+  const i = ORDER.indexOf(tier);
+  return ORDER[Math.min(ORDER.length - 1, i + 1)];
+}
+
 /** Best guess before a single frame has been drawn. */
 export function initialTier(): QualityTier {
   if (typeof navigator === 'undefined') return 'high';
   // ?tier=low forces the console build on a desktop, which is the only way to
   // see what Justin sees without sitting in front of the Xbox. It changes what
   // gets BUILT, not just how it is drawn, so it has to be read here - before
-  // the city exists.
+  // the city exists. It also beats anything remembered, so there is always a
+  // way to ask for a specific build by hand.
   if (typeof location !== 'undefined') {
     const want = new URLSearchParams(location.search).get('tier');
     if (want === 'low' || want === 'medium' || want === 'high') return want;
   }
+
+  // What this machine has already proved it cannot do beats any guess about it.
+  const known = remembered();
+  if (known) return known;
+
   const ua = navigator.userAgent;
-  // The Xbox browser starts at the bottom. It ran out of GPU memory at medium
-  // and dropped the WebGL context, and the governor only ever steps *down* - so
-  // by the time it reacted the damage was done. Shadows are worth less than a
-  // picture. Everything else console-ish still gets a middle tier.
-  if (/xbox/i.test(ua)) return 'low';
-  if (/playstation|nintendo/i.test(ua)) return 'medium';
+  // Consoles start at the bottom. The Xbox ran out of GPU memory at medium and
+  // dropped the context, and the governor only ever steps DOWN - so by the time
+  // it reacted the damage was done.
+  //
+  // The UA test stays because when it does match it is right, but it is no
+  // longer the only line of defence: a console that does not announce itself
+  // gets caught by the remembered tier above after exactly one bad load.
+  if (/xbox|playstation|nintendo/i.test(ua)) return 'low';
   if (/android|iphone|ipad|mobile/i.test(ua)) return 'medium';
+
+  // A desktop has to look like one. deviceMemory is in gigabytes and undefined
+  // on Safari, so it only ever argues DOWN - four cores or four gigabytes is
+  // not a machine to hand a bloom chain to on the first frame.
   const cores = navigator.hardwareConcurrency ?? 4;
-  return cores <= 4 ? 'medium' : 'high';
+  const gb = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8;
+  if (cores <= 4 || gb <= 4) return 'medium';
+  return 'high';
 }
 
 /**

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Loop } from '../core/Loop';
 import { createRenderer, guardContext } from '../core/RenderGuard';
 import { UpdateWatcher } from '../core/UpdateWatcher';
-import { QualityGovernor, applyQuality, initialTier } from '../core/Quality';
+import { QualityGovernor, applyQuality, initialTier, rememberTier, type QualityTier } from '../core/Quality';
 import { InputManager } from '../input/InputManager';
 import { BikeSim } from '../sim/BikeSim';
 import { BIKES, TRICKS, cloneTuning, type BikeId } from '../sim/tuning';
@@ -213,6 +213,17 @@ export class Game {
     this.quality = new QualityGovernor(tier, (settings, t) => {
       applyQuality(settings, this.renderer, this.sky.sun, this.scene.fog as THREE.Fog);
       this.blobShadow.visible = !settings.shadows;
+      // Drop the post chain the moment the tier says so. It is the single
+      // biggest thing the renderer is holding - a full-screen buffer plus a
+      // bloom mip chain - and freeing it is worth more than any render setting
+      // on a machine that is already struggling.
+      if (settings.bloom <= 0 && this.post) {
+        this.post.dispose();
+        this.post = null;
+      }
+      // Write the working tier down. A machine that could not hold the one
+      // above it should not be handed that one again tomorrow.
+      rememberTier(t);
       this.hud.showToast(`GRAPHICS: ${t.toUpperCase()}`, 2);
     });
     applyQuality(this.quality.settings, this.renderer, this.sky.sun, this.scene.fog as THREE.Fog);
@@ -333,6 +344,49 @@ export class Game {
         // the first place. Freeze the bike, skip the draw, keep the UI alive.
         this.contextLost = true;
         this.hud.showToast('GRAPHICS LOST - RECOVERING', 6);
+
+        // Losing the context IS the device telling us the build was too big for
+        // it. Write down a tier below whatever we were running and free the
+        // post chain immediately - the buffers it holds are the likeliest
+        // reason we are here.
+        //
+        // This is the mechanism that should have caught the Xbox. It reports
+        // itself as "desktop / other", so no amount of user-agent guessing was
+        // ever going to hand it the console build; it had to be allowed to fail
+        // once and be remembered. The next load comes back a tier lighter, and
+        // the one after that lighter again, until it holds.
+        // Straight to the bottom, not one step down. A lost context is not a
+        // machine struggling, it is a machine that has already given up - and
+        // stepping down one tier at a time means two more bad loads before it
+        // settles. The frame-rate governor can be gradual because a slow frame
+        // is a soft signal; this is not.
+        const safe: QualityTier = 'low';
+        rememberTier(safe);
+        if (this.post) {
+          this.post.dispose();
+          this.post = null;
+        }
+        this.diagnostics.note(`context lost at ${this.quality.tier} — next load will be ${safe}`);
+
+        // If the browser does not hand the GPU back, come back lighter on our
+        // own. A white screen with a live HUD over it is not something a nine
+        // year old should have to diagnose, and the page is already unusable -
+        // there is nothing to lose by reloading it.
+        //
+        // Once per session only. If the lighter build loses the context too,
+        // reloading again just makes a loop out of a bug.
+        let reloaded = false;
+        try {
+          reloaded = sessionStorage.getItem('wheelie-life:recovered') === '1';
+        } catch { /* no storage, accept one reload */ }
+        if (!reloaded) {
+          setTimeout(() => {
+            if (!this.contextLost) return;   // the browser gave it back after all
+            try { sessionStorage.setItem('wheelie-life:recovered', '1'); } catch { /* fine */ }
+            this.hud.showToast('RELOADING ON LOWER GRAPHICS…', 3);
+            setTimeout(() => location.reload(), 900);
+          }, 5000);
+        }
       },
       onRestored: () => {
         buildEnvironment(this.scene, this.renderer);
